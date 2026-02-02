@@ -23,39 +23,37 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class DrawingHomePage extends StatelessWidget {
+class DrawingHomePage extends StatefulWidget {
   const DrawingHomePage({super.key});
 
+  @override
+  State<DrawingHomePage> createState() => _DrawingHomePageState();
+}
+
+class _DrawingHomePageState extends State<DrawingHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Native Drawing'),
+        title: const Text('PenTalk'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+      body: Center(
         child: ValueListenableBuilder<BrushConfig>(
           valueListenable: NativeDrawingBridge.currentBrush,
           builder: (context, brush, child) {
             return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  'Current tool: ${brush.tool}',
-                  style: Theme.of(context).textTheme.titleMedium,
+                const Text(
+                  'PenTalk',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 12),
-                Text('Brush size: ${brush.size.toStringAsFixed(1)}'),
-                Text('Eraser size: ${brush.eraserSize.toStringAsFixed(1)}'),
-                const Spacer(),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      NativeDrawingBridge.open(brush);
-                    },
-                    child: const Text('Open Drawing'),
-                  ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    NativeDrawingBridge.open(brush);
+                  },
+                  child: const Text('Open Drawing'),
                 ),
               ],
             );

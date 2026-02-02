@@ -17,7 +17,7 @@ import UIKit
         binaryMessenger: controller.binaryMessenger
       )
       DrawingChannel.channel = channel
-      channel.setMethodCallHandler { [weak self] call, result in
+      channel.setMethodCallHandler { call, result in
         switch call.method {
         case "open":
           let config = Self.parseBrushConfig(call.arguments)
@@ -25,12 +25,12 @@ import UIKit
           drawingController.onDismiss = { [weak self] in
             self?.drawingController = nil
           }
-          self?.drawingController = drawingController
+          self.drawingController = drawingController
           controller.present(drawingController, animated: true)
           result(nil)
         case "setBrush":
           let config = Self.parseBrushConfig(call.arguments)
-          self?.drawingController?.applyBrushConfig(config)
+          self.drawingController?.applyBrushConfig(config)
           result(nil)
         default:
           result(FlutterMethodNotImplemented)
@@ -44,25 +44,15 @@ import UIKit
   private static func parseBrushConfig(_ arguments: Any?) -> DrawingViewController.BrushConfig {
     let args = arguments as? [String: Any]
     let tool = args?["tool"] as? String ?? "pen"
-    let colorValue = (args?["color"] as? NSNumber)?.int32Value ?? 0xFF000000
+    let colorValue: UInt32 = (args?["color"] as? NSNumber)?.uint32Value ?? 0xFF000000
     let size = (args?["size"] as? NSNumber)?.doubleValue ?? 6.0
     let eraserSize = (args?["eraserSize"] as? NSNumber)?.doubleValue ?? 24.0
-    let color = UIColor(argb: UInt32(bitPattern: colorValue))
+    let color = UIColor(argb: colorValue)
     return DrawingViewController.BrushConfig(
       tool: tool,
       color: color,
       size: CGFloat(size),
       eraserSize: CGFloat(eraserSize)
     )
-  }
-}
-
-private extension UIColor {
-  convenience init(argb: UInt32) {
-    let alpha = CGFloat((argb >> 24) & 0xFF) / 255.0
-    let red = CGFloat((argb >> 16) & 0xFF) / 255.0
-    let green = CGFloat((argb >> 8) & 0xFF) / 255.0
-    let blue = CGFloat(argb & 0xFF) / 255.0
-    self.init(red: red, green: green, blue: blue, alpha: alpha)
   }
 }
