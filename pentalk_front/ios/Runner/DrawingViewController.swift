@@ -47,9 +47,11 @@ final class DrawingViewController: UIViewController {
         canvasView.translatesAutoresizingMaskIntoConstraints = false
         canvasView.backgroundColor = .white
         if #available(iOS 14.0, *) {
-            canvasView.drawingPolicy = .anyInput
-        } else {
-            // Fallback on earlier versions
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                canvasView.drawingPolicy = .pencilOnly
+            } else {
+                canvasView.drawingPolicy = .anyInput
+            }
         }
         view.addSubview(canvasView)
 

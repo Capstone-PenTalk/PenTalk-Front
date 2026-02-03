@@ -230,6 +230,7 @@ class InkDrawingView @JvmOverloads constructor(
     }
 
     private fun dpToPx(dp: Float): Float {
-        val density = context.resources.displayMetrics.density\n+        return dp * density
+        val density = context.resources.displayMetrics.density
+        return dp * density
     }
 }
