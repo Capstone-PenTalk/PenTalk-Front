@@ -3,7 +3,7 @@ package com.example.pentalk_front.drawing
 import io.flutter.plugin.common.MethodChannel
 
 object DrawingChannel {
-    const val CHANNEL_NAME = "pentalk/native_drawing"
+    const val CHANNEL_NAME = "pentalk/drawing"
 
     @Volatile
     var channel: MethodChannel? = null
@@ -23,5 +23,9 @@ object DrawingChannel {
         if (size != null) payload["size"] = size
         if (eraserSize != null) payload["eraserSize"] = eraserSize
         channel?.invokeMethod("toolChanged", payload)
+    }
+
+    fun notifyDrawEvent(payload: Map<String, Any>) {
+        channel?.invokeMethod("onDrawEvent", payload)
     }
 }

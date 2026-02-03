@@ -32,6 +32,12 @@ import UIKit
           let config = Self.parseBrushConfig(call.arguments)
           self.drawingController?.applyBrushConfig(config)
           result(nil)
+        case "sendDrawEvent":
+          if let payload = call.arguments as? [String: Any] {
+            // TODO: forward payload to socket server.
+            _ = payload
+          }
+          result(nil)
         default:
           result(FlutterMethodNotImplemented)
         }

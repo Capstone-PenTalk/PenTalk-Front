@@ -37,6 +37,14 @@ class MainActivity : FlutterActivity() {
                     InkDrawingActivity.updateBrush(config)
                     result.success(null)
                 }
+                "sendDrawEvent" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val payload = call.arguments as? Map<String, Any>
+                    if (payload != null) {
+                        // TODO: forward payload to socket server.
+                    }
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

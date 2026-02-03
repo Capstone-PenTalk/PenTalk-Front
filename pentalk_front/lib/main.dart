@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'native_drawing.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  NativeDrawingBridge.init();
+  await NativeDrawingBridge.init();
   runApp(const MyApp());
 }
 

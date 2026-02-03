@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import 'drawing_event_store.dart';
 
 class BrushConfig {
   const BrushConfig({
@@ -39,8 +43,14 @@ class BrushConfig {
 }
 
 class NativeDrawingBridge {
-  static const MethodChannel _channel = MethodChannel('pentalk/native_drawing');
+  static const MethodChannel _channel = MethodChannel('pentalk/drawing');
+  static final DrawingEventStore _eventStore = DrawingEventStore.instance;
+  static final StreamController<Map<String, dynamic>> _drawEventController =
+      StreamController.broadcast();
   static bool _initialized = false;
+
+  static Stream<Map<String, dynamic>> get drawEvents =>
+      _drawEventController.stream;
 
   static final ValueNotifier<BrushConfig> currentBrush = ValueNotifier(
     const BrushConfig(
@@ -51,9 +61,10 @@ class NativeDrawingBridge {
     ),
   );
 
-  static void init() {
+  static Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
+    await _eventStore.init();
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
@@ -63,6 +74,12 @@ class NativeDrawingBridge {
 
   static Future<void> setBrush(BrushConfig config) async {
     await _channel.invokeMethod('setBrush', config.toMap());
+  }
+
+  static Future<void> sendDrawEvent(Map<String, dynamic> payload) async {
+    debugPrint('[draw][send] $payload');
+    await _eventStore.saveEvent(direction: 'outbound', payload: payload);
+    await _channel.invokeMethod('sendDrawEvent', payload);
   }
 
   static Future<void> _handleMethodCall(MethodCall call) async {
@@ -81,6 +98,12 @@ class NativeDrawingBridge {
             eraserSize: eraserSize,
           );
         }
+        break;
+      case 'onDrawEvent':
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        debugPrint('[draw][recv] $args');
+        _drawEventController.add(args);
+        await _eventStore.saveEvent(direction: 'inbound', payload: args);
         break;
     }
   }

@@ -46,6 +46,8 @@ class InkDrawingView @JvmOverloads constructor(
     private var brushConfig = BrushConfig(ToolKind.PEN, Color.BLACK, 6f, 24f)
     private var penBrush = buildPenBrush(brushConfig)
     private var fingerBrush = buildFingerBrush(brushConfig)
+    private val activeStrokeIds = mutableMapOf<Int, Long>()
+    private val activePoints = mutableMapOf<Int, MutableList<Map<String, Double>>>()
 
     init {
         isClickable = true
@@ -91,6 +93,26 @@ class InkDrawingView @JvmOverloads constructor(
         val pointerId = event.getPointerId(pointerIndex)
         val tool = toolKindFor(event, pointerIndex)
         reportTool(tool)
+        if (tool == ToolKind.FINGER) {
+            return
+        }
+        val strokeId = System.currentTimeMillis()
+        activeStrokeIds[pointerId] = strokeId
+        val startPoint = mapOf(
+            "x" to event.getX(pointerIndex).toDouble(),
+            "y" to event.getY(pointerIndex).toDouble(),
+        )
+        activePoints[pointerId] = mutableListOf(startPoint)
+        DrawingChannel.notifyDrawEvent(
+            mapOf(
+                "e" to "ds",
+                "sId" to strokeId,
+                "x" to event.getX(pointerIndex),
+                "y" to event.getY(pointerIndex),
+                "c" to colorHex(brushConfig.color),
+                "w" to brushConfig.size.toDouble(),
+            )
+        )
 
         if (tool == ToolKind.ERASER) {
             eraserPaths[pointerId] =
@@ -106,10 +128,29 @@ class InkDrawingView @JvmOverloads constructor(
         for (i in 0 until event.pointerCount) {
             val pointerId = event.getPointerId(i)
             val tool = toolKindFor(event, i)
+            val strokeId = activeStrokeIds[pointerId]
+            if (tool == ToolKind.FINGER) {
+                continue
+            }
             if (tool == ToolKind.ERASER) {
                 eraserPaths[pointerId]?.add(ImmutableVec(event.getX(i), event.getY(i)))
             } else {
                 inkView.addToStroke(event, pointerId)
+            }
+            if (strokeId != null) {
+                val point = mapOf(
+                    "x" to event.getX(i).toDouble(),
+                    "y" to event.getY(i).toDouble(),
+                )
+                activePoints[pointerId]?.add(point)
+                DrawingChannel.notifyDrawEvent(
+                    mapOf(
+                        "e" to "dm",
+                        "sId" to strokeId,
+                        "x" to event.getX(i),
+                        "y" to event.getY(i),
+                    )
+                )
             }
         }
     }
@@ -117,25 +158,48 @@ class InkDrawingView @JvmOverloads constructor(
     private fun handlePointerUp(event: MotionEvent, pointerIndex: Int) {
         val pointerId = event.getPointerId(pointerIndex)
         val tool = toolKindFor(event, pointerIndex)
+        val strokeId = activeStrokeIds.remove(pointerId)
+        val points = activePoints.remove(pointerId)
+        if (tool == ToolKind.FINGER) {
+            return
+        }
         if (tool == ToolKind.ERASER) {
             val points = eraserPaths.remove(pointerId)
             if (!points.isNullOrEmpty()) {
                 eraseStrokes(points)
             }
-            return
+        } else {
+            inkView.finishStroke(event, pointerId)
         }
 
-        inkView.finishStroke(event, pointerId)
+        if (strokeId != null && points != null) {
+            val payload = mapOf(
+                "e" to "de",
+                "sId" to strokeId,
+                "pts" to points,
+            )
+            DrawingChannel.notifyDrawEvent(payload)
+        }
     }
 
     private fun handleCancel(event: MotionEvent) {
         for (i in 0 until event.pointerCount) {
             val pointerId = event.getPointerId(i)
             val tool = toolKindFor(event, i)
+            val strokeId = activeStrokeIds.remove(pointerId)
+            val points = activePoints.remove(pointerId)
             if (tool == ToolKind.ERASER) {
                 eraserPaths.remove(pointerId)
             } else {
                 inkView.cancelStroke(event, pointerId)
+            }
+            if (strokeId != null && points != null) {
+                val payload = mapOf(
+                    "e" to "de",
+                    "sId" to strokeId,
+                    "pts" to points,
+                )
+                DrawingChannel.notifyDrawEvent(payload)
             }
         }
     }
@@ -232,5 +296,12 @@ class InkDrawingView @JvmOverloads constructor(
     private fun dpToPx(dp: Float): Float {
         val density = context.resources.displayMetrics.density
         return dp * density
+    }
+
+    private fun colorHex(color: Int): String {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        return String.format("#%02X%02X%02X", r, g, b)
     }
 }
