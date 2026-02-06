@@ -320,11 +320,12 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
             }
             if lastPointCount == 0 {
                 let first = path[0]
+                let normalized = DrawingMetricsStore.normalize(point: first.location)
                 let payload: [String: Any] = [
                     "e": "ds",
                     "sId": activeStrokeId as Any,
-                    "x": first.location.x,
-                    "y": first.location.y,
+                    "x": normalized.x,
+                    "y": normalized.y,
                     "c": currentConfig.color.hexRGB(),
                     "w": currentConfig.size,
                 ]
@@ -334,16 +335,17 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
             if count > lastPointCount {
                 for index in lastPointCount..<count {
                     let point = path[index].location
+                    let normalized = DrawingMetricsStore.normalize(point: point)
                     activePoints.append([
-                        "x": Double(point.x),
-                        "y": Double(point.y),
+                        "x": Double(normalized.x),
+                        "y": Double(normalized.y),
                     ])
                     if index == 0 { continue }
                     let payload: [String: Any] = [
                         "e": "dm",
                         "sId": activeStrokeId as Any,
-                        "x": point.x,
-                        "y": point.y,
+                        "x": normalized.x,
+                        "y": normalized.y,
                     ]
                     DrawingChannel.notifyDrawEvent(payload)
                 }

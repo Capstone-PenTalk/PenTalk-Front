@@ -76,6 +76,20 @@ class NativeDrawingBridge {
     await _channel.invokeMethod('setBrush', config.toMap());
   }
 
+  static Future<void> setDrawingMetrics({
+    required double renderWidth,
+    required double renderHeight,
+    required double pdfWidth,
+    required double pdfHeight,
+  }) async {
+    await _channel.invokeMethod('setDrawingMetrics', {
+      'renderWidth': renderWidth,
+      'renderHeight': renderHeight,
+      'pdfWidth': pdfWidth,
+      'pdfHeight': pdfHeight,
+    });
+  }
+
   static Future<void> sendDrawEvent(Map<String, dynamic> payload) async {
     debugPrint('[draw][send] $payload');
     await _eventStore.saveEvent(direction: 'outbound', payload: payload);

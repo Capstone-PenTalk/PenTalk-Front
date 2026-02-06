@@ -21,6 +21,7 @@
 		AD8B2C7D6A7C4A8F9F3B2A14 /* DrawingPlatformViewFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8B2C7D6A7C4A8F9F3B2A15 /* DrawingPlatformViewFactory.swift */; };
 		AD8B2C7D6A7C4A8F9F3B2A16 /* DrawingSurfaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8B2C7D6A7C4A8F9F3B2A17 /* DrawingSurfaceManager.swift */; };
 		AD8B2C7D6A7C4A8F9F3B2A18 /* UIColor+ARGB.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8B2C7D6A7C4A8F9F3B2A19 /* UIColor+ARGB.swift */; };
+		B2E5F1A9C1E34B7F9E2D1B10 /* DrawingMetricsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E5F1A9C1E34B7F9E2D1B11 /* DrawingMetricsStore.swift */; };
 		E1A2B3C4D5E6F708192A3B4C /* DrawingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F708192A3B4E /* DrawingChannel.swift */; };
 		E1A2B3C4D5E6F708192A3B4D /* DrawingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F708192A3B4F /* DrawingViewController.swift */; };
 /* End PBXBuildFile section */
@@ -75,6 +76,7 @@
 		AD8B2C7D6A7C4A8F9F3B2A15 /* DrawingPlatformViewFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingPlatformViewFactory.swift; sourceTree = "<group>"; };
 		AD8B2C7D6A7C4A8F9F3B2A17 /* DrawingSurfaceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingSurfaceManager.swift; sourceTree = "<group>"; };
 		AD8B2C7D6A7C4A8F9F3B2A19 /* UIColor+ARGB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIColor+ARGB.swift"; sourceTree = "<group>"; };
+		B2E5F1A9C1E34B7F9E2D1B11 /* DrawingMetricsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingMetricsStore.swift; sourceTree = "<group>"; };
 		E1A2B3C4D5E6F708192A3B4E /* DrawingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingChannel.swift; sourceTree = "<group>"; };
 		E1A2B3C4D5E6F708192A3B4F /* DrawingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingViewController.swift; sourceTree = "<group>"; };
 		E2DC765A33C865086F361D53 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
@@ -170,6 +172,7 @@
 				AD8B2C7D6A7C4A8F9F3B2A13 /* DrawingPlatformView.swift */,
 				AD8B2C7D6A7C4A8F9F3B2A15 /* DrawingPlatformViewFactory.swift */,
 				AD8B2C7D6A7C4A8F9F3B2A19 /* UIColor+ARGB.swift */,
+				B2E5F1A9C1E34B7F9E2D1B11 /* DrawingMetricsStore.swift */,
 				E1A2B3C4D5E6F708192A3B4E /* DrawingChannel.swift */,
 				E1A2B3C4D5E6F708192A3B4F /* DrawingViewController.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
@@ -404,6 +407,7 @@
 				AD8B2C7D6A7C4A8F9F3B2A14 /* DrawingPlatformViewFactory.swift in Sources */,
 				AD8B2C7D6A7C4A8F9F3B2A16 /* DrawingSurfaceManager.swift in Sources */,
 				AD8B2C7D6A7C4A8F9F3B2A18 /* UIColor+ARGB.swift in Sources */,
+				B2E5F1A9C1E34B7F9E2D1B10 /* DrawingMetricsStore.swift in Sources */,
 				E1A2B3C4D5E6F708192A3B4C /* DrawingChannel.swift in Sources */,
 				E1A2B3C4D5E6F708192A3B4D /* DrawingViewController.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
