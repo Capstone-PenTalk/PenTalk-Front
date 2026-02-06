@@ -1,64 +1,43 @@
 import 'package:flutter/material.dart';
-import 'native_drawing.dart';
+import 'package:provider/provider.dart';
 
-void main() {
+import 'native_drawing.dart';
+import 'providers/drawing_provider.dart';
+import 'providers/student_session_provider.dart';
+import 'screens/student_home_screen.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  NativeDrawingBridge.init();
+  await NativeDrawingBridge.init();
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'PenTalk',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0F172A)),
-        useMaterial3: true,
-      ),
-      home: const DrawingHomePage(),
-    );
-  }
-}
-
-class DrawingHomePage extends StatefulWidget {
-  const DrawingHomePage({super.key});
-
-  @override
-  State<DrawingHomePage> createState() => _DrawingHomePageState();
-}
-
-class _DrawingHomePageState extends State<DrawingHomePage> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('PenTalk'),
-      ),
-      body: Center(
-        child: ValueListenableBuilder<BrushConfig>(
-          valueListenable: NativeDrawingBridge.currentBrush,
-          builder: (context, brush, child) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'PenTalk',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () {
-                    NativeDrawingBridge.open(brush);
-                  },
-                  child: const Text('Open Drawing'),
-                ),
-              ],
-            );
-          },
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => StudentSessionProvider()),
+        ChangeNotifierProvider(create: (_) => DrawingProvider()),
+      ],
+      child: MaterialApp(
+        title: '하이브리드 교실 - 학생',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.light,
+          ),
+          appBarTheme: const AppBarTheme(
+            centerTitle: false,
+            elevation: 0,
+          ),
         ),
+        home: const StudentHomeScreen(),
       ),
     );
   }

@@ -1,7 +1,7 @@
 import UIKit
 import PencilKit
 
-final class DrawingViewController: UIViewController {
+final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
     struct BrushConfig {
         let tool: String
         let color: UIColor
@@ -28,6 +28,10 @@ final class DrawingViewController: UIViewController {
     ]
     private var colorButtons: [UIButton] = []
     private var currentConfig: BrushConfig
+    private var activeStrokeId: Int?
+    private var activePoints: [[String: Double]] = []
+    private var lastPointCount: Int = 0
+    private var isDrawing: Bool = false
     var onDismiss: (() -> Void)?
 
     init(config: BrushConfig) {
@@ -53,6 +57,7 @@ final class DrawingViewController: UIViewController {
                 canvasView.drawingPolicy = .anyInput
             }
         }
+        canvasView.delegate = self
         view.addSubview(canvasView)
 
         NSLayoutConstraint.activate([
@@ -274,6 +279,78 @@ final class DrawingViewController: UIViewController {
         for (index, button) in colorButtons.enumerated() {
             let colorArgb = colorOptions[index].argbInt()
             button.layer.borderWidth = (colorArgb == currentArgb) ? 2 : 0
+        }
+    }
+
+    func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        isDrawing = true
+        activeStrokeId = Int(Date().timeIntervalSince1970 * 1000)
+        activePoints.removeAll()
+        lastPointCount = 0
+    }
+
+    func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+        appendNewPoints(from: canvasView)
+        guard let strokeId = activeStrokeId else { return }
+        let payload: [String: Any] = [
+            "e": "de",
+            "sId": strokeId,
+            "pts": activePoints,
+        ]
+        DrawingChannel.notifyDrawEvent(payload)
+        activeStrokeId = nil
+        activePoints.removeAll()
+        lastPointCount = 0
+        isDrawing = false
+    }
+
+    func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        appendNewPoints(from: canvasView)
+    }
+
+    private func appendNewPoints(from canvasView: PKCanvasView) {
+        if #available(iOS 14.0, *) {
+            guard isDrawing, let stroke = canvasView.drawing.strokes.last else { return }
+            let path = stroke.path
+            let count = path.count
+            if count == 0 { return }
+
+            if activeStrokeId == nil {
+                activeStrokeId = Int(Date().timeIntervalSince1970 * 1000)
+            }
+            if lastPointCount == 0 {
+                let first = path[0]
+                let payload: [String: Any] = [
+                    "e": "ds",
+                    "sId": activeStrokeId as Any,
+                    "x": first.location.x,
+                    "y": first.location.y,
+                    "c": currentConfig.color.hexRGB(),
+                    "w": currentConfig.size,
+                ]
+                DrawingChannel.notifyDrawEvent(payload)
+            }
+
+            if count > lastPointCount {
+                for index in lastPointCount..<count {
+                    let point = path[index].location
+                    activePoints.append([
+                        "x": Double(point.x),
+                        "y": Double(point.y),
+                    ])
+                    if index == 0 { continue }
+                    let payload: [String: Any] = [
+                        "e": "dm",
+                        "sId": activeStrokeId as Any,
+                        "x": point.x,
+                        "y": point.y,
+                    ]
+                    DrawingChannel.notifyDrawEvent(payload)
+                }
+                lastPointCount = count
+            }
+        } else {
+            return
         }
     }
 }
