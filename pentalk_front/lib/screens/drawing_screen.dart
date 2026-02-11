@@ -1,6 +1,8 @@
 // lib/screens/drawing_screen.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
@@ -30,7 +32,7 @@ class DrawingScreen extends StatefulWidget {
 
 class _DrawingScreenState extends State<DrawingScreen> {
   bool _isConnecting = false;
-  bool _nativeOpened = false;
+  Size? _lastCanvasSize;
 
   @override
   void initState() {
@@ -50,7 +52,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
     if (widget.isTeacher) {
       provider.setDrawingMode(true);
       debugPrint('Drawing mode enabled for teacher');
-      _openNativeDrawing(provider);
     }
 
     // Socket.IO 연결
@@ -159,6 +160,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
               tooltip: '전체 지우기',
             ),
           ],
+          if (kDebugMode)
+            IconButton(
+              icon: const Icon(Icons.bug_report),
+              tooltip: '수신 이벤트 로그 테스트',
+              onPressed: () => _sendDebugInboundEvent(provider),
+            ),
         ],
       ),
       body: _isConnecting
@@ -175,16 +182,24 @@ class _DrawingScreenState extends State<DrawingScreen> {
           : Stack(
               children: [
                 DrawingCanvasWidget(
-                  isTeacher: widget.isTeacher && !provider.isDrawingMode,
+                  isTeacher: widget.isTeacher &&
+                      (!provider.isDrawingMode ||
+                          defaultTargetPlatform != TargetPlatform.iOS),
+                  onCanvasSize: (size) => _updateDrawingMetrics(provider, size),
                 ),
-                if (widget.isTeacher && provider.isDrawingMode)
-                  Positioned(
-                    right: 16,
-                    bottom: 88,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _openNativeDrawing(provider, force: true),
-                      icon: const Icon(Icons.open_in_new),
-                      label: const Text('판서 열기'),
+                if (widget.isTeacher &&
+                    provider.isDrawingMode &&
+                    defaultTargetPlatform == TargetPlatform.iOS)
+                  Positioned.fill(
+                    child: UiKitView(
+                      viewType: 'pentalk/drawing_view',
+                      creationParams: {
+                        'tool': 'pen',
+                        'color': provider.currentColor.value,
+                        'size': provider.currentWidth,
+                        'eraserSize': 24,
+                      },
+                      creationParamsCodec: const StandardMessageCodec(),
                     ),
                   ),
               ],
@@ -343,20 +358,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
     final next = !provider.isDrawingMode;
     provider.setDrawingMode(next);
     if (next) {
-      _openNativeDrawing(provider, force: true);
+      _syncBrushToNative(provider);
     }
-  }
-
-  void _openNativeDrawing(DrawingProvider provider, {bool force = false}) {
-    if (_nativeOpened && !force) return;
-    _nativeOpened = true;
-    final brush = BrushConfig(
-      tool: 'pen',
-      color: provider.currentColor.value,
-      size: provider.currentWidth,
-      eraserSize: 24,
-    );
-    NativeDrawingBridge.open(brush);
   }
 
   void _syncBrushToNative(DrawingProvider provider) {
@@ -367,5 +370,48 @@ class _DrawingScreenState extends State<DrawingScreen> {
       eraserSize: 24,
     );
     NativeDrawingBridge.setBrush(brush);
+  }
+
+  void _sendDebugInboundEvent(DrawingProvider provider) {
+    final strokeId = DateTime.now().millisecondsSinceEpoch;
+    provider.debugInjectDrawEvent({
+      'e': 'ds',
+      'sId': strokeId,
+      'x': 0.2,
+      'y': 0.3,
+      'c': '#FF0000',
+      'w': 2.5,
+    });
+    provider.debugInjectDrawEvent({
+      'e': 'dm',
+      'sId': strokeId,
+      'x': 0.25,
+      'y': 0.35,
+    });
+    provider.debugInjectDrawEvent({
+      'e': 'de',
+      'sId': strokeId,
+      'pts': [
+        {'x': 0.2, 'y': 0.3},
+        {'x': 0.25, 'y': 0.35},
+        {'x': 0.3, 'y': 0.4},
+      ],
+    });
+  }
+
+  Future<void> _updateDrawingMetrics(
+    DrawingProvider provider,
+    Size renderSize,
+  ) async {
+    if (_lastCanvasSize == renderSize) return;
+    _lastCanvasSize = renderSize;
+    final pdfWidth = provider.pdfWidth ?? renderSize.width;
+    final pdfHeight = provider.pdfHeight ?? renderSize.height;
+    await NativeDrawingBridge.setDrawingMetrics(
+      renderWidth: renderSize.width,
+      renderHeight: renderSize.height,
+      pdfWidth: pdfWidth,
+      pdfHeight: pdfHeight,
+    );
   }
 }

@@ -2,7 +2,7 @@ import Flutter
 import PencilKit
 import UIKit
 
-final class DrawingPlatformView: NSObject, FlutterPlatformView, PKToolPickerObserver {
+final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDelegate {
     struct BrushConfig {
         let tool: String
         let color: UIColor
@@ -27,21 +27,31 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKToolPickerObse
 
     private let containerView = ContainerView()
     private let canvasView = PKCanvasView(frame: .zero)
-    private var toolPicker: PKToolPicker?
     private var currentConfig: BrushConfig
+    private var activeStrokeId: Int?
+    private var activePoints: [[String: Double]] = []
+    private var lastPointCount: Int = 0
+    private var isDrawing: Bool = false
 
     init(frame: CGRect, viewId: Int64, arguments: Any?) {
         self.currentConfig = BrushConfigParser.parse(arguments)
         super.init()
         DrawingSurfaceManager.shared.surface = self
 
-        containerView.backgroundColor = .white
+        containerView.backgroundColor = .clear
+        containerView.isOpaque = false
         containerView.clipsToBounds = false
         canvasView.translatesAutoresizingMaskIntoConstraints = false
-        canvasView.backgroundColor = .white
+        canvasView.backgroundColor = .clear
+        canvasView.isOpaque = false
         if #available(iOS 14.0, *) {
-            canvasView.drawingPolicy = .anyInput
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                canvasView.drawingPolicy = .pencilOnly
+            } else {
+                canvasView.drawingPolicy = .anyInput
+            }
         }
+        canvasView.delegate = self
         containerView.addSubview(canvasView)
 
         NSLayoutConstraint.activate([
@@ -50,13 +60,6 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKToolPickerObse
             canvasView.topAnchor.constraint(equalTo: containerView.topAnchor),
             canvasView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
-
-        containerView.onDidMoveToWindow = { [weak self] in
-            self?.ensureToolPickerVisible()
-        }
-        containerView.onLayout = { [weak self] in
-            self?.ensureToolPickerVisible()
-        }
 
         applyBrushConfig(currentConfig)
     }
@@ -75,53 +78,75 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKToolPickerObse
         }
     }
 
-    private func ensureToolPickerVisible() {
-        guard let window = containerView.window else { return }
-        if toolPicker == nil {
-            let picker = PKToolPicker.shared(for: window)
-            toolPicker = picker
-            picker?.addObserver(canvasView)
-            picker?.addObserver(self)
-        }
-        toolPicker?.setVisible(true, forFirstResponder: canvasView)
-        canvasView.becomeFirstResponder()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
-            self.toolPicker?.setVisible(true, forFirstResponder: self.canvasView)
-            self.canvasView.becomeFirstResponder()
-        }
+    func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        isDrawing = true
+        activeStrokeId = Int(Date().timeIntervalSince1970 * 1000)
+        activePoints.removeAll()
+        lastPointCount = 0
     }
 
-    func toolPickerSelectedToolDidChange(_ toolPicker: PKToolPicker) {
-        if let inkingTool = toolPicker.selectedTool as? PKInkingTool {
-            currentConfig = BrushConfig(
-                tool: "pen",
-                color: inkingTool.color,
-                size: inkingTool.width,
-                eraserSize: currentConfig.eraserSize
-            )
-            DrawingChannel.notifyToolChanged(
-                tool: "pen",
-                source: "ui",
-                color: inkingTool.color.argbInt(),
-                size: inkingTool.width,
-                eraserSize: currentConfig.eraserSize
-            )
-            return
-        }
+    func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+        appendNewPoints(from: canvasView)
+        guard let strokeId = activeStrokeId else { return }
+        let payload: [String: Any] = [
+            "e": "de",
+            "sId": strokeId,
+            "pts": activePoints,
+        ]
+        DrawingChannel.notifyDrawEvent(payload)
+        activeStrokeId = nil
+        activePoints.removeAll()
+        lastPointCount = 0
+        isDrawing = false
+    }
 
-        currentConfig = BrushConfig(
-            tool: "eraser",
-            color: currentConfig.color,
-            size: currentConfig.size,
-            eraserSize: currentConfig.eraserSize
-        )
-        DrawingChannel.notifyToolChanged(
-            tool: "eraser",
-            source: "ui",
-            color: currentConfig.color.argbInt(),
-            size: currentConfig.size,
-            eraserSize: currentConfig.eraserSize
-        )
+    func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        appendNewPoints(from: canvasView)
+    }
+
+    private func appendNewPoints(from canvasView: PKCanvasView) {
+        if #available(iOS 14.0, *) {
+            guard isDrawing, let stroke = canvasView.drawing.strokes.last else { return }
+            let path = stroke.path
+            let count = path.count
+            if count == 0 { return }
+
+            if activeStrokeId == nil {
+                activeStrokeId = Int(Date().timeIntervalSince1970 * 1000)
+            }
+            if lastPointCount == 0 {
+                let first = path[0]
+                let normalized = DrawingMetricsStore.normalize(point: first.location)
+                let payload: [String: Any] = [
+                    "e": "ds",
+                    "sId": activeStrokeId as Any,
+                    "x": normalized.x,
+                    "y": normalized.y,
+                    "c": currentConfig.color.hexRGB(),
+                    "w": currentConfig.size,
+                ]
+                DrawingChannel.notifyDrawEvent(payload)
+            }
+
+            if count > lastPointCount {
+                for index in lastPointCount..<count {
+                    let point = path[index].location
+                    let normalized = DrawingMetricsStore.normalize(point: point)
+                    activePoints.append([
+                        "x": Double(normalized.x),
+                        "y": Double(normalized.y),
+                    ])
+                    if index == 0 { continue }
+                    let payload: [String: Any] = [
+                        "e": "dm",
+                        "sId": activeStrokeId as Any,
+                        "x": normalized.x,
+                        "y": normalized.y,
+                    ]
+                    DrawingChannel.notifyDrawEvent(payload)
+                }
+                lastPointCount = count
+            }
+        }
     }
 }
