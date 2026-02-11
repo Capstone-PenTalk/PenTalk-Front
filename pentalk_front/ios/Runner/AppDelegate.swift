@@ -32,6 +32,20 @@ import UIKit
           let config = Self.parseBrushConfig(call.arguments)
           self.drawingController?.applyBrushConfig(config)
           result(nil)
+        case "setDrawingMetrics":
+          if let args = call.arguments as? [String: Any] {
+            let renderWidth = (args["renderWidth"] as? NSNumber)?.doubleValue ?? 0
+            let renderHeight = (args["renderHeight"] as? NSNumber)?.doubleValue ?? 0
+            let pdfWidth = (args["pdfWidth"] as? NSNumber)?.doubleValue ?? 0
+            let pdfHeight = (args["pdfHeight"] as? NSNumber)?.doubleValue ?? 0
+            DrawingMetricsStore.update(
+              renderWidth: CGFloat(renderWidth),
+              renderHeight: CGFloat(renderHeight),
+              pdfWidth: CGFloat(pdfWidth),
+              pdfHeight: CGFloat(pdfHeight)
+            )
+          }
+          result(nil)
         case "sendDrawEvent":
           if let payload = call.arguments as? [String: Any] {
             // TODO: forward payload to socket server.

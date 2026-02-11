@@ -1,4 +1,5 @@
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/drawing_models.dart';
@@ -24,6 +25,8 @@ class DrawingProvider extends ChangeNotifier {
 
   // 배경 이미지 URL
   String? _backgroundUrl;
+  double? _pdfWidth;
+  double? _pdfHeight;
 
   // 그리기 모드 (교사용)
   bool _isDrawingMode = false;
@@ -44,6 +47,8 @@ class DrawingProvider extends ChangeNotifier {
   Map<int, Stroke> get othersStrokes => _othersStrokes;
   Map<int, Stroke> get othersActiveStrokes => _othersActiveStrokes;
   String? get backgroundUrl => _backgroundUrl;
+  double? get pdfWidth => _pdfWidth;
+  double? get pdfHeight => _pdfHeight;
   bool get isDrawingMode => _isDrawingMode;
   Color get currentColor => _currentColor;
   double get currentWidth => _currentWidth;
@@ -140,9 +145,10 @@ class DrawingProvider extends ChangeNotifier {
     platform.setMethodCallHandler((call) async {
       try {
         if (call.method == 'onDrawEvent') {
-          final data = Map<String, dynamic>.from(call.arguments);
+          final data = _mapFromArguments(call.arguments);
           final event = DrawEvent.fromJson(data);
-          _handleReceivedDrawEvent(event);
+          _logNormalized(event);
+          _handleLocalNativeEvent(event);
         }
       } catch (e) {
         debugPrint('MethodChannel error: $e');
@@ -171,6 +177,75 @@ class DrawingProvider extends ChangeNotifier {
         _handleOthersEraser(event);
         break;
     }
+  }
+
+  void _handleLocalNativeEvent(DrawEvent event) {
+    switch (event.eventType) {
+      case DrawEventType.drawStart:
+        _handleMyDrawStart(event);
+        break;
+      case DrawEventType.drawMove:
+        _handleMyDrawMove(event);
+        break;
+      case DrawEventType.drawEnd:
+        _handleMyDrawEnd(event);
+        break;
+      case DrawEventType.undo:
+        _handleMyUndo(event);
+        break;
+      case DrawEventType.eraser:
+        _handleMyUndo(event);
+        break;
+    }
+
+    if (_isSocketConnected && _userId != null) {
+      _socketService.sendDrawEvent(event, _userId!);
+    }
+  }
+
+  void debugInjectDrawEvent(Map<String, dynamic> payload) {
+    final event = DrawEvent.fromJson(payload);
+    _logNormalized(event);
+    _handleReceivedDrawEvent(event);
+  }
+
+  void _logNormalized(DrawEvent event) {
+    if (!kDebugMode) return;
+    switch (event.eventType) {
+      case DrawEventType.drawStart:
+        if (event.point == null) return;
+        debugPrint(
+          '[draw][normalized] ds sId=${event.strokeId} x=${event.point!.x} y=${event.point!.y} c=${event.color} w=${event.width}',
+        );
+        break;
+      case DrawEventType.drawMove:
+        if (event.point == null) return;
+        debugPrint(
+          '[draw][normalized] dm sId=${event.strokeId} x=${event.point!.x} y=${event.point!.y}',
+        );
+        break;
+      case DrawEventType.drawEnd:
+        final points = event.points ?? const <DrawPoint>[];
+        final first = points.isNotEmpty ? points.first : null;
+        final last = points.isNotEmpty ? points.last : null;
+        debugPrint(
+          '[draw][normalized] de sId=${event.strokeId} pts=${points.length} first=${first?.x},${first?.y} last=${last?.x},${last?.y}',
+        );
+        break;
+      case DrawEventType.undo:
+      case DrawEventType.eraser:
+        debugPrint('[draw][normalized] ${event.eventType.code} sId=${event.strokeId}');
+        break;
+    }
+  }
+
+  Map<String, dynamic> _mapFromArguments(dynamic arguments) {
+    if (arguments is Map) {
+      return arguments.map((key, value) {
+        return MapEntry(key.toString(), value);
+      });
+    }
+    return {};
   }
 
   /// 다른 사람의 draw_start
@@ -301,6 +376,13 @@ class DrawingProvider extends ChangeNotifier {
     if (_backgroundUrl != url) {
       _backgroundUrl = url;
       notifyListeners();
+    }
+  }
+
+  void setPdfPageSize({required double width, required double height}) {
+    if (_pdfWidth != width || _pdfHeight != height) {
+      _pdfWidth = width;
+      _pdfHeight = height;
     }
   }
 

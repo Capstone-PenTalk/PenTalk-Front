@@ -98,17 +98,21 @@ class InkDrawingView @JvmOverloads constructor(
         }
         val strokeId = System.currentTimeMillis()
         activeStrokeIds[pointerId] = strokeId
+        val normalizedStart = DrawingMetricsStore.normalize(
+            event.getX(pointerIndex),
+            event.getY(pointerIndex),
+        )
         val startPoint = mapOf(
-            "x" to event.getX(pointerIndex).toDouble(),
-            "y" to event.getY(pointerIndex).toDouble(),
+            "x" to normalizedStart.first.toDouble(),
+            "y" to normalizedStart.second.toDouble(),
         )
         activePoints[pointerId] = mutableListOf(startPoint)
         DrawingChannel.notifyDrawEvent(
             mapOf(
                 "e" to "ds",
                 "sId" to strokeId,
-                "x" to event.getX(pointerIndex),
-                "y" to event.getY(pointerIndex),
+                "x" to normalizedStart.first,
+                "y" to normalizedStart.second,
                 "c" to colorHex(brushConfig.color),
                 "w" to brushConfig.size.toDouble(),
             )
@@ -138,17 +142,21 @@ class InkDrawingView @JvmOverloads constructor(
                 inkView.addToStroke(event, pointerId)
             }
             if (strokeId != null) {
+                val normalizedPoint = DrawingMetricsStore.normalize(
+                    event.getX(i),
+                    event.getY(i),
+                )
                 val point = mapOf(
-                    "x" to event.getX(i).toDouble(),
-                    "y" to event.getY(i).toDouble(),
+                    "x" to normalizedPoint.first.toDouble(),
+                    "y" to normalizedPoint.second.toDouble(),
                 )
                 activePoints[pointerId]?.add(point)
                 DrawingChannel.notifyDrawEvent(
                     mapOf(
                         "e" to "dm",
                         "sId" to strokeId,
-                        "x" to event.getX(i),
-                        "y" to event.getY(i),
+                        "x" to normalizedPoint.first,
+                        "y" to normalizedPoint.second,
                     )
                 )
             }

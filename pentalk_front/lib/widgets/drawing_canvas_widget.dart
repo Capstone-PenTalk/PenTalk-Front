@@ -10,10 +10,12 @@ import 'drawing_painter.dart';
 /// ===============================
 class DrawingCanvasWidget extends StatefulWidget {
   final bool isTeacher;
+  final ValueChanged<Size>? onCanvasSize;
 
   const DrawingCanvasWidget({
     Key? key,
     required this.isTeacher,
+    this.onCanvasSize,
   }) : super(key: key);
 
   @override
@@ -29,6 +31,9 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.onCanvasSize?.call(canvasSize);
+        });
 
         return Stack(
           children: [
@@ -125,7 +130,7 @@ class _BackgroundLayer extends StatelessWidget {
       selector: (context, provider) => provider.backgroundUrl,
       builder: (context, backgroundUrl, child) {
         if (backgroundUrl != null && backgroundUrl.isNotEmpty) {
-          return Positioned.fill(
+          return SizedBox.expand(
             child: Image.network(
               backgroundUrl,
               fit: BoxFit.contain,
@@ -150,8 +155,8 @@ class _BackgroundLayer extends StatelessWidget {
           );
         }
 
-        return Positioned.fill(
-          child: Container(color: Colors.white),
+        return const SizedBox.expand(
+          child: ColoredBox(color: Colors.white),
         );
       },
     );
@@ -175,7 +180,7 @@ class _OthersDrawingLayer extends StatelessWidget {
             !_strokesEqual(previous, next);
       },
       builder: (context, strokes, child) {
-        return Positioned.fill(
+        return SizedBox.expand(
           child: CustomPaint(
             painter: DrawingPainter(
               strokes: strokes,
@@ -214,7 +219,7 @@ class _MyDrawingLayer extends StatelessWidget {
             !_strokesEqual(previous, next);
       },
       builder: (context, strokes, child) {
-        return Positioned.fill(
+        return SizedBox.expand(
           child: CustomPaint(
             painter: DrawingPainter(
               strokes: strokes,

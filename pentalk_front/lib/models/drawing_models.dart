@@ -144,6 +144,10 @@ class DrawEvent {
 
   /// JSON → DrawEvent
   factory DrawEvent.fromJson(Map<String, dynamic> json) {
+    Map<String, dynamic> _stringKeyed(Map input) {
+      return input.map((key, value) => MapEntry(key.toString(), value));
+    }
+
     final eventType = DrawEventType.fromCode(json['e'] as String);
     final strokeId = json['sId'] as int;
 
@@ -176,7 +180,7 @@ class DrawEvent {
         eventType: eventType,
         strokeId: strokeId,
         points: ptsList
-            ?.map((pt) => DrawPoint.fromJson(pt as Map<String, dynamic>))
+            ?.map((pt) => DrawPoint.fromJson(_stringKeyed(pt as Map)))
             .toList(),
       );
     }
