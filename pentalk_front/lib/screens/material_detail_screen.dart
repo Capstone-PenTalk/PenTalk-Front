@@ -1,23 +1,37 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/student_session_model.dart';
+import '../services/deep_link_service.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
 
-class MaterialDetailScreen extends StatelessWidget {
+class MaterialDetailScreen extends StatefulWidget {
   final MaterialModel material;
   final String sessionTitle;
   final String teacherName;
+  final String? sessionId; // Deep Link용 (선택)
+  final bool isTeacher; // 교사 여부 (선택)
 
   const MaterialDetailScreen({
     Key? key,
     required this.material,
     required this.sessionTitle,
     required this.teacherName,
+    this.sessionId,
+    this.isTeacher = false,
   }) : super(key: key);
 
+  @override
+  State<MaterialDetailScreen> createState() => _MaterialDetailScreenState();
+}
+
+class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
+  final DeepLinkService _deepLinkService = DeepLinkService();
+
   IconData _getMaterialIcon() {
-    switch (material.type) {
+    switch (widget.material.type) {
       case FileMaterialType.pdf:
         return Icons.picture_as_pdf;
       case FileMaterialType.image:
@@ -32,7 +46,7 @@ class MaterialDetailScreen extends StatelessWidget {
   }
 
   Color _getMaterialIconColor() {
-    switch (material.type) {
+    switch (widget.material.type) {
       case FileMaterialType.pdf:
         return Colors.red;
       case FileMaterialType.image:
@@ -54,7 +68,7 @@ class MaterialDetailScreen extends StatelessWidget {
     // TODO: 실제 다운로드 구현
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${material.fileName} 다운로드 시작'),
+        content: Text('${widget.material.fileName} 다운로드 시작'),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -71,22 +85,41 @@ class MaterialDetailScreen extends StatelessWidget {
   }
 
   void _handleStartDrawing(BuildContext context) {
-    // TODO: 실제 서버 URL, roomId, userId 설정
-    const serverUrl = 'http://localhost:3000'; // 실제 서버 URL로 변경
-    final roomId = 'room_${sessionTitle}_${DateTime.now().millisecondsSinceEpoch}';
-    const userId = 'user_123'; // 실제 사용자 ID로 변경
-
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
-          materialTitle: material.title,
-          backgroundUrl: material.url, // PDF/이미지 URL
-          isTeacher: true, // TODO: 실제 역할에 따라 변경
-          serverUrl: serverUrl,
-          roomId: roomId,
-          userId: userId,
+          materialTitle: widget.material.title,
+          backgroundUrl: widget.material.url,
+          isTeacher: widget.isTeacher,
+          serverUrl: null, // 서버 연결은 나중에
+          roomId: null,
+          userId: null,
         ),
+      ),
+    );
+  }
+
+  /// QR 코드 공유 (교사 전용)
+  void _showQrCodeDialog() {
+    if (widget.sessionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('세션 ID가 없습니다')),
+      );
+      return;
+    }
+
+    // Deep Link 생성
+    final deepLink = _deepLinkService.generateMaterialLink(
+      widget.sessionId!,
+      widget.material.id,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => _QrCodeDialog(
+        deepLink: deepLink,
+        materialTitle: widget.material.title,
       ),
     );
   }
@@ -97,6 +130,14 @@ class MaterialDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('자료 상세'),
         actions: [
+          // 교사 전용: QR 공유 버튼
+          if (widget.isTeacher && widget.sessionId != null)
+            IconButton(
+              icon: const Icon(Icons.qr_code_2),
+              onPressed: _showQrCodeDialog,
+              tooltip: 'QR 코드 공유',
+            ),
+          // 다운로드 버튼
           IconButton(
             icon: const Icon(Icons.download),
             onPressed: () => _handleDownload(context),
@@ -139,7 +180,7 @@ class MaterialDetailScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    material.type.name.toUpperCase(),
+                    widget.material.type.name.toUpperCase(),
                     style: TextStyle(
                       fontSize: 14,
                       color: _getMaterialIconColor(),
@@ -168,7 +209,7 @@ class MaterialDetailScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    material.title,
+                    widget.material.title,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -187,25 +228,25 @@ class MaterialDetailScreen extends StatelessWidget {
                           _buildInfoRow(
                             Icons.insert_drive_file_outlined,
                             '파일명',
-                            material.fileName,
+                            widget.material.fileName,
                           ),
                           const Divider(height: 24),
                           _buildInfoRow(
                             Icons.storage_outlined,
                             '파일 크기',
-                            material.formattedSize,
+                            widget.material.formattedSize,
                           ),
                           const Divider(height: 24),
                           _buildInfoRow(
                             Icons.calendar_today_outlined,
                             '업로드 날짜',
-                            _formatDate(material.uploadedAt),
+                            _formatDate(widget.material.uploadedAt),
                           ),
                           const Divider(height: 24),
                           _buildInfoRow(
                             Icons.school_outlined,
                             '세션',
-                            '$sessionTitle ($teacherName)',
+                            '${widget.sessionTitle} (${widget.teacherName})',
                           ),
                         ],
                       ),
@@ -214,8 +255,8 @@ class MaterialDetailScreen extends StatelessWidget {
                   const SizedBox(height: 24),
 
                   // 설명
-                  if (material.description != null &&
-                      material.description!.isNotEmpty) ...[
+                  if (widget.material.description != null &&
+                      widget.material.description!.isNotEmpty) ...[
                     const Text(
                       '설명',
                       style: TextStyle(
@@ -233,7 +274,7 @@ class MaterialDetailScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        material.description!,
+                        widget.material.description!,
                         style: const TextStyle(
                           fontSize: 15,
                           height: 1.5,
@@ -246,13 +287,13 @@ class MaterialDetailScreen extends StatelessWidget {
                   // 액션 버튼들
                   Column(
                     children: [
-                      // 판서 시작 버튼 (교사용)
+                      // 판서 시작 버튼
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () => _handleStartDrawing(context),
                           icon: const Icon(Icons.edit),
-                          label: const Text('판서 시작'),
+                          label: Text(widget.isTeacher ? '판서 시작' : '내 필기 시작'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
@@ -336,6 +377,144 @@ class MaterialDetailScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// ===============================
+/// QR 코드 다이얼로그
+/// ===============================
+class _QrCodeDialog extends StatelessWidget {
+  final String deepLink;
+  final String materialTitle;
+
+  const _QrCodeDialog({
+    required this.deepLink,
+    required this.materialTitle,
+  });
+
+  void _copyLink(BuildContext context) {
+    Clipboard.setData(ClipboardData(text: deepLink));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('링크가 복사되었습니다')),
+    );
+  }
+
+  void _shareLink() {
+    Share.share(
+      deepLink,
+      subject: '자료 공유: $materialTitle',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 제목
+            Row(
+              children: [
+                const Icon(Icons.qr_code_2, size: 28),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'QR 코드 공유',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              materialTitle,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 24),
+
+            // QR 코드
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: QrImageView(
+                data: deepLink,
+                version: QrVersions.auto,
+                size: 200,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 링크 텍스트
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                deepLink,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // 액션 버튼들
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _copyLink(context),
+                    icon: const Icon(Icons.copy),
+                    label: const Text('링크 복사'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _shareLink,
+                    icon: const Icon(Icons.share),
+                    label: const Text('공유'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
