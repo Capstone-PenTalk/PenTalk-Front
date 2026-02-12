@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/drawing_provider.dart';
+import '../providers/personal_drawing_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
 
 class DrawingScreen extends StatefulWidget {
@@ -48,6 +49,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
     if (widget.isTeacher) {
       provider.setDrawingMode(true);
       debugPrint('Drawing mode enabled for teacher');
+    } else {
+      // 학생: 개인 필기 로드
+      final personalProvider = context.read<PersonalDrawingProvider>();
+      await personalProvider.loadPage(widget.materialTitle);
+      debugPrint('✅ Personal strokes loaded for: ${widget.materialTitle}');
     }
 
     // Socket.IO 연결
@@ -171,24 +177,122 @@ class _DrawingScreenState extends State<DrawingScreen> {
           : DrawingCanvasWidget(
         isTeacher: widget.isTeacher,
       ),
-      // 교사용: 그리기 모드 토글
+      // 교사용: 그리기/이동 모드 토글
+      // 학생용: 내 필기 보기/끄기 + 그리기/이동 모드 토글
       floatingActionButton: widget.isTeacher
           ? Consumer<DrawingProvider>(
         builder: (context, provider, child) {
-          return FloatingActionButton(
-            onPressed: () {
-              provider.setDrawingMode(!provider.isDrawingMode);
-            },
-            backgroundColor: provider.isDrawingMode
-                ? Colors.blue
-                : Colors.grey,
-            child: Icon(
-              provider.isDrawingMode ? Icons.edit : Icons.edit_off,
-            ),
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // 그리기/이동 모드 토글
+              FloatingActionButton(
+                heroTag: 'drawing_mode',
+                onPressed: () {
+                  provider.setDrawingMode(!provider.isDrawingMode);
+                },
+                backgroundColor: provider.isDrawingMode
+                    ? Colors.blue
+                    : Colors.grey,
+                tooltip: provider.isDrawingMode ? '이동 모드로 전환' : '그리기 모드로 전환',
+                child: Icon(
+                  provider.isDrawingMode ? Icons.edit : Icons.pan_tool,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 모드 안내 텍스트
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: provider.isDrawingMode
+                      ? Colors.blue.withOpacity(0.9)
+                      : Colors.grey.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  provider.isDrawingMode ? '✏️ 그리기' : '👆 이동/줌',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           );
         },
       )
-          : null,
+          : Consumer2<DrawingProvider, PersonalDrawingProvider>(
+        builder: (context, drawingProvider, personalProvider, child) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // 내 필기 보기/끄기 토글
+              FloatingActionButton(
+                heroTag: 'personal_layer',
+                onPressed: () {
+                  personalProvider.togglePersonalLayer();
+                },
+                backgroundColor: personalProvider.showPersonalLayer
+                    ? Colors.green
+                    : Colors.grey,
+                tooltip: personalProvider.showPersonalLayer
+                    ? '내 필기 숨기기'
+                    : '내 필기 보기',
+                child: Icon(
+                  personalProvider.showPersonalLayer
+                      ? Icons.visibility
+                      : Icons.visibility_off,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 그리기/이동 모드 토글
+              FloatingActionButton(
+                heroTag: 'drawing_mode',
+                onPressed: () {
+                  drawingProvider.setDrawingMode(!drawingProvider.isDrawingMode);
+                },
+                backgroundColor: drawingProvider.isDrawingMode
+                    ? Colors.blue
+                    : Colors.grey,
+                tooltip: drawingProvider.isDrawingMode
+                    ? '이동 모드로 전환'
+                    : '그리기 모드로 전환',
+                child: Icon(
+                  drawingProvider.isDrawingMode ? Icons.edit : Icons.pan_tool,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 모드 안내 텍스트
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: drawingProvider.isDrawingMode
+                      ? Colors.blue.withOpacity(0.9)
+                      : Colors.grey.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  drawingProvider.isDrawingMode ? '✏️ 내 필기' : '👆 이동/줌',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
