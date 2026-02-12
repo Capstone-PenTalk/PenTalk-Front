@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../models/drawing_models.dart';
@@ -11,6 +10,7 @@ class SocketService {
   IO.Socket? _socket;
   String? _currentRoomId;
   String? _currentUserId;
+  bool? _isTeacher; // 재접속 시 필요
 
   // 콜백 함수들
   Function(DrawEvent)? onDrawEventReceived;
@@ -19,6 +19,7 @@ class SocketService {
   Function()? onConnected;
   Function()? onDisconnected;
   Function(dynamic)? onError;
+  Function(List<dynamic>)? onSyncState; // 동기화 데이터 수신
 
   bool get isConnected => _socket?.connected ?? false;
   String? get currentRoomId => _currentRoomId;
@@ -32,23 +33,30 @@ class SocketService {
     required String userId,
     required String roomId,
     bool isTeacher = false,
+    String? jwtToken, // JWT 토큰 추가
   }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
+      _isTeacher = isTeacher; // 재접속 시 사용
 
       debugPrint('Connecting to Socket.IO: $serverUrl');
       debugPrint('User ID: $userId, Room ID: $roomId, isTeacher: $isTeacher');
 
       // Socket.IO 옵션 설정
-      _socket = IO.io(
-        serverUrl,
-        IO.OptionBuilder()
-            .setTransports(['websocket']) // WebSocket 우선 사용
-            .disableAutoConnect() // 수동 연결
-            .setExtraHeaders({'user-id': userId}) // 커스텀 헤더
-            .build(),
-      );
+      final optionsBuilder = IO.OptionBuilder()
+          .setTransports(['websocket']) // WebSocket 우선 사용
+          .disableAutoConnect(); // 수동 연결
+
+      // JWT 토큰이 있으면 인증 설정
+      if (jwtToken != null && jwtToken.isNotEmpty) {
+        optionsBuilder.setAuth({
+          'token': jwtToken, // 명세서 방식: JWT 인증
+        });
+        debugPrint('🔐 JWT token added to auth');
+      }
+
+      _socket = IO.io(serverUrl, optionsBuilder.build());
 
       // 이벤트 리스너 등록
       _setupEventListeners();
@@ -75,9 +83,22 @@ class SocketService {
   void _setupEventListeners() {
     if (_socket == null) return;
 
-    // 연결 성공
+    // 연결 성공 (재접속 포함)
     _socket!.on('connect', (_) {
       debugPrint('✅ Socket.IO connected: ${_socket!.id}');
+
+      // 재접속 시 자동으로 방 다시 참여 (명세서 요구사항)
+      if (_currentRoomId != null && _currentUserId != null) {
+        final isTeacher = _isTeacher ?? false;
+        _joinRoom(_currentRoomId!, _currentUserId!, isTeacher);
+        debugPrint('🔄 Re-joined room after reconnection');
+
+        // 동기화 요청 (이전 판서 복구)
+        Future.delayed(const Duration(milliseconds: 100), () {
+          requestSync();
+        });
+      }
+
       onConnected?.call();
     });
 
@@ -123,6 +144,14 @@ class SocketService {
       debugPrint('✅ Joined room: ${data['roomId']}');
     });
 
+    // 동기화 데이터 수신 (재접속 시)
+    _socket!.on('sync_state', (data) {
+      debugPrint('📥 Received sync_state');
+      if (data is List) {
+        onSyncState?.call(data);
+      }
+    });
+
     // 에러
     _socket!.on('error', (error) {
       debugPrint('❌ Socket error: $error');
@@ -139,14 +168,16 @@ class SocketService {
       return;
     }
 
+    // 명세서 방식: role 사용, timestamp 제거
+    final role = isTeacher ? 'teacher' : 'student';
+
     _socket!.emit('join_room', {
       'roomId': roomId,
       'userId': userId,
-      'isTeacher': isTeacher,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'role': role,
     });
 
-    debugPrint('📤 Sent join_room: $roomId');
+    debugPrint('📤 Sent join_room: $roomId (role: $role)');
   }
 
   /// ===============================
@@ -252,5 +283,21 @@ class SocketService {
 
     debugPrint('Attempting to reconnect...');
     _socket?.connect();
+  }
+
+  /// ===============================
+  /// 동기화 요청 (재접속 시 이전 판서 복구)
+  /// ===============================
+  void requestSync() {
+    if (_socket == null || !_socket!.connected) {
+      debugPrint('Cannot request sync: Socket not connected');
+      return;
+    }
+
+    _socket!.emit('sync_request', {
+      'roomId': _currentRoomId,
+    });
+
+    debugPrint('📤 Sent sync_request for room: $_currentRoomId');
   }
 }

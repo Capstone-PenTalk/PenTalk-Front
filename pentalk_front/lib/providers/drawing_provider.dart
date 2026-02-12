@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/drawing_models.dart';
@@ -79,6 +78,7 @@ class DrawingProvider extends ChangeNotifier {
     required String userId,
     required String roomId,
     required bool isTeacher,
+    String? jwtToken, // JWT 토큰 추가
   }) async {
     _userId = userId;
     _roomId = roomId;
@@ -90,6 +90,7 @@ class DrawingProvider extends ChangeNotifier {
         userId: userId,
         roomId: roomId,
         isTeacher: isTeacher,
+        jwtToken: jwtToken, // JWT 전달
       );
 
       _isSocketConnected = true;
