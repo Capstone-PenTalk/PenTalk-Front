@@ -1,19 +1,22 @@
-// lib/widgets/drawing_painter.dart
-
 import 'package:flutter/material.dart';
 import '../models/drawing_models.dart';
+import '../utils/coordinate_scaler.dart';
 
 /// ===============================
 /// 판서를 실제로 그리는 CustomPainter
 /// 최적화: shouldRepaint를 통해 필요할 때만 다시 그리기
+/// CoordinateScaler 사용으로 정확한 좌표 변환
+/// scale: 줌 레벨 (펜 굵기 보정용)
 /// ===============================
 class DrawingPainter extends CustomPainter {
   final List<Stroke> strokes;
-  final Size canvasSize;
+  final CoordinateScaler scaler;
+  final double scale;
 
   DrawingPainter({
     required this.strokes,
-    required this.canvasSize,
+    required this.scaler,
+    this.scale = 1.0,
   });
 
   @override
@@ -30,18 +33,22 @@ class DrawingPainter extends CustomPainter {
 
     if (points.isEmpty) return;
 
+    // 줌 레벨에 따라 펜 굵기 보정
+    // scale이 2.0이면 펜 굵기를 0.5배로 줄여서 실제로는 같은 굵기로 보이게
+    final adjustedWidth = stroke.width / scale;
+
     final paint = Paint()
       ..color = stroke.color
-      ..strokeWidth = stroke.width
+      ..strokeWidth = adjustedWidth
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke
-      ..isAntiAlias = true; // 안티앨리어싱 활성화 (부드러운 선)
+      ..isAntiAlias = true;
 
     // 점이 1개만 있으면 점으로 표시
     if (points.length == 1) {
-      final offset = points[0].toPixelOffset(canvasSize);
-      canvas.drawCircle(offset, stroke.width / 2, paint);
+      final offset = scaler.normalizedToPixel(points[0]);
+      canvas.drawCircle(offset, adjustedWidth / 2, paint);
       return;
     }
 
@@ -57,20 +64,20 @@ class DrawingPainter extends CustomPainter {
     if (points.isEmpty) return path;
 
     // 첫 점으로 이동
-    final firstPoint = points[0].toPixelOffset(canvasSize);
+    final firstPoint = scaler.normalizedToPixel(points[0]);
     path.moveTo(firstPoint.dx, firstPoint.dy);
 
     if (points.length == 2) {
       // 두 점이면 직선
-      final secondPoint = points[1].toPixelOffset(canvasSize);
+      final secondPoint = scaler.normalizedToPixel(points[1]);
       path.lineTo(secondPoint.dx, secondPoint.dy);
       return path;
     }
 
     // 세 점 이상: Quadratic Bezier로 부드러운 곡선 생성
     for (int i = 0; i < points.length - 1; i++) {
-      final current = points[i].toPixelOffset(canvasSize);
-      final next = points[i + 1].toPixelOffset(canvasSize);
+      final current = scaler.normalizedToPixel(points[i]);
+      final next = scaler.normalizedToPixel(points[i + 1]);
 
       // 중점 계산 (제어점으로 사용)
       final controlPoint = current;
@@ -88,7 +95,7 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 마지막 점까지 연결
-    final lastPoint = points.last.toPixelOffset(canvasSize);
+    final lastPoint = scaler.normalizedToPixel(points.last);
     path.lineTo(lastPoint.dx, lastPoint.dy);
 
     return path;
@@ -97,9 +104,12 @@ class DrawingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant DrawingPainter oldDelegate) {
     // 선의 개수나 내용이 변경된 경우에만 다시 그리기
-    // 최적화: 리스트 참조 비교로 빠르게 체크
+    // 또는 scaler가 변경된 경우 (화면 회전 등)
+    // 또는 줌 레벨이 변경된 경우
     return oldDelegate.strokes != strokes ||
-        oldDelegate.canvasSize != canvasSize;
+        oldDelegate.scaler.canvasSize != scaler.canvasSize ||
+        oldDelegate.scaler.contentSize != scaler.contentSize ||
+        (oldDelegate.scale - scale).abs() > 0.01;
   }
 
   @override
