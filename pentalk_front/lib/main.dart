@@ -14,12 +14,12 @@ import 'models/student_session_model.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  //토큰 저장
-  await AuthService.saveToken(
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyX3Rlc3QiLCJyb2xlIjoidGVhY2hlciIsImlhdCI6MTc3MjYwMzk5MCwiZXhwIjoxNzczMjA4NzkwfQ.4_MvcZTSvmfNBeBHqr_jWcWGwH-lfklzhbUVFLMYRAk'
+  // 토큰, 유저ID, Role을 한 번에 저장하도록 수정!
+  await AuthService.saveUserInfo(
+    token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyX3Rlc3QiLCJyb2xlIjoidGVhY2hlciIsImlhdCI6MTc3MjYwMzk5MCwiZXhwIjoxNzczMjA4NzkwfQ.4_MvcZTSvmfNBeBHqr_jWcWGwH-lfklzhbUVFLMYRAk',
+    userId: 'teacher_test',
+    role: 'teacher',
   );
-  await AuthService.saveUserId('teacher_test');
-  await AuthService.saveRole('teacher');
 
   runApp(const MyApp());
 }
