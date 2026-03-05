@@ -8,9 +8,19 @@ import 'screens/student_home_screen.dart';
 import 'screens/material_detail_screen.dart';
 import 'screens/drawing_screen.dart';
 import 'services/deep_link_service.dart';
+import 'services/auth_service.dart';
 import 'models/student_session_model.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  //토큰 저장
+  await AuthService.saveToken(
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyX3Rlc3QiLCJyb2xlIjoidGVhY2hlciIsImlhdCI6MTc3MjYwMzk5MCwiZXhwIjoxNzczMjA4NzkwfQ.4_MvcZTSvmfNBeBHqr_jWcWGwH-lfklzhbUVFLMYRAk'
+  );
+  await AuthService.saveUserId('teacher_test');
+  await AuthService.saveRole('teacher');
+
   runApp(const MyApp());
 }
 

@@ -233,7 +233,7 @@ class SocketService {
       return;
     }
 
-    _socket!.emit('clear_all', {
+    _socket!.emit('draw:clear', {
       'roomId': _currentRoomId,
       'senderId': senderId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
