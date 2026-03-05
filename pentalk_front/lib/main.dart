@@ -7,25 +7,27 @@ import 'providers/personal_drawing_provider.dart';
 import 'screens/student_home_screen.dart';
 import 'screens/material_detail_screen.dart';
 import 'screens/drawing_screen.dart';
+import 'screens/login_screen.dart';  // 👈 추가
 import 'services/deep_link_service.dart';
 import 'services/auth_service.dart';
+import 'utils/route_guard.dart';  // 👈 추가
 import 'models/student_session_model.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 토큰, 유저ID, Role을 한 번에 저장하도록 수정!
-  await AuthService.saveUserInfo(
-    token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyX3Rlc3QiLCJyb2xlIjoidGVhY2hlciIsImlhdCI6MTc3MjYwMzk5MCwiZXhwIjoxNzczMjA4NzkwfQ.4_MvcZTSvmfNBeBHqr_jWcWGwH-lfklzhbUVFLMYRAk',
-    userId: 'teacher_test',
-    role: 'teacher',
-  );
+  await AuthService.clearAll();
 
-  runApp(const MyApp());
+  // 👇 로그인 상태 확인
+  final isLoggedIn = await RouteGuard.isAuthenticated();
+
+  runApp(MyApp(isLoggedIn: isLoggedIn));
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({Key? key}) : super(key: key);
+  final bool isLoggedIn;  // 👈 추가
+
+  const MyApp({Key? key, required this.isLoggedIn}) : super(key: key);
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -126,10 +128,14 @@ class _MyAppState extends State<MyApp> {
             elevation: 0,
           ),
         ),
-        home: const StudentHomeScreen(),
+        // 👇 초기 화면: 로그인 여부에 따라
+        home: widget.isLoggedIn
+            ? const StudentHomeScreen()
+            : const LoginScreen(),
 
         // Named Routes 정의
         routes: {
+          '/login': (context) => const LoginScreen(),  // 👈 추가
           '/home': (context) => const StudentHomeScreen(),
         },
 

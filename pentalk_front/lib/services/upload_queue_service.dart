@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';  // Color 사용
 import 'dart:convert';
 import '../models/drawing_models.dart';
 
@@ -62,9 +63,9 @@ class UploadQueueService {
 
     // Stroke → JSON
     final strokesJson = strokes.map((s) => {
-      'sId': s.id,
+      'sId': s.strokeId,  // id → strokeId
       'pts': s.points.map((p) => {'x': p.x, 'y': p.y}).toList(),
-      'c': s.color,
+      'c': '#${s.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
       'w': s.width,
     }).toList();
 
@@ -95,14 +96,22 @@ class UploadQueueService {
 
       final strokes = strokesJson.map((json) {
         final points = (json['pts'] as List).map((p) =>
-            DrawPoint(p['x'], p['y'])
+            DrawPoint(
+              x: (p['x'] as num).toDouble(),
+              y: (p['y'] as num).toDouble(),
+            )
         ).toList();
 
+        // 색상 파싱
+        final colorString = json['c'] as String;
+        final colorInt = int.parse(colorString.replaceFirst('#', ''), radix: 16);
+        final color = Color(0xFF000000 | colorInt);
+
         return Stroke(
-          id: json['sId'],
+          strokeId: json['sId'] as int,
           points: points,
-          color: json['c'],
-          width: json['w'],
+          color: color,
+          width: (json['w'] as num).toDouble(),
         );
       }).toList();
 

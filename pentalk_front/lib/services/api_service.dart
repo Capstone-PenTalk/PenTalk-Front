@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';  // Color 사용
 import '../models/drawing_models.dart';
 import 'auth_service.dart';
 
@@ -25,12 +26,12 @@ class ApiService {
 
       // Stroke → JSON 변환
       final strokesJson = strokes.map((stroke) => {
-        'sId': stroke.id,
+        'sId': stroke.strokeId,  // id → strokeId
         'pts': stroke.points.map((p) => {
           'x': p.x,
           'y': p.y,
         }).toList(),
-        'c': stroke.color,
+        'c': '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
         'w': stroke.width,
       }).toList();
 
@@ -119,14 +120,22 @@ class ApiService {
         // JSON → Stroke 변환
         final strokes = strokesJson.map((json) {
           final points = (json['pts'] as List).map((p) =>
-              DrawPoint(p['x'], p['y'])
+              DrawPoint(
+                x: (p['x'] as num).toDouble(),
+                y: (p['y'] as num).toDouble(),
+              )
           ).toList();
 
+          // 색상 파싱 (#RRGGBB → Color)
+          final colorString = json['c'] as String;
+          final colorInt = int.parse(colorString.replaceFirst('#', ''), radix: 16);
+          final color = Color(0xFF000000 | colorInt);
+
           return Stroke(
-            id: json['sId'],
+            strokeId: json['sId'] as int,
             points: points,
-            color: json['c'],
-            width: json['w'],
+            color: color,
+            width: (json['w'] as num).toDouble(),
           );
         }).toList();
 
@@ -155,6 +164,83 @@ class ApiService {
       );
     }
   }
+
+  /// ===============================
+  /// 로그인 (POST /auth/dev-login)
+  /// ===============================
+  static Future<ApiResponse<LoginResponse>> login({
+    required String userId,
+    required String role,
+  }) async {
+    try {
+      debugPrint('📤 POST /auth/dev-login: userId=$userId, role=$role');
+
+      final body = {
+        'userId': userId,
+        'role': role,
+      };
+
+      // HTTP 요청
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/dev-login'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Login timeout');
+        },
+      );
+
+      // 응답 처리
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint('✅ Login success: ${data['user']['userId']}');
+
+        return ApiResponse<LoginResponse>(
+          success: true,
+          data: LoginResponse(
+            token: data['token'],
+            userId: data['user']['userId'],
+            role: data['user']['role'],
+          ),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        debugPrint('❌ Login failed: ${error['message']}');
+
+        return ApiResponse<LoginResponse>(
+          success: false,
+          error: error['code'] ?? 'LOGIN_FAILED',
+          message: error['message'] ?? 'Login failed',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Login error: $e');
+      return ApiResponse<LoginResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+}
+
+/// ===============================
+/// 로그인 응답 모델
+/// ===============================
+class LoginResponse {
+  final String token;
+  final String userId;
+  final String role;
+
+  LoginResponse({
+    required this.token,
+    required this.userId,
+    required this.role,
+  });
 }
 
 /// ===============================
