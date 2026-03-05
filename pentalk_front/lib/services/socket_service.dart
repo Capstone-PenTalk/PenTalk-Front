@@ -146,9 +146,12 @@ class SocketService {
 
     // 동기화 데이터 수신 (재접속 시)
     _socket!.on('sync_state', (data) {
-      debugPrint('📥 Received sync_state');
-      if (data is List) {
-        onSyncState?.call(data);
+      debugPrint('📥 Received sync_state: $data');
+      // 1. 데이터가 Map 형태이고, 'strokes'라는 키를 가지고 있는지 확인
+      if (data is Map && data.containsKey('strokes')) {
+        // 2. 배열만  뽑아서 전달
+        final List<dynamic> strokesList = data['strokes'];
+        onSyncState?.call(strokesList);
       }
     });
 

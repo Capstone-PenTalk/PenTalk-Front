@@ -95,6 +95,31 @@ class Stroke {
     this.refinedPoints,
   });
 
+  //JSON → Stroke
+  factory Stroke.fromJson(Map<String, dynamic> json) {
+    // 1. 점(points) 데이터 파싱
+    final ptsList = json['pts'] as List<dynamic>? ?? [];
+    final parsedPoints = ptsList
+        .map((pt) => DrawPoint.fromJson(pt as Map<String, dynamic>))
+        .toList();
+
+    // 2. 색상(color) 파싱 (안전 처리 포함)
+    Color parsedColor = Colors.black;
+    if (json['c'] != null) {
+      final hex = (json['c'] as String).replaceAll('#', '');
+      if (hex.length == 6) {
+        parsedColor = Color(int.parse('FF$hex', radix: 16));
+      }
+    }
+
+    return Stroke(
+      strokeId: json['sId'] as int,
+      color: parsedColor,
+      width: json['w'] != null ? (json['w'] as num).toDouble() : 2.5,
+      points: parsedPoints,
+    );
+  }
+
   Stroke copyWith({
     int? strokeId,
     Color? color,

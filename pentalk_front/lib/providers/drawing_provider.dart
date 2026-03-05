@@ -3,10 +3,8 @@ import 'package:flutter/services.dart';
 import '../models/drawing_models.dart';
 import '../services/socket_service.dart';
 
-/// ===============================
 /// 판서 데이터 Provider (Socket.IO 통합)
 /// 최적화: notifyListeners() 호출 최소화
-/// ===============================
 class DrawingProvider extends ChangeNotifier {
   static const platform = MethodChannel('pentalk/drawing');
 
@@ -39,15 +37,25 @@ class DrawingProvider extends ChangeNotifier {
 
   // Getters
   Map<int, Stroke> get myStrokes => _myStrokes;
+
   Map<int, Stroke> get myActiveStrokes => _myActiveStrokes;
+
   Map<int, Stroke> get othersStrokes => _othersStrokes;
+
   Map<int, Stroke> get othersActiveStrokes => _othersActiveStrokes;
+
   String? get backgroundUrl => _backgroundUrl;
+
   bool get isDrawingMode => _isDrawingMode;
+
   Color get currentColor => _currentColor;
+
   double get currentWidth => _currentWidth;
+
   bool get isSocketConnected => _isSocketConnected;
+
   String? get userId => _userId;
+
   String? get roomId => _roomId;
 
   /// 내 모든 선들 (완성 + 진행중)
@@ -70,9 +78,7 @@ class DrawingProvider extends ChangeNotifier {
     _setupSocketListeners();
   }
 
-  /// ===============================
   /// Socket.IO 연결
-  /// ===============================
   Future<void> connectSocket({
     required String serverUrl,
     required String userId,
@@ -102,13 +108,15 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
-  /// ===============================
   /// Socket.IO 이벤트 리스너 설정
-  /// ===============================
   void _setupSocketListeners() {
     // 판서 이벤트 수신
     _socketService.onDrawEventReceived = (event) {
       _handleReceivedDrawEvent(event);
+    };
+    //중간 입장 시 전체 그림 받아오기
+    _socketService.onSyncState = (strokesList) {
+      _handleSyncState(strokesList);
     };
 
     // 연결 상태
@@ -134,9 +142,7 @@ class DrawingProvider extends ChangeNotifier {
     };
   }
 
-  /// ===============================
   /// MethodChannel 설정
-  /// ===============================
   void _setupMethodChannel() {
     platform.setMethodCallHandler((call) async {
       try {
@@ -151,7 +157,6 @@ class DrawingProvider extends ChangeNotifier {
     });
   }
 
-  /// ===============================
   /// 수신된 판서 이벤트 처리 (다른 사람의 펜)
   /// ===============================
   void _handleReceivedDrawEvent(DrawEvent event) {
@@ -189,7 +194,7 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 다른 사람의 draw_move
+  //다른 사람의 draw_move
   void _handleOthersDrawMove(DrawEvent event) {
     if (event.point == null) return;
 
@@ -200,7 +205,8 @@ class DrawingProvider extends ChangeNotifier {
     }
 
     final updatedPoints = [...stroke.points, event.point!];
-    _othersActiveStrokes[event.strokeId] = stroke.copyWith(points: updatedPoints);
+    _othersActiveStrokes[event.strokeId] =
+        stroke.copyWith(points: updatedPoints);
 
     if (updatedPoints.length % 3 == 0) {
       notifyListeners();
@@ -243,9 +249,7 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
-  /// ===============================
-  /// 내 판서 이벤트 처리 (로컬)
-  /// ===============================
+  // 내 판서 이벤트 처리 (로컬)
   void _handleMyDrawStart(DrawEvent event) {
     if (event.point == null) return;
 
@@ -295,9 +299,7 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
-  /// ===============================
   /// 설정 관련
-  /// ===============================
   void setBackgroundUrl(String? url) {
     if (_backgroundUrl != url) {
       _backgroundUrl = url;
@@ -324,11 +326,11 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
-  /// ===============================
   /// 내가 그릴 때: 로컬 + 소켓 전송
-  /// ===============================
   int sendDrawStart(DrawPoint point) {
-    final strokeId = DateTime.now().millisecondsSinceEpoch;
+    final strokeId = DateTime
+        .now()
+        .millisecondsSinceEpoch;
 
     final event = DrawEvent(
       eventType: DrawEventType.drawStart,
@@ -449,5 +451,27 @@ class DrawingProvider extends ChangeNotifier {
   void dispose() {
     disconnectSocket();
     super.dispose();
+  }
+  /// 중간 입장 시 이전 판서 데이터 복구
+  void _handleSyncState(List<dynamic> strokesList) {
+    _othersStrokes.clear(); // 기존 판서 초기화
+
+    for (var item in strokesList) {
+      try {
+        final Map<String, dynamic> dataMap = Map<String, dynamic>.from(item);
+
+        // 새로 만든 Stroke.fromJson을 깔끔하게 사용!
+        final stroke = Stroke.fromJson(dataMap);
+
+        if (stroke.points.isNotEmpty) {
+          _othersStrokes[stroke.strokeId] = stroke;
+        }
+      } catch (e) {
+        debugPrint('Error parsing sync stroke: $e');
+      }
+    }
+
+    notifyListeners(); // 화면 새로고침
+    debugPrint('✅ Sync complete: ${_othersStrokes.length} strokes loaded');
   }
 }
