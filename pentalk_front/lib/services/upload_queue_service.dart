@@ -149,12 +149,12 @@ class UploadQueueService {
     await db.update(
       'pending_uploads',
       {
-        'retry_count': (await db.query(
+        'retry_count': ((await db.query(
           'pending_uploads',
           columns: ['retry_count'],
           where: 'id = ?',
           whereArgs: [id],
-        )).first['retry_count'] as int + 1,
+        )).first['retry_count'] as int) + 1,
         'last_attempt_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'id = ?',

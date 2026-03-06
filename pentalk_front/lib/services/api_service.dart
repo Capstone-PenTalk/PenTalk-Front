@@ -226,6 +226,87 @@ class ApiService {
       );
     }
   }
+
+  /// ===============================
+  /// 세션 종료 (POST /sessions/{sessionId}/end)
+  /// 교사 전용
+  /// ===============================
+  static Future<ApiResponse<EndSessionResponse>> endSession({
+    required String sessionId,
+  }) async {
+    try {
+      // JWT 토큰 가져오기
+      final token = await AuthService.getToken();
+
+      debugPrint('📤 POST /sessions/$sessionId/end');
+
+      // HTTP 요청
+      final response = await http.post(
+        Uri.parse('$baseUrl/sessions/$sessionId/end'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Request timeout');
+        },
+      );
+
+      // 응답 처리
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint('✅ Session ended: ${data['sessionId']}');
+
+        return ApiResponse<EndSessionResponse>(
+          success: data['ok'] ?? false,
+          data: EndSessionResponse(
+            sessionId: data['sessionId'],
+            status: data['status'],
+            strokeCount: data['strokeCount'],
+            drawingPath: data['drawingPath'],
+            closedAt: data['closedAt'],
+          ),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        debugPrint('❌ End session failed: ${error['message']}');
+
+        return ApiResponse<EndSessionResponse>(
+          success: false,
+          error: error['code'] ?? 'END_SESSION_FAILED',
+          message: error['message'] ?? 'Failed to end session',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ End session error: $e');
+      return ApiResponse<EndSessionResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+}
+
+/// ===============================
+/// 세션 종료 응답 모델
+/// ===============================
+class EndSessionResponse {
+  final String sessionId;
+  final String status;
+  final int strokeCount;
+  final String drawingPath;
+  final String closedAt;
+
+  EndSessionResponse({
+    required this.sessionId,
+    required this.status,
+    required this.strokeCount,
+    required this.drawingPath,
+    required this.closedAt,
+  });
 }
 
 /// ===============================

@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
+import '../widgets/session_ended_dialog.dart';
+import '../services/api_service.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
@@ -36,6 +38,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeDrawing();
+      _setupSessionEndedListener();
     });
   }
 
@@ -67,6 +70,46 @@ class _DrawingScreenState extends State<DrawingScreen> {
       debugPrint('roomId: ${widget.roomId}');
       debugPrint('userId: ${widget.userId}');
     }
+  }
+
+  /// 세션 종료 이벤트 리스너 설정
+  void _setupSessionEndedListener() {
+    final provider = context.read<DrawingProvider>();
+
+    provider.onSessionEnded = (data) {
+      _handleSessionEnded(data);
+    };
+  }
+
+  /// 세션 종료 이벤트 처리
+  void _handleSessionEnded(Map<String, dynamic> data) {
+    final message = data['message'] as String? ?? '교사가 수업을 종료했습니다';
+
+    if (widget.isTeacher) {
+      // 교사: 팝업 없이 바로 홈으로
+      _cleanupAndGoHome();
+    } else {
+      // 학생: 알림 팝업 표시
+      SessionEndedDialog.showStudentNotification(
+        context,
+        message: message,
+        onConfirm: _cleanupAndGoHome,
+      );
+    }
+  }
+
+  /// 정리 후 홈 화면으로 이동
+  void _cleanupAndGoHome() {
+    final provider = context.read<DrawingProvider>();
+
+    // 소켓 연결 해제
+    provider.disconnectSocket();
+
+    // 상태 초기화
+    provider.clear();
+
+    // 홈으로 이동
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   Future<void> _connectSocket() async {
@@ -106,6 +149,55 @@ class _DrawingScreenState extends State<DrawingScreen> {
           _isConnecting = false;
         });
       }
+    }
+  }
+
+  /// 세션 종료 (교사 전용)
+  Future<void> _endSession() async {
+    if (!widget.isTeacher) return;
+
+    // 확인 팝업
+    final confirmed = await SessionEndedDialog.showEndConfirmation(context);
+    if (!confirmed) return;
+
+    // 로딩 팝업 표시
+    SessionEndedDialog.showEndingProgress(context);
+
+    try {
+      // API 호출
+      final response = await ApiService.endSession(
+        sessionId: widget.roomId!,
+      );
+
+      if (!mounted) return;
+
+      // 로딩 팝업 닫기
+      Navigator.pop(context);
+
+      if (response.success) {
+        debugPrint('✅ Session ended successfully');
+        // session:ended 이벤트를 받으면 자동으로 처리됨
+      } else {
+        // 에러 처리
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('세션 종료 실패: ${response.message}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      // 로딩 팝업 닫기
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('오류: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -159,6 +251,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
               icon: const Icon(Icons.delete_outline),
               onPressed: _handleClear,
               tooltip: '전체 지우기',
+            ),
+            // 👇 세션 종료 버튼 추가!
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: _endSession,
+              tooltip: '세션 종료',
+              color: Colors.red,
             ),
           ],
         ],
