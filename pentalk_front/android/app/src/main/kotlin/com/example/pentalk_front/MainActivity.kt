@@ -1,6 +1,7 @@
 package com.example.pentalk_front
 
 import android.content.Intent
+import android.util.Log
 import com.example.pentalk_front.drawing.DrawingChannel
 import com.example.pentalk_front.drawing.InkDrawingActivity
 import com.example.pentalk_front.drawing.InkDrawingView
@@ -49,6 +50,7 @@ class MainActivity : FlutterActivity() {
                     @Suppress("UNCHECKED_CAST")
                     val payload = call.arguments as? Map<String, Any>
                     if (payload != null) {
+                        Log.d("PentalkDrawing", "[draw][android] sendDrawEvent received: $payload")
                         // TODO: forward payload to socket server.
                     }
                     result.success(null)

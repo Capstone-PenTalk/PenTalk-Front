@@ -5,4 +5,8 @@ final class DrawingSurfaceManager {
     func applyBrushConfig(_ config: DrawingPlatformView.BrushConfig) {
         surface?.applyBrushConfig(config)
     }
+
+    func exportDrawingSnapshot() -> [[String: Any]] {
+        surface?.exportDrawingSnapshot() ?? []
+    }
 }

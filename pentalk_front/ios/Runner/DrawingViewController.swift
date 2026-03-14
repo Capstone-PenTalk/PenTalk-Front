@@ -35,7 +35,17 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
     var onDismiss: (() -> Void)?
 
     init(config: BrushConfig) {
-        self.currentConfig = config
+        if config.tool.lowercased() == "pen",
+           config.color.isEqual(UIColor.white) {
+            self.currentConfig = BrushConfig(
+                tool: config.tool,
+                color: .black,
+                size: config.size,
+                eraserSize: config.eraserSize
+            )
+        } else {
+            self.currentConfig = config
+        }
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
@@ -292,6 +302,12 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
         appendNewPoints(from: canvasView)
         guard let strokeId = activeStrokeId else { return }
+        if activePoints.isEmpty {
+            activeStrokeId = nil
+            lastPointCount = 0
+            isDrawing = false
+            return
+        }
         let payload: [String: Any] = [
             "e": "de",
             "sId": strokeId,
@@ -321,11 +337,13 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
             if lastPointCount == 0 {
                 let first = path[0]
                 let normalized = DrawingMetricsStore.normalize(point: first.location)
+                let pressure = first.force
                 let payload: [String: Any] = [
                     "e": "ds",
                     "sId": activeStrokeId as Any,
                     "x": normalized.x,
                     "y": normalized.y,
+                    "p": pressure,
                     "c": currentConfig.color.hexRGB(),
                     "w": currentConfig.size,
                 ]
@@ -334,11 +352,12 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
 
             if count > lastPointCount {
                 for index in lastPointCount..<count {
-                    let point = path[index].location
-                    let normalized = DrawingMetricsStore.normalize(point: point)
+                    let point = path[index]
+                    let normalized = DrawingMetricsStore.normalize(point: point.location)
                     activePoints.append([
                         "x": Double(normalized.x),
                         "y": Double(normalized.y),
+                        "p": Double(point.force),
                     ])
                     if index == 0 { continue }
                     let payload: [String: Any] = [
@@ -346,6 +365,7 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
                         "sId": activeStrokeId as Any,
                         "x": normalized.x,
                         "y": normalized.y,
+                        "p": point.force,
                     ]
                     DrawingChannel.notifyDrawEvent(payload)
                 }

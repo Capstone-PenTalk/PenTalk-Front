@@ -11,6 +11,7 @@ import '../widgets/drawing_canvas_widget.dart';
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
   final String? backgroundUrl; // PDF/이미지 URL (선택)
+  final String? materialId; // 자료 ID
   final bool isTeacher;
   final String? serverUrl; // Socket.IO 서버 URL
   final String? roomId; // 방 ID
@@ -20,6 +21,7 @@ class DrawingScreen extends StatefulWidget {
     Key? key,
     required this.materialTitle,
     this.backgroundUrl,
+    this.materialId,
     this.isTeacher = false,
     this.serverUrl,
     this.roomId,
@@ -80,6 +82,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         userId: widget.userId!,
         roomId: widget.roomId!,
         isTeacher: widget.isTeacher,
+        materialId: widget.materialId,
       );
 
       debugPrint('✅ Socket.IO connection initiated');
@@ -120,53 +123,49 @@ class _DrawingScreenState extends State<DrawingScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.materialTitle),
-        actions: [
-          // 교사용 컨트롤
-          if (widget.isTeacher && provider.isDrawingMode) ...[
-            // 펜 색상 선택
-            IconButton(
-              icon: Consumer<DrawingProvider>(
-                builder: (context, provider, child) {
-                  return Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: provider.currentColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey),
-                    ),
-                  );
-                },
-              ),
-              onPressed: _showColorPicker,
-              tooltip: '색상 선택',
-            ),
-            // 펜 굵기 선택
-            IconButton(
-              icon: const Icon(Icons.line_weight),
-              onPressed: _showWidthPicker,
-              tooltip: '굵기 선택',
-            ),
-            // Undo (최근 선 삭제)
-            IconButton(
-              icon: const Icon(Icons.undo),
-              onPressed: _handleUndo,
-              tooltip: '실행 취소',
-            ),
-            // 전체 지우기
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: _handleClear,
-              tooltip: '전체 지우기',
-            ),
-          ],
-          if (kDebugMode)
-            IconButton(
-              icon: const Icon(Icons.bug_report),
-              tooltip: '수신 이벤트 로그 테스트',
-              onPressed: () => _sendDebugInboundEvent(provider),
-            ),
-        ],
+        // TODO: 네이티브 툴바 확인 중 (임시 비활성화)
+        // actions: [
+        //   if (widget.isTeacher && provider.isDrawingMode) ...[
+        //     IconButton(
+        //       icon: Consumer<DrawingProvider>(
+        //         builder: (context, provider, child) {
+        //           return Container(
+        //             width: 24,
+        //             height: 24,
+        //             decoration: BoxDecoration(
+        //               color: provider.currentColor,
+        //               shape: BoxShape.circle,
+        //               border: Border.all(color: Colors.grey),
+        //             ),
+        //           );
+        //         },
+        //       ),
+        //       onPressed: _showColorPicker,
+        //       tooltip: '색상 선택',
+        //     ),
+        //     IconButton(
+        //       icon: const Icon(Icons.line_weight),
+        //       onPressed: _showWidthPicker,
+        //       tooltip: '굵기 선택',
+        //     ),
+        //     IconButton(
+        //       icon: const Icon(Icons.undo),
+        //       onPressed: _handleUndo,
+        //       tooltip: '실행 취소',
+        //     ),
+        //     IconButton(
+        //       icon: const Icon(Icons.delete_outline),
+        //       onPressed: _handleClear,
+        //       tooltip: '전체 지우기',
+        //     ),
+        //   ],
+        //   if (kDebugMode)
+        //     IconButton(
+        //       icon: const Icon(Icons.bug_report),
+        //       tooltip: '수신 이벤트 로그 테스트',
+        //       onPressed: () => _sendDebugInboundEvent(provider),
+        //     ),
+        // ],
       ),
       body: _isConnecting
           ? const Center(
@@ -182,9 +181,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
           : Stack(
               children: [
                 DrawingCanvasWidget(
-                  isTeacher: widget.isTeacher &&
-                      (!provider.isDrawingMode ||
-                          defaultTargetPlatform != TargetPlatform.iOS),
+                  isTeacher: widget.isTeacher,
+                  enableTouchInput: !(defaultTargetPlatform == TargetPlatform.iOS &&
+                      provider.isDrawingMode),
+                  showMyStrokes: !(defaultTargetPlatform == TargetPlatform.iOS &&
+                      provider.isDrawingMode),
                   onCanvasSize: (size) => _updateDrawingMetrics(provider, size),
                 ),
                 if (widget.isTeacher &&
@@ -354,8 +355,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
     );
   }
 
-  void _toggleDrawingMode(DrawingProvider provider) {
+  Future<void> _toggleDrawingMode(DrawingProvider provider) async {
     final next = !provider.isDrawingMode;
+    if (!next &&
+        widget.isTeacher &&
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      await provider.syncMyStrokesFromNativeSnapshot();
+    }
     provider.setDrawingMode(next);
     if (next) {
       _syncBrushToNative(provider);

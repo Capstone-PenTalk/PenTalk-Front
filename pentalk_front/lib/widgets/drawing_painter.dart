@@ -30,6 +30,12 @@ class DrawingPainter extends CustomPainter {
 
     if (points.isEmpty) return;
 
+    final hasPressure = points.any((p) => p.pressure != null);
+    if (hasPressure) {
+      _drawStrokeWithPressure(canvas, stroke, points);
+      return;
+    }
+
     final paint = Paint()
       ..color = stroke.color
       ..strokeWidth = stroke.width
@@ -48,6 +54,36 @@ class DrawingPainter extends CustomPainter {
     // 2개 이상의 점이면 Path로 연결
     final path = _createSmoothPath(points);
     canvas.drawPath(path, paint);
+  }
+
+  void _drawStrokeWithPressure(
+    Canvas canvas,
+    Stroke stroke,
+    List<DrawPoint> points,
+  ) {
+    if (points.isEmpty) return;
+    final paint = Paint()
+      ..color = stroke.color
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
+
+    for (int i = 0; i < points.length; i++) {
+      final point = points[i];
+      final offset = point.toPixelOffset(canvasSize);
+      final pressure = point.pressure ?? 1.0;
+      final width = stroke.width * pressure;
+      if (i == 0) {
+        paint.strokeWidth = width;
+        canvas.drawCircle(offset, width / 2, paint);
+        continue;
+      }
+      final prev = points[i - 1].toPixelOffset(canvasSize);
+      final prevPressure = points[i - 1].pressure ?? 1.0;
+      paint.strokeWidth = (stroke.width * (pressure + prevPressure)) / 2;
+      canvas.drawLine(prev, offset, paint);
+    }
   }
 
   /// 부드러운 곡선 Path 생성 (Quadratic Bezier 사용)

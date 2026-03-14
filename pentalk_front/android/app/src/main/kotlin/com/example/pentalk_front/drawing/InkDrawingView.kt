@@ -102,9 +102,11 @@ class InkDrawingView @JvmOverloads constructor(
             event.getX(pointerIndex),
             event.getY(pointerIndex),
         )
+        val pressure = event.getPressure(pointerIndex).toDouble()
         val startPoint = mapOf(
             "x" to normalizedStart.first.toDouble(),
             "y" to normalizedStart.second.toDouble(),
+            "p" to pressure,
         )
         activePoints[pointerId] = mutableListOf(startPoint)
         DrawingChannel.notifyDrawEvent(
@@ -113,6 +115,7 @@ class InkDrawingView @JvmOverloads constructor(
                 "sId" to strokeId,
                 "x" to normalizedStart.first,
                 "y" to normalizedStart.second,
+                "p" to pressure,
                 "c" to colorHex(brushConfig.color),
                 "w" to brushConfig.size.toDouble(),
             )
@@ -146,9 +149,11 @@ class InkDrawingView @JvmOverloads constructor(
                     event.getX(i),
                     event.getY(i),
                 )
+                val pressure = event.getPressure(i).toDouble()
                 val point = mapOf(
                     "x" to normalizedPoint.first.toDouble(),
                     "y" to normalizedPoint.second.toDouble(),
+                    "p" to pressure,
                 )
                 activePoints[pointerId]?.add(point)
                 DrawingChannel.notifyDrawEvent(
@@ -157,6 +162,7 @@ class InkDrawingView @JvmOverloads constructor(
                         "sId" to strokeId,
                         "x" to normalizedPoint.first,
                         "y" to normalizedPoint.second,
+                        "p" to pressure,
                     )
                 )
             }

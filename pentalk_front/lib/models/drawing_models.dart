@@ -149,7 +149,8 @@ class DrawEvent {
     }
 
     final eventType = DrawEventType.fromCode(json['e'] as String);
-    final strokeId = json['sId'] as int;
+    final rawStrokeId = json['sId'];
+    final strokeId = (rawStrokeId as num?)?.toInt() ?? 0;
 
     // draw_start
     if (eventType == DrawEventType.drawStart) {

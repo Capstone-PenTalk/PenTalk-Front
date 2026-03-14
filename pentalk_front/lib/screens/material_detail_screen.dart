@@ -8,6 +8,14 @@ class MaterialDetailScreen extends StatelessWidget {
   final MaterialModel material;
   final String sessionTitle;
   final String teacherName;
+  static const String _demoSessionId =
+      '58e29366-0563-47bd-8137-54500bf3d957';
+  static const String _demoMaterialId = 'seed-material-01';
+
+  static const String _teacherServerUrl =
+      'http://192.168.219.143:3000/?role=teacher&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyMSIsInJvbGUiOiJ0ZWFjaGVyIiwiaWF0IjoxNzczMTUxNDA2LCJleHAiOjE3NzM3NTYyMDZ9.JTsfuuL2K5C-OWURkvYM0PcPUVYvDzdzveqBu4w-8gA';
+  static const String _studentServerUrl =
+      'http://192.168.219.143:3000/?role=student&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJzdHVkZW50MSIsInJvbGUiOiJzdHVkZW50IiwiaWF0IjoxNzczMTUxNDE2LCJleHAiOjE3NzM3NTYyMTZ9.xDtnlgluJbUM9vjPKSnyvc0P-RtpBKCrt3cMaIN9mGs';
 
   const MaterialDetailScreen({
     Key? key,
@@ -71,24 +79,67 @@ class MaterialDetailScreen extends StatelessWidget {
   }
 
   void _handleStartDrawing(BuildContext context) {
-    // TODO: 실제 서버 URL, roomId, userId 설정
-    const serverUrl = 'http://localhost:3000'; // 실제 서버 URL로 변경
-    final roomId = 'room_${sessionTitle}_${DateTime.now().millisecondsSinceEpoch}';
-    const userId = 'user_123'; // 실제 사용자 ID로 변경
+    _showRolePicker(context);
+  }
+
+  void _showRolePicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.school),
+                title: const Text('선생님으로 시작'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _startDrawingWithRole(context, isTeacher: true);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person),
+                title: const Text('학생으로 시작'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _startDrawingWithRole(context, isTeacher: false);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _startDrawingWithRole(BuildContext context, {required bool isTeacher}) {
+    // Demo session/material are seeded on the backend and used for local testing.
+    final serverUrl = _resolveServerUrl(isTeacher);
+    const userId = 'user_124'; // 실제 사용자 ID로 변경
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
           materialTitle: material.title,
-          backgroundUrl: material.url, // PDF/이미지 URL
-          isTeacher: true, // TODO: 실제 역할에 따라 변경
+          backgroundUrl: null,
+          materialId: _demoMaterialId,
+          isTeacher: isTeacher,
           serverUrl: serverUrl,
-          roomId: roomId,
+          roomId: _demoSessionId,
           userId: userId,
         ),
       ),
     );
+  }
+
+  String? _resolveServerUrl(bool isTeacher) {
+    final url = isTeacher ? _teacherServerUrl : _studentServerUrl;
+    if (url.isEmpty) {
+      return null;
+    }
+    return url;
   }
 
   @override

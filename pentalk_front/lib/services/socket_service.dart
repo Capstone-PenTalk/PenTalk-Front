@@ -11,6 +11,8 @@ class SocketService {
   IO.Socket? _socket;
   String? _currentRoomId;
   String? _currentUserId;
+  String? _currentMaterialId;
+  bool _currentIsTeacher = false;
 
   // 콜백 함수들
   Function(DrawEvent)? onDrawEventReceived;
@@ -32,22 +34,50 @@ class SocketService {
     required String userId,
     required String roomId,
     bool isTeacher = false,
+    String? materialId,
   }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
+      _currentMaterialId = materialId;
+      _currentIsTeacher = isTeacher;
 
-      debugPrint('Connecting to Socket.IO: $serverUrl');
-      debugPrint('User ID: $userId, Room ID: $roomId, isTeacher: $isTeacher');
+      final normalizedUrl = serverUrl.replaceFirst(RegExp(r'^hhttps'), 'https');
+      debugPrint('[socket] Connecting to $normalizedUrl');
+      debugPrint('[socket] userId=$userId roomId=$roomId materialId=$materialId isTeacher=$isTeacher');
+
+      final uri = Uri.parse(normalizedUrl);
+      final token = uri.queryParameters['token'];
+      final queryParams = Map<String, String>.from(uri.queryParameters);
+      queryParams.remove('token');
+      final hasValidPort = uri.hasPort && uri.port > 0;
+      final originUri = hasValidPort
+          ? Uri(scheme: uri.scheme, host: uri.host, port: uri.port)
+          : Uri(scheme: uri.scheme, host: uri.host);
+      final baseUrl = StringBuffer()..write(originUri.toString());
+      if (uri.path.isNotEmpty && uri.path != '/') {
+        baseUrl.write(uri.path);
+      }
+
+      final options = IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .disableAutoConnect()
+          .setExtraHeaders({
+            'user-id': userId,
+            if (token != null && token.isNotEmpty)
+              'Authorization': 'Bearer $token',
+          });
+      if (queryParams.isNotEmpty) {
+        options.setQuery(queryParams);
+      }
+      if (token != null && token.isNotEmpty) {
+        options.setAuth({'token': token});
+      }
 
       // Socket.IO 옵션 설정
       _socket = IO.io(
-        serverUrl,
-        IO.OptionBuilder()
-            .setTransports(['websocket']) // WebSocket 우선 사용
-            .disableAutoConnect() // 수동 연결
-            .setExtraHeaders({'user-id': userId}) // 커스텀 헤더
-            .build(),
+        baseUrl.toString(),
+        options.build(),
       );
 
       // 이벤트 리스너 등록
@@ -55,16 +85,8 @@ class SocketService {
 
       // 연결 시작
       _socket!.connect();
-
-      // 연결 대기 (최대 5초)
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (_socket!.connected) {
-        // 방 참여
-        _joinRoom(roomId, userId, isTeacher);
-      }
     } catch (e) {
-      debugPrint('Socket connection error: $e');
+      debugPrint('[socket][error] connect threw: $e');
       onError?.call(e);
     }
   }
@@ -77,55 +99,76 @@ class SocketService {
 
     // 연결 성공
     _socket!.on('connect', (_) {
-      debugPrint('✅ Socket.IO connected: ${_socket!.id}');
+      debugPrint('[socket] connected id=${_socket!.id}');
       onConnected?.call();
+      if (_currentRoomId != null && _currentUserId != null) {
+        _joinRoom(
+          _currentRoomId!,
+          _currentUserId!,
+          _currentIsTeacher,
+          materialId: _currentMaterialId,
+        );
+      }
     });
 
     // 연결 끊김
     _socket!.on('disconnect', (_) {
-      debugPrint('❌ Socket.IO disconnected');
+      debugPrint('[socket] disconnected');
       onDisconnected?.call();
     });
 
     // 연결 에러
     _socket!.on('connect_error', (error) {
-      debugPrint('❌ Socket.IO connection error: $error');
+      debugPrint('[socket][error] connect_error: $error');
       onError?.call(error);
     });
 
     // 판서 이벤트 수신
-    _socket!.on('draw_event', (data) {
+    _socket!.on('draw:append', (data) {
       try {
-        debugPrint('📥 Received draw_event: ${data['e']}');
+        debugPrint('[socket][recv] draw:append e=${data['e']} room=${data['roomId']} sender=${data['senderId']}');
         final event = DrawEvent.fromJson(Map<String, dynamic>.from(data));
         onDrawEventReceived?.call(event);
       } catch (e) {
-        debugPrint('Error parsing draw_event: $e');
+        debugPrint('[socket][error] draw:append parse failed: $e');
+      }
+    });
+    _socket!.on('draw:clear', (data) {
+      try {
+        debugPrint('[socket][recv] draw:clear e=${data['e']} room=${data['roomId']} sender=${data['senderId']}');
+        final event = DrawEvent.fromJson(Map<String, dynamic>.from(data));
+        onDrawEventReceived?.call(event);
+      } catch (e) {
+        debugPrint('[socket][error] draw:clear parse failed: $e');
       }
     });
 
     // 사용자 입장
     _socket!.on('user_joined', (data) {
       final userId = data['userId'] as String;
-      debugPrint('👤 User joined: $userId');
+      debugPrint('[socket] user_joined userId=$userId');
       onUserJoined?.call(userId);
     });
 
     // 사용자 퇴장
     _socket!.on('user_left', (data) {
       final userId = data['userId'] as String;
-      debugPrint('👋 User left: $userId');
+      debugPrint('[socket] user_left userId=$userId');
       onUserLeft?.call(userId);
     });
 
     // 방 참여 확인
     _socket!.on('room_joined', (data) {
-      debugPrint('✅ Joined room: ${data['roomId']}');
+      debugPrint('[socket] room_joined roomId=${data['roomId']}');
     });
 
     // 에러
     _socket!.on('error', (error) {
-      debugPrint('❌ Socket error: $error');
+      debugPrint('[socket][error] socket error: $error');
+      onError?.call(error);
+    });
+    _socket!.on('server_error', (error) {
+      debugPrint('[socket][error] server_error: $error');
       onError?.call(error);
     });
   }
@@ -133,28 +176,39 @@ class SocketService {
   /// ===============================
   /// 방 참여
   /// ===============================
-  void _joinRoom(String roomId, String userId, bool isTeacher) {
+  void _joinRoom(
+    String roomId,
+    String userId,
+    bool isTeacher, {
+    String? materialId,
+  }) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('Cannot join room: Socket not connected');
       return;
     }
 
+    debugPrint(
+      '[socket][send] join_room roomId=$roomId userId=$userId materialId=$materialId isTeacher=$isTeacher',
+    );
     _socket!.emit('join_room', {
       'roomId': roomId,
       'userId': userId,
       'isTeacher': isTeacher,
+      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
-
-    debugPrint('📤 Sent join_room: $roomId');
   }
 
   /// ===============================
   /// 판서 이벤트 전송
   /// ===============================
   void sendDrawEvent(DrawEvent event, String senderId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send draw event: Socket not connected');
+    if (_socket == null) {
+      debugPrint('[socket][send] skipped: socket not initialized e=${event.eventType.code}');
+      return;
+    }
+    if (!_socket!.connected) {
+      debugPrint('[socket][send] skipped: socket disconnected e=${event.eventType.code}');
       return;
     }
 
@@ -165,24 +219,26 @@ class SocketService {
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
 
-    _socket!.emit('draw_event', data);
-
-    // draw_move는 너무 많이 로그되므로 제외
-    if (event.eventType != DrawEventType.drawMove) {
-      debugPrint('📤 Sent draw_event: ${event.eventType.code}');
+    _socket!.emit('draw:append', data);
+    if (event.eventType == DrawEventType.drawMove && !kDebugMode) {
+      return;
     }
+
+    debugPrint(
+      '[socket][send] draw:append e=${event.eventType.code} sId=${event.strokeId} room=$_currentRoomId sender=$senderId',
+    );
   }
 
   /// ===============================
   /// Undo 이벤트 전송
   /// ===============================
   void sendUndo(int strokeId, String senderId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send undo: Socket not connected');
+    if (_socket == null) {
+      debugPrint('[socket][send] skipped undo: socket not initialized');
       return;
     }
 
-    _socket!.emit('draw_event', {
+    _socket!.emit('draw:clear', {
       'e': 'un',
       'sId': strokeId,
       'roomId': _currentRoomId,
@@ -190,25 +246,27 @@ class SocketService {
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
 
-    debugPrint('📤 Sent undo: $strokeId');
+    debugPrint('[socket][send] draw:clear e=un sId=$strokeId room=$_currentRoomId sender=$senderId');
   }
 
   /// ===============================
   /// 전체 캔버스 클리어 (교사 전용)
   /// ===============================
   void sendClearAll(String senderId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send clear: Socket not connected');
+    if (_socket == null) {
+      debugPrint('[socket][send] skipped clear: socket not initialized');
       return;
     }
 
-    _socket!.emit('clear_all', {
+    _socket!.emit('draw:clear', {
+      'e': 'er',
+      'sId': 0,
       'roomId': _currentRoomId,
       'senderId': senderId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
 
-    debugPrint('📤 Sent clear_all');
+    debugPrint('[socket][send] draw:clear e=er room=$_currentRoomId sender=$senderId');
   }
 
   /// ===============================
@@ -225,7 +283,7 @@ class SocketService {
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
 
-    debugPrint('📤 Sent leave_room: $_currentRoomId');
+    debugPrint('[socket][send] leave_room roomId=$_currentRoomId userId=$_currentUserId');
   }
 
   /// ===============================
@@ -238,7 +296,8 @@ class SocketService {
     _socket = null;
     _currentRoomId = null;
     _currentUserId = null;
-    debugPrint('🔌 Socket.IO disconnected and disposed');
+    _currentMaterialId = null;
+    debugPrint('[socket] disposed');
   }
 
   /// ===============================
@@ -246,11 +305,11 @@ class SocketService {
   /// ===============================
   Future<void> reconnect() async {
     if (_socket?.connected == true) {
-      debugPrint('Already connected, no need to reconnect');
+      debugPrint('[socket] reconnect skipped: already connected');
       return;
     }
 
-    debugPrint('Attempting to reconnect...');
+    debugPrint('[socket] reconnecting...');
     _socket?.connect();
   }
 }
