@@ -1,4 +1,5 @@
 import Flutter
+import Foundation
 import PencilKit
 import UIKit
 
@@ -25,8 +26,35 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
         }
     }
 
+    private final class TouchAwareCanvasView: PKCanvasView {
+        var onTouchesBegan: ((Set<UITouch>) -> Void)?
+        var onTouchesMoved: ((Set<UITouch>) -> Void)?
+        var onTouchesEnded: (() -> Void)?
+        var onTouchesCancelled: (() -> Void)?
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesBegan(touches, with: event)
+            onTouchesBegan?(touches)
+        }
+
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesMoved(touches, with: event)
+            onTouchesMoved?(touches)
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesEnded(touches, with: event)
+            onTouchesEnded?()
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesCancelled(touches, with: event)
+            onTouchesCancelled?()
+        }
+    }
+
     private let containerView = ContainerView()
-    private let canvasView = PKCanvasView(frame: .zero)
+    private let canvasView = TouchAwareCanvasView(frame: .zero)
     private let toolbarContainer = UIView(frame: .zero)
     private let toolControl = UISegmentedControl(items: ["Pen", "Eraser"])
     private let colorRow = UIStackView(frame: .zero)
@@ -44,8 +72,13 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
     private var currentConfig: BrushConfig
     private var activeStrokeId: Int?
     private var activePoints: [[String: Double]] = []
-    private var lastPointCount: Int = 0
     private var isDrawing: Bool = false
+    private var finalizeWorkItem: DispatchWorkItem?
+    private var strokeIdBySignature: [String: Int] = [:]
+    private var previousStrokeSignatures: Set<String> = []
+    private var syntheticStrokeIdSeed: Int = Int(Date().timeIntervalSince1970 * 1000)
+    private var hasSentLiveDrawStart: Bool = false
+    private var lastLiveMoveSentAt: TimeInterval = 0
 
     init(frame: CGRect, viewId: Int64, arguments: Any?) {
         self.currentConfig = BrushConfigParser.parse(arguments)
@@ -66,6 +99,21 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             }
         }
         canvasView.delegate = self
+        canvasView.onTouchesBegan = { [weak self] touches in
+            guard let self else { return }
+            self.finalizeWorkItem?.cancel()
+            self.emitLiveDrawStartIfNeeded(from: touches)
+        }
+        canvasView.onTouchesMoved = { [weak self] touches in
+            self?.emitLiveDrawMove(from: touches)
+            self?.scheduleStrokeFinalization()
+        }
+        canvasView.onTouchesEnded = { [weak self] in
+            self?.completeStrokeFromTouchEnd()
+        }
+        canvasView.onTouchesCancelled = { [weak self] in
+            self?.completeStrokeFromTouchEnd()
+        }
         containerView.addSubview(canvasView)
 
         NSLayoutConstraint.activate([
@@ -94,7 +142,7 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
 
     func exportDrawingSnapshot() -> [[String: Any]] {
         if #available(iOS 14.0, *) {
-            return canvasView.drawing.strokes.enumerated().compactMap { index, stroke in
+            return canvasView.drawing.strokes.compactMap { stroke -> [String: Any]? in
                 let path = stroke.path
                 guard path.count > 0 else { return nil }
 
@@ -109,11 +157,18 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
                 }
 
                 guard !points.isEmpty else { return nil }
+                let firstPoint = path[0]
+                let signature = strokeSignature(stroke)
+                let strokeId = strokeIdBySignature[signature] ?? {
+                    syntheticStrokeIdSeed += 1
+                    strokeIdBySignature[signature] = syntheticStrokeIdSeed
+                    return syntheticStrokeIdSeed
+                }()
 
                 return [
-                    "sId": Int(Date().timeIntervalSince1970 * 1000) + index,
+                    "sId": strokeId,
                     "c": stroke.ink.color.hexRGB(),
-                    "w": Double(stroke.ink.width),
+                    "w": Double(firstPoint.size.width),
                     "pts": points,
                 ]
             }
@@ -280,19 +335,58 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
-        isDrawing = true
-        activeStrokeId = Int(Date().timeIntervalSince1970 * 1000)
-        activePoints.removeAll()
-        lastPointCount = 0
+        if currentConfig.tool.lowercased() == "eraser" {
+            if #available(iOS 14.0, *) {
+                previousStrokeSignatures = Set(canvasView.drawing.strokes.map { strokeSignature($0) })
+            } else {
+                previousStrokeSignatures.removeAll()
+            }
+            isDrawing = false
+            activeStrokeId = nil
+            activePoints.removeAll()
+            return
+        }
     }
 
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-        appendNewPoints(from: canvasView)
+        if currentConfig.tool.lowercased() == "eraser" {
+            handleEraserDiff(from: canvasView)
+            return
+        }
+        // Pen stroke lifecycle is touch-driven; keep delegate as fallback only.
+        if activeStrokeId != nil {
+            finalizeActiveStroke()
+        }
+    }
+
+    func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        if currentConfig.tool.lowercased() == "eraser" {
+            handleEraserDiff(from: canvasView)
+        }
+    }
+
+    private func scheduleStrokeFinalization() {
+        finalizeWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finalizeActiveStroke()
+        }
+        finalizeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: workItem)
+    }
+
+    private func completeStrokeFromTouchEnd() {
+        finalizeActiveStroke()
+    }
+
+    private func finalizeActiveStroke() {
+        finalizeWorkItem?.cancel()
+        finalizeWorkItem = nil
         guard let strokeId = activeStrokeId else { return }
         if activePoints.isEmpty {
             activeStrokeId = nil
-            lastPointCount = 0
             isDrawing = false
+            hasSentLiveDrawStart = false
+            lastLiveMoveSentAt = 0
             return
         }
         let payload: [String: Any] = [
@@ -301,63 +395,121 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             "pts": activePoints,
         ]
         DrawingChannel.notifyDrawEvent(payload)
-        activeStrokeId = nil
-        activePoints.removeAll()
-        lastPointCount = 0
-        isDrawing = false
-    }
-
-    func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        appendNewPoints(from: canvasView)
-    }
-
-    private func appendNewPoints(from canvasView: PKCanvasView) {
         if #available(iOS 14.0, *) {
-            guard isDrawing, let stroke = canvasView.drawing.strokes.last else { return }
-            let path = stroke.path
-            let count = path.count
-            if count == 0 { return }
-
-            if activeStrokeId == nil {
-                activeStrokeId = Int(Date().timeIntervalSince1970 * 1000)
-            }
-            if lastPointCount == 0 {
-                let first = path[0]
-                let normalized = DrawingMetricsStore.normalize(point: first.location)
-                let pressure = first.force
-                let payload: [String: Any] = [
-                    "e": "ds",
-                    "sId": activeStrokeId as Any,
-                    "x": normalized.x,
-                    "y": normalized.y,
-                    "p": pressure,
-                    "c": currentConfig.color.hexRGB(),
-                    "w": currentConfig.size,
-                ]
-                DrawingChannel.notifyDrawEvent(payload)
-            }
-
-            if count > lastPointCount {
-                for index in lastPointCount..<count {
-                    let point = path[index]
-                    let normalized = DrawingMetricsStore.normalize(point: point.location)
-                    activePoints.append([
-                        "x": Double(normalized.x),
-                        "y": Double(normalized.y),
-                        "p": Double(point.force),
-                    ])
-                    if index == 0 { continue }
-                    let payload: [String: Any] = [
-                        "e": "dm",
-                        "sId": activeStrokeId as Any,
-                        "x": normalized.x,
-                        "y": normalized.y,
-                        "p": point.force,
-                    ]
-                    DrawingChannel.notifyDrawEvent(payload)
-                }
-                lastPointCount = count
+            if let stroke = canvasView.drawing.strokes.last {
+                strokeIdBySignature[strokeSignature(stroke)] = strokeId
             }
         }
+        activeStrokeId = nil
+        activePoints.removeAll()
+        isDrawing = false
+        hasSentLiveDrawStart = false
+        lastLiveMoveSentAt = 0
+    }
+
+    private func handleEraserDiff(from canvasView: PKCanvasView) {
+        if #available(iOS 14.0, *) {
+            let current = Set(canvasView.drawing.strokes.map { strokeSignature($0) })
+            let removed = previousStrokeSignatures.subtracting(current)
+            if !removed.isEmpty {
+                for signature in removed {
+                    if let strokeId = strokeIdBySignature[signature] {
+                        DrawingChannel.notifyDrawEvent([
+                            "e": "er",
+                            "sId": strokeId,
+                        ])
+                    }
+                    strokeIdBySignature.removeValue(forKey: signature)
+                }
+            }
+            previousStrokeSignatures = current
+        }
+    }
+
+    @available(iOS 14.0, *)
+    private func strokeSignature(_ stroke: PKStroke) -> String {
+        let path = stroke.path
+        let count = path.count
+        guard count > 0 else { return "empty" }
+        let first = path[0].location
+        let mid = path[count / 2].location
+        let last = path[count - 1].location
+        let width = path[0].size.width
+        return String(
+            format: "%d|%.1f,%.1f|%.1f,%.1f|%.1f,%.1f|%.2f",
+            count,
+            first.x, first.y,
+            mid.x, mid.y,
+            last.x, last.y,
+            width
+        )
+    }
+
+    private func emitLiveDrawStartIfNeeded(from touches: Set<UITouch>) {
+        guard currentConfig.tool.lowercased() != "eraser" else { return }
+        guard !touches.isEmpty else { return }
+        // Hard-split: every new touch begins a new independent stroke.
+        if activeStrokeId != nil || hasSentLiveDrawStart || !activePoints.isEmpty {
+            finalizeActiveStroke()
+        }
+        activeStrokeId = nextStrokeId()
+        activePoints.removeAll()
+        isDrawing = true
+        hasSentLiveDrawStart = false
+        lastLiveMoveSentAt = 0
+        guard let strokeId = activeStrokeId, !hasSentLiveDrawStart else { return }
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: canvasView)
+        let normalized = DrawingMetricsStore.normalize(point: location)
+        let pressure = touch.force
+        let pointPayload: [String: Double] = [
+            "x": Double(normalized.x),
+            "y": Double(normalized.y),
+            "p": Double(pressure),
+        ]
+        activePoints.append(pointPayload)
+        DrawingChannel.notifyDrawEvent([
+            "e": "ds",
+            "sId": strokeId,
+            "x": normalized.x,
+            "y": normalized.y,
+            "p": pressure,
+            "c": currentConfig.color.hexRGB(),
+            "w": currentConfig.size,
+        ])
+        hasSentLiveDrawStart = true
+    }
+
+    private func nextStrokeId() -> Int {
+        syntheticStrokeIdSeed += 1
+        return syntheticStrokeIdSeed
+    }
+
+    private func emitLiveDrawMove(from touches: Set<UITouch>) {
+        guard currentConfig.tool.lowercased() != "eraser" else { return }
+        guard hasSentLiveDrawStart, let strokeId = activeStrokeId else { return }
+        guard let touch = touches.first else { return }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastLiveMoveSentAt < (1.0 / 60.0) {
+            return
+        }
+        lastLiveMoveSentAt = now
+
+        let location = touch.location(in: canvasView)
+        let normalized = DrawingMetricsStore.normalize(point: location)
+        let pressure = touch.force
+        activePoints.append([
+            "x": Double(normalized.x),
+            "y": Double(normalized.y),
+            "p": Double(pressure),
+        ])
+        DrawingChannel.notifyDrawEvent([
+            "e": "dm",
+            "sId": strokeId,
+            "x": normalized.x,
+            "y": normalized.y,
+            "p": pressure,
+        ])
     }
 }
