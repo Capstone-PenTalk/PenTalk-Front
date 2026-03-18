@@ -461,6 +461,83 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
+  /// ===============================
+  /// 저장된 판서 데이터 로드 (읽기 전용 뷰어용)
+  /// ===============================
+  void loadSavedStrokes(List<Map<String, dynamic>> strokesData) {
+    debugPrint('📥 Loading ${strokesData.length} saved strokes');
+
+    _othersStrokes.clear();
+    _othersActiveStrokes.clear();
+
+    for (final strokeData in strokesData) {
+      try {
+        final strokeId = strokeData['sId'] as int;
+
+        // 좌표 파싱
+        final x = (strokeData['x'] as num?)?.toDouble() ?? 0.0;
+        final y = (strokeData['y'] as num?)?.toDouble() ?? 0.0;
+
+        // 점들 파싱
+        final ptsData = strokeData['pts'] as List?;
+        final points = <DrawPoint>[];
+
+        if (ptsData != null) {
+          for (final pt in ptsData) {
+            if (pt is Map) {
+              final ptX = (pt['x'] as num?)?.toDouble() ?? 0.0;
+              final ptY = (pt['y'] as num?)?.toDouble() ?? 0.0;
+              final pressure = (pt['p'] as num?)?.toDouble();
+
+              points.add(DrawPoint(
+                x: ptX,
+                y: ptY,
+                pressure: pressure,
+              ));
+            }
+          }
+        }
+
+        // 시작점도 추가
+        if (points.isEmpty) {
+          points.add(DrawPoint(x: x, y: y));
+        }
+
+        // 색상 파싱 (hex string → Color)
+        Color color = Colors.black;
+        final colorStr = strokeData['c'] as String?;
+        if (colorStr != null && colorStr.startsWith('#')) {
+          try {
+            final hex = colorStr.substring(1);
+            final colorInt = int.parse(hex, radix: 16);
+            color = Color(0xFF000000 | colorInt);
+          } catch (e) {
+            debugPrint('Failed to parse color: $colorStr');
+          }
+        }
+
+        // 굵기 파싱
+        final width = (strokeData['w'] as num?)?.toDouble() ?? 2.5;
+
+        // Stroke 생성
+        final stroke = Stroke(
+          strokeId: strokeId,
+          color: color,
+          width: width,
+          points: points,
+        );
+
+        _othersStrokes[strokeId] = stroke;
+
+      } catch (e) {
+        debugPrint('❌ Failed to parse stroke: $e');
+      }
+    }
+
+    debugPrint('✅ Loaded ${_othersStrokes.length} strokes');
+    notifyListeners();
+  }
+
   /// Socket 연결 해제
   void disconnectSocket() {
     _socketService.disconnect();

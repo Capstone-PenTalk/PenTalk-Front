@@ -1,3 +1,4 @@
+// lib/screens/drawing_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +17,8 @@ class DrawingScreen extends StatefulWidget {
   final String? serverUrl;
   final String? roomId;
   final String? userId;
+  final bool isReadOnly;  // ✅ 읽기 전용 모드
+  final String? sessionId;  // ✅ 저장된 세션 ID (읽기 전용 시 사용)
 
   const DrawingScreen({
     Key? key,
@@ -25,6 +28,8 @@ class DrawingScreen extends StatefulWidget {
     this.serverUrl,
     this.roomId,
     this.userId,
+    this.isReadOnly = false,  // ✅ 기본값: 편집 가능
+    this.sessionId,  // ✅ 읽기 전용 시 필수
   }) : super(key: key);
 
   @override
@@ -49,6 +54,65 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     // 배경 설정
     provider.setBackgroundUrl(widget.backgroundUrl);
+
+    // ========================================
+    // ✅ 읽기 전용 모드: 저장된 판서 데이터 로드
+    // ========================================
+    if (widget.isReadOnly && widget.sessionId != null) {
+      debugPrint('📖 Loading saved whiteboard: ${widget.sessionId}');
+
+      try {
+        setState(() {
+          _isConnecting = true;
+        });
+
+        final response = await ApiService.getWhiteboard(
+          sessionId: widget.sessionId!,
+        );
+
+        if (response.success && response.data != null) {
+          // 판서 데이터 로드
+          provider.loadSavedStrokes(response.data!.strokes);
+
+          debugPrint('✅ Whiteboard loaded: ${response.data!.strokes.length} strokes');
+          debugPrint('📖 Read-only mode: ${response.data!.readOnly}');
+        } else {
+          debugPrint('❌ Failed to load whiteboard: ${response.message}');
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('판서 데이터 로드 실패: ${response.message ?? "알 수 없는 오류"}'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('❌ Load whiteboard error: $e');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('오류: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isConnecting = false;
+          });
+        }
+      }
+
+      return; // 읽기 전용 모드는 여기서 종료
+    }
+
+    // ========================================
+    // 편집 가능 모드 (기존 로직)
+    // ========================================
 
     // 그리기 모드 (교사는 기본 활성화)
     if (widget.isTeacher) {
@@ -244,61 +308,93 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.materialTitle),
-        actions: [
-          // 교사용 컨트롤
-          if (widget.isTeacher) ...[
-            // 펜 색상 선택
-            IconButton(
-              icon: Consumer<DrawingProvider>(
-                builder: (context, provider, child) {
-                  return Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: provider.currentColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey),
+        title: Row(
+          children: [
+            Expanded(child: Text(widget.materialTitle)),
+            // ✅ 읽기 전용 배지
+            if (widget.isReadOnly)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange[100],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.visibility, size: 16, color: Colors.orange[800]),
+                    const SizedBox(width: 4),
+                    Text(
+                      '읽기 전용',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange[800],
+                      ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-              onPressed: _showColorPicker,
-              tooltip: '색상 선택',
-            ),
-            // 펜 굵기 선택
-            IconButton(
-              icon: const Icon(Icons.line_weight),
-              onPressed: _showWidthPicker,
-              tooltip: '굵기 선택',
-            ),
-            // Undo (최근 선 삭제)
-            IconButton(
-              icon: const Icon(Icons.undo),
-              onPressed: _handleUndo,
-              tooltip: '실행 취소',
-            ),
-            // 전체 지우기
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: _handleClear,
-              tooltip: '전체 지우기',
-            ),
           ],
-
+        ),
+        actions: [
           // ========================================
-          // ✅ 참여자 버튼 추가! (교사/학생 모두 표시)
+          // ✅ 읽기 전용 모드에서는 편집 버튼 모두 숨김!
           // ========================================
-          const ParticipantsButton(),
+          if (!widget.isReadOnly) ...[
+            // 교사용 컨트롤
+            if (widget.isTeacher) ...[
+              // 펜 색상 선택
+              IconButton(
+                icon: Consumer<DrawingProvider>(
+                  builder: (context, provider, child) {
+                    return Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: provider.currentColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.grey),
+                      ),
+                    );
+                  },
+                ),
+                onPressed: _showColorPicker,
+                tooltip: '색상 선택',
+              ),
+              // 펜 굵기 선택
+              IconButton(
+                icon: const Icon(Icons.line_weight),
+                onPressed: _showWidthPicker,
+                tooltip: '굵기 선택',
+              ),
+              // Undo (최근 선 삭제)
+              IconButton(
+                icon: const Icon(Icons.undo),
+                onPressed: _handleUndo,
+                tooltip: '실행 취소',
+              ),
+              // 전체 지우기
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _handleClear,
+                tooltip: '전체 지우기',
+              ),
+            ],
 
-          // 세션 종료 버튼 (교사만)
-          if (widget.isTeacher)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _endSession,
-              tooltip: '세션 종료',
-              color: Colors.red,
-            ),
+            // 참여자 버튼 (편집 모드에서만)
+            const ParticipantsButton(),
+
+            // 세션 종료 버튼 (교사만)
+            if (widget.isTeacher)
+              IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: _endSession,
+                tooltip: '세션 종료',
+                color: Colors.red,
+              ),
+          ],
         ],
       ),
       body: _isConnecting
@@ -317,7 +413,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
       ),
       // 교사용: 그리기/이동 모드 토글
       // 학생용: 내 필기 보기/끄기 + 그리기/이동 모드 토글
-      floatingActionButton: widget.isTeacher
+      // ✅ 읽기 전용: 버튼 없음 (스크롤/줌만 가능)
+      floatingActionButton: widget.isReadOnly
+          ? null  // ✅ 읽기 전용 모드에서는 버튼 없음
+          : widget.isTeacher
           ? Consumer<DrawingProvider>(
         builder: (context, provider, child) {
           return Column(

@@ -288,6 +288,68 @@ class ApiService {
       );
     }
   }
+
+  /// ===============================
+  /// 판서 데이터 조회 (GET /sessions/{sessionId}/whiteboard)
+  /// 읽기 전용 뷰어용
+  /// ===============================
+  static Future<ApiResponse<WhiteboardData>> getWhiteboard({
+    required String sessionId,
+  }) async {
+    try {
+      // JWT 토큰 가져오기
+      final token = await AuthService.getToken();
+
+      debugPrint('📤 GET /sessions/$sessionId/whiteboard');
+
+      // HTTP 요청
+      final response = await http.get(
+        Uri.parse('$baseUrl/sessions/$sessionId/whiteboard'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Request timeout');
+        },
+      );
+
+      // 응답 처리
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint('✅ Whiteboard loaded: ${data['strokes']?.length ?? 0} strokes');
+
+        return ApiResponse<WhiteboardData>(
+          success: true,
+          data: WhiteboardData(
+            sessionId: data['sessionId'],
+            readOnly: data['readOnly'] ?? true,
+            strokes: (data['strokes'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ?? [],
+          ),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        debugPrint('❌ Get whiteboard failed: ${error['message']}');
+
+        return ApiResponse<WhiteboardData>(
+          success: false,
+          error: error['code'] ?? 'GET_WHITEBOARD_FAILED',
+          message: error['message'] ?? 'Failed to get whiteboard',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Get whiteboard error: $e');
+      return ApiResponse<WhiteboardData>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
 }
 
 /// ===============================
@@ -321,6 +383,21 @@ class LoginResponse {
     required this.token,
     required this.userId,
     required this.role,
+  });
+}
+
+/// ===============================
+/// Whiteboard 데이터 모델
+/// ===============================
+class WhiteboardData {
+  final String sessionId;
+  final bool readOnly;
+  final List<Map<String, dynamic>> strokes;
+
+  WhiteboardData({
+    required this.sessionId,
+    required this.readOnly,
+    required this.strokes,
   });
 }
 
