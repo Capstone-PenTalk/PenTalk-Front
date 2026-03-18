@@ -412,15 +412,25 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             let current = Set(canvasView.drawing.strokes.map { strokeSignature($0) })
             let removed = previousStrokeSignatures.subtracting(current)
             if !removed.isEmpty {
+                var mappedCount = 0
                 for signature in removed {
                     if let strokeId = strokeIdBySignature[signature] {
+                        mappedCount += 1
                         DrawingChannel.notifyDrawEvent([
                             "e": "er",
                             "sId": strokeId,
                         ])
+                    } else {
+                        NSLog("[draw][ios][warn] eraser removed stroke without mapped sId signature=%@", signature)
                     }
                     strokeIdBySignature.removeValue(forKey: signature)
                 }
+                NSLog(
+                    "[draw][ios] eraser diff removed=%d mapped=%d unmapped=%d",
+                    removed.count,
+                    mappedCount,
+                    removed.count - mappedCount
+                )
             }
             previousStrokeSignatures = current
         }
@@ -431,18 +441,33 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
         let path = stroke.path
         let count = path.count
         guard count > 0 else { return "empty" }
-        let first = path[0].location
-        let mid = path[count / 2].location
-        let last = path[count - 1].location
         let width = path[0].size.width
-        return String(
-            format: "%d|%.1f,%.1f|%.1f,%.1f|%.1f,%.1f|%.2f",
-            count,
-            first.x, first.y,
-            mid.x, mid.y,
-            last.x, last.y,
-            width
-        )
+        let bounds = stroke.renderBounds
+        let sampleCount = min(8, count)
+        let step = max(1, (count - 1) / max(1, sampleCount - 1))
+
+        var parts: [String] = [
+            "n:\(count)",
+            String(format: "w:%.3f", width),
+            String(
+                format: "b:%.2f,%.2f,%.2f,%.2f",
+                bounds.minX, bounds.minY, bounds.width, bounds.height
+            ),
+            "c:\(stroke.ink.color.hexRGB())",
+        ]
+
+        var index = 0
+        while index < count {
+            let p = path[index].location
+            parts.append(String(format: "%.3f,%.3f", p.x, p.y))
+            index += step
+        }
+        if index - step != count - 1 {
+            let last = path[count - 1].location
+            parts.append(String(format: "%.3f,%.3f", last.x, last.y))
+        }
+
+        return parts.joined(separator: "|")
     }
 
     private func emitLiveDrawStartIfNeeded(from touches: Set<UITouch>) {
