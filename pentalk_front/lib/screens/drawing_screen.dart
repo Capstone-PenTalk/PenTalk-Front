@@ -1,4 +1,3 @@
-// lib/screens/drawing_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -221,6 +220,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
         userId: widget.userId!,
         roomId: widget.roomId!,
         isTeacher: widget.isTeacher,
+        materialTitle: widget.materialTitle,  // ✅ 세션 저장용
+        backgroundUrl: widget.backgroundUrl,  // ✅ 세션 저장용
       );
 
       debugPrint('✅ Socket.IO connection initiated');

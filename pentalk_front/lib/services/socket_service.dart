@@ -100,10 +100,7 @@ class SocketService {
         _joinRoom(_currentRoomId!, _currentUserId!, isTeacher);
         debugPrint('🔄 Re-joined room after reconnection');
 
-        // 동기화 요청 (이전 판서 복구)
-        Future.delayed(const Duration(milliseconds: 100), () {
-          requestSync();
-        });
+        // ✅ 동기화 요청은 DrawingProvider에서 처리 (lastTick 전달 위해)
       }
 
       onConnected?.call();
@@ -154,7 +151,20 @@ class SocketService {
     // 동기화 데이터 수신 (재접속 시)
     _socket!.on('sync_state', (data) {
       debugPrint('📥 Received sync_state');
-      if (data is List) {
+
+      if (data is Map) {
+        // ✅ 서버 응답: { strokes, mode, serverTick }
+        final strokes = data['strokes'] as List?;
+        final mode = data['mode'] as String?;
+        final serverTick = data['serverTick'] as int?;
+
+        debugPrint('📊 Sync mode: $mode, serverTick: $serverTick, strokes: ${strokes?.length ?? 0}');
+
+        if (strokes != null) {
+          onSyncState?.call(strokes);
+        }
+      } else if (data is List) {
+        // ✅ 하위 호환 (기존 방식)
         onSyncState?.call(data);
       }
     });
@@ -381,17 +391,21 @@ class SocketService {
 
   /// ===============================
   /// 동기화 요청 (재접속 시 이전 판서 복구)
+  /// lastTick이 있으면 delta sync, 없으면 full sync
   /// ===============================
-  void requestSync() {
+  void requestSync({int? lastTick}) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('Cannot request sync: Socket not connected');
       return;
     }
 
-    _socket!.emit('sync_request', {
+    final payload = {
       'roomId': _currentRoomId,
-    });
+      if (lastTick != null) 'lastTick': lastTick,  // ✅ lastTick 추가
+    };
 
-    debugPrint('📤 Sent sync_request for room: $_currentRoomId');
+    _socket!.emit('sync:request', payload);  // ✅ 이벤트명 'sync:request'
+
+    debugPrint('📤 Sent sync:request for room: $_currentRoomId (lastTick: $lastTick)');
   }
 }

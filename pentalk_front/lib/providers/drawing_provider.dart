@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import '../models/drawing_models.dart';
 import '../services/socket_service.dart';
+import '../services/session_storage.dart';
 
 /// ===============================
 /// 판서 데이터 Provider (Socket.IO 통합)
@@ -39,6 +41,12 @@ class DrawingProvider extends ChangeNotifier {
 
   // 소켓 연결 상태
   bool _isSocketConnected = false;
+
+  // ✅ lastTick 관리 (자동 재join용)
+  int? _lastTick;
+  Timer? _tickSaveTimer;
+
+  int? get lastTick => _lastTick;
 
   // Getters
   Map<int, Stroke> get myStrokes => _myStrokes;
@@ -81,11 +89,20 @@ class DrawingProvider extends ChangeNotifier {
     required String userId,
     required String roomId,
     required bool isTeacher,
-    String? jwtToken, // JWT 토큰 추가
+    String? jwtToken,
+    String? materialTitle,  // ✅ 세션 저장용
+    String? backgroundUrl,  // ✅ 세션 저장용
   }) async {
     _userId = userId;
     _roomId = roomId;
     _isTeacher = isTeacher;
+
+    // ✅ 저장된 lastTick 로드 (자동 재join용)
+    final session = await SessionStorage.getLastSession();
+    if (session?.lastTick != null) {
+      _lastTick = session!.lastTick;
+      debugPrint('📥 LastTick loaded from storage: $_lastTick');
+    }
 
     try {
       await _socketService.connect(
@@ -93,20 +110,61 @@ class DrawingProvider extends ChangeNotifier {
         userId: userId,
         roomId: roomId,
         isTeacher: isTeacher,
-        jwtToken: jwtToken, // JWT 전달
+        jwtToken: jwtToken,
       );
 
       _isSocketConnected = true;
       notifyListeners();
 
-      // ✅ Presence 리스너 설정 추가!
+      // ✅ Presence 리스너 설정
       _setupPresenceListeners();
+
+      // ✅ 세션 정보 저장 (자동 재join용)
+      if (materialTitle != null) {
+        await SessionStorage.saveSession(
+          sessionId: roomId,  // sessionId = roomId
+          roomId: roomId,
+          role: isTeacher ? 'teacher' : 'student',
+          materialTitle: materialTitle,
+          backgroundUrl: backgroundUrl,
+          serverUrl: serverUrl,
+          lastTick: _lastTick,
+        );
+        debugPrint('✅ Session info saved for auto-rejoin');
+      }
+
+      // ✅ lastTick 주기적 저장 시작 (5초마다)
+      _startTickSaveTimer();
 
     } catch (e) {
       debugPrint('Failed to connect socket: $e');
       _isSocketConnected = false;
       notifyListeners();
     }
+  }
+
+  /// ===============================
+  /// ✅ lastTick 저장 타이머 시작 (5초마다)
+  /// ===============================
+  void _startTickSaveTimer() {
+    _tickSaveTimer?.cancel();
+
+    _tickSaveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_lastTick != null) {
+        SessionStorage.updateLastTick(_lastTick!);
+      }
+    });
+
+    debugPrint('🔄 Tick save timer started (5s interval)');
+  }
+
+  /// ===============================
+  /// ✅ lastTick 저장 타이머 중지
+  /// ===============================
+  void _stopTickSaveTimer() {
+    _tickSaveTimer?.cancel();
+    _tickSaveTimer = null;
+    debugPrint('⏹️ Tick save timer stopped');
   }
 
   /// ===============================
@@ -123,6 +181,11 @@ class DrawingProvider extends ChangeNotifier {
       _isSocketConnected = true;
       notifyListeners();
       debugPrint('✅ Socket connected');
+
+      // ✅ 재접속 시 동기화 요청 (lastTick과 함께)
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _socketService.requestSync(lastTick: _lastTick);
+      });
     };
 
     _socketService.onDisconnected = () {
@@ -243,6 +306,13 @@ class DrawingProvider extends ChangeNotifier {
         : stroke;
 
     _othersStrokes[event.strokeId] = finalStroke;
+
+    // ✅ tick 업데이트 (de 이벤트에만 tick이 있음)
+    if (event.tick != null) {
+      _lastTick = event.tick;
+      debugPrint('🔄 LastTick updated: $_lastTick');
+    }
+
     notifyListeners();
   }
 
@@ -560,6 +630,15 @@ class DrawingProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    // ✅ 마지막 tick 저장 (dispose 시)
+    if (_lastTick != null) {
+      SessionStorage.updateLastTick(_lastTick!);
+      debugPrint('💾 LastTick saved on dispose: $_lastTick');
+    }
+
+    // ✅ Timer 정리
+    _stopTickSaveTimer();
+
     disconnectSocket();
     super.dispose();
   }

@@ -350,6 +350,74 @@ class ApiService {
       );
     }
   }
+
+  /// ===============================
+  /// 세션 상태 확인 (GET /sessions/{sessionId}/status)
+  /// 자동 재join용 - 세션이 ACTIVE인지 확인
+  /// ===============================
+  static Future<ApiResponse<SessionStatus>> getSessionStatus({
+    required String sessionId,
+  }) async {
+    try {
+      // JWT 토큰 가져오기
+      final token = await AuthService.getToken();
+
+      debugPrint('📤 GET /sessions/$sessionId/status');
+
+      // HTTP 요청
+      final response = await http.get(
+        Uri.parse('$baseUrl/sessions/$sessionId/status'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          throw TimeoutException('Request timeout');
+        },
+      );
+
+      // 응답 처리
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint('✅ Session status: ${data['status']}');
+
+        return ApiResponse<SessionStatus>(
+          success: true,
+          data: SessionStatus(
+            sessionId: data['sessionId'] ?? sessionId,
+            status: data['status'] ?? 'UNKNOWN',
+          ),
+        );
+      } else if (response.statusCode == 404) {
+        // 세션이 없음
+        debugPrint('❌ Session not found: $sessionId');
+
+        return ApiResponse<SessionStatus>(
+          success: false,
+          error: 'SESSION_NOT_FOUND',
+          message: 'Session not found',
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        debugPrint('❌ Get session status failed: ${error['message']}');
+
+        return ApiResponse<SessionStatus>(
+          success: false,
+          error: error['code'] ?? 'GET_STATUS_FAILED',
+          message: error['message'] ?? 'Failed to get session status',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Get session status error: $e');
+      return ApiResponse<SessionStatus>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
 }
 
 /// ===============================
@@ -399,6 +467,22 @@ class WhiteboardData {
     required this.readOnly,
     required this.strokes,
   });
+}
+
+/// ===============================
+/// 세션 상태 모델
+/// ===============================
+class SessionStatus {
+  final String sessionId;
+  final String status;  // 'ACTIVE' | 'ARCHIVED' | 'UNKNOWN'
+
+  SessionStatus({
+    required this.sessionId,
+    required this.status,
+  });
+
+  bool get isActive => status == 'ACTIVE';
+  bool get isArchived => status == 'ARCHIVED';
 }
 
 /// ===============================
