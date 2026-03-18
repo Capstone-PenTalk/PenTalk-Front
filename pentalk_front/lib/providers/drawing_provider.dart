@@ -13,6 +13,9 @@ class DrawingProvider extends ChangeNotifier {
   // Socket.IO 서비스
   final SocketService _socketService = SocketService();
 
+  // ✅ SocketService getter 추가 (DrawingScreen에서 접근용)
+  SocketService get socketService => _socketService;
+
   // 내 펜 (로컬에서 그린 선들)
   final Map<int, Stroke> _myStrokes = {};
   final Map<int, Stroke> _myActiveStrokes = {};
@@ -95,6 +98,10 @@ class DrawingProvider extends ChangeNotifier {
 
       _isSocketConnected = true;
       notifyListeners();
+
+      // ✅ Presence 리스너 설정 추가!
+      _setupPresenceListeners();
+
     } catch (e) {
       debugPrint('Failed to connect socket: $e');
       _isSocketConnected = false;
@@ -137,6 +144,17 @@ class DrawingProvider extends ChangeNotifier {
     _socketService.onSessionEnded = (data) {
       _handleSessionEnded(data);
     };
+  }
+
+  /// ===============================
+  /// ✅ Presence 리스너 설정 (신규 추가!)
+  /// ===============================
+  void _setupPresenceListeners() {
+    // SocketService에 Presence 리스너 설정
+    // 실제 콜백 연결은 DrawingScreen에서 수행
+    _socketService.setupPresenceListeners();
+
+    debugPrint('🔔 Presence listeners setup completed');
   }
 
   /// ===============================
@@ -289,8 +307,6 @@ class DrawingProvider extends ChangeNotifier {
 
     _myStrokes[event.strokeId] = finalStroke;
     notifyListeners();
-
-
   }
 
   void _handleMyUndo(DrawEvent event) {
@@ -452,7 +468,6 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ===============================
   /// ===============================
   /// 세션 종료 처리 (session:ended 이벤트 수신)
   /// ===============================

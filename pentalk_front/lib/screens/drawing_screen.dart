@@ -1,20 +1,21 @@
-// lib/screens/drawing_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
+import '../providers/participants_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
 import '../widgets/session_ended_dialog.dart';
+import '../widgets/participants_button.dart';
 import '../services/api_service.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
-  final String? backgroundUrl; // PDF/이미지 URL (선택)
+  final String? backgroundUrl;
   final bool isTeacher;
-  final String? serverUrl; // Socket.IO 서버 URL
-  final String? roomId; // 방 ID
-  final String? userId; // 사용자 ID
+  final String? serverUrl;
+  final String? roomId;
+  final String? userId;
 
   const DrawingScreen({
     Key? key,
@@ -39,6 +40,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeDrawing();
       _setupSessionEndedListener();
+      _setupPresenceCallbacks(); // ✅ 이미 추가되어 있음
     });
   }
 
@@ -79,6 +81,36 @@ class _DrawingScreenState extends State<DrawingScreen> {
     provider.onSessionEnded = (data) {
       _handleSessionEnded(data);
     };
+  }
+
+  /// ===============================
+  /// ✅ Presence 콜백 설정 (신규 메서드!)
+  /// ===============================
+  void _setupPresenceCallbacks() {
+    final drawingProvider = context.read<DrawingProvider>();
+    final participantsProvider = context.read<ParticipantsProvider>();
+
+    final socketService = drawingProvider.socketService;
+
+    // PRESENCE_STATE 콜백
+    socketService.onPresenceState = (participants) {
+      participantsProvider.setParticipants(participants);
+      debugPrint('👥 Presence state updated: ${participants.length} participants');
+    };
+
+    // PRESENCE_JOIN 콜백
+    socketService.onPresenceJoin = (participant) {
+      participantsProvider.addParticipant(participant);
+      debugPrint('✅ Participant joined: ${participant.userId} (${participant.role})');
+    };
+
+    // PRESENCE_LEAVE 콜백
+    socketService.onPresenceLeave = (userId, role) {
+      participantsProvider.removeParticipant(userId, role);
+      debugPrint('❌ Participant left: $userId ($role)');
+    };
+
+    debugPrint('🔔 Presence callbacks setup completed');
   }
 
   /// 세션 종료 이벤트 처리
@@ -252,14 +284,21 @@ class _DrawingScreenState extends State<DrawingScreen> {
               onPressed: _handleClear,
               tooltip: '전체 지우기',
             ),
-            // 👇 세션 종료 버튼 추가!
+          ],
+
+          // ========================================
+          // ✅ 참여자 버튼 추가! (교사/학생 모두 표시)
+          // ========================================
+          const ParticipantsButton(),
+
+          // 세션 종료 버튼 (교사만)
+          if (widget.isTeacher)
             IconButton(
               icon: const Icon(Icons.logout),
               onPressed: _endSession,
               tooltip: '세션 종료',
               color: Colors.red,
             ),
-          ],
         ],
       ),
       body: _isConnecting

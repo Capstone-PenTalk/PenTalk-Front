@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../models/drawing_models.dart';
+import '../models/participant_model.dart';
 
 /// ===============================
 /// Socket.IO 서비스
@@ -22,6 +23,11 @@ class SocketService {
   Function(List<dynamic>)? onSyncState; // 동기화 데이터 수신
   Function(Map<String, dynamic>)? onSessionEnded; // 세션 종료 알림
 
+  // ✅ Presence 콜백
+  Function(List<Participant>)? onPresenceState;
+  Function(Participant)? onPresenceJoin;
+  Function(String userId, String role)? onPresenceLeave;
+
   bool get isConnected => _socket?.connected ?? false;
   String? get currentRoomId => _currentRoomId;
   String? get currentUserId => _currentUserId;
@@ -34,25 +40,25 @@ class SocketService {
     required String userId,
     required String roomId,
     bool isTeacher = false,
-    String? jwtToken, // JWT 토큰 추가
+    String? jwtToken,
   }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
-      _isTeacher = isTeacher; // 재접속 시 사용
+      _isTeacher = isTeacher;
 
       debugPrint('Connecting to Socket.IO: $serverUrl');
       debugPrint('User ID: $userId, Room ID: $roomId, isTeacher: $isTeacher');
 
       // Socket.IO 옵션 설정
       final optionsBuilder = IO.OptionBuilder()
-          .setTransports(['websocket']) // WebSocket 우선 사용
-          .disableAutoConnect(); // 수동 연결
+          .setTransports(['websocket'])
+          .disableAutoConnect();
 
       // JWT 토큰이 있으면 인증 설정
       if (jwtToken != null && jwtToken.isNotEmpty) {
         optionsBuilder.setAuth({
-          'token': jwtToken, // 명세서 방식: JWT 인증
+          'token': jwtToken,
         });
         debugPrint('🔐 JWT token added to auth');
       }
@@ -65,7 +71,7 @@ class SocketService {
       // 연결 시작
       _socket!.connect();
 
-      // 연결 대기 (최대 5초)
+      // 연결 대기
       await Future.delayed(const Duration(milliseconds: 500));
 
       if (_socket!.connected) {
@@ -88,7 +94,7 @@ class SocketService {
     _socket!.on('connect', (_) {
       debugPrint('✅ Socket.IO connected: ${_socket!.id}');
 
-      // 재접속 시 자동으로 방 다시 참여 (명세서 요구사항)
+      // 재접속 시 자동으로 방 다시 참여
       if (_currentRoomId != null && _currentUserId != null) {
         final isTeacher = _isTeacher ?? false;
         _joinRoom(_currentRoomId!, _currentUserId!, isTeacher);
@@ -166,6 +172,82 @@ class SocketService {
       debugPrint('❌ Socket error: $error');
       onError?.call(error);
     });
+
+    // ========================================
+    // ✅ Presence 이벤트 리스너 (여기 추가!)
+    // ========================================
+
+    // PRESENCE_STATE: 전체 참여자 목록
+    _socket!.on('presence:state', (data) {
+      debugPrint('📥 PRESENCE_STATE received: $data');
+
+      if (data is! Map) return;
+
+      final usersList = data['users'];
+      if (usersList is! List) return;
+
+      final participants = usersList
+          .where((u) => u is Map)
+          .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
+          .toList();
+
+      onPresenceState?.call(participants);
+    });
+
+    // PRESENCE_JOIN: 새 참여자 입장
+    _socket!.on('presence:join', (data) {
+      debugPrint('📥 PRESENCE_JOIN received: $data');
+
+      if (data is! Map) return;
+
+      try {
+        final participant = Participant.fromJson(Map<String, dynamic>.from(data));
+        onPresenceJoin?.call(participant);
+      } catch (e) {
+        debugPrint('❌ Failed to parse PRESENCE_JOIN: $e');
+      }
+    });
+
+    // PRESENCE_LEAVE: 참여자 퇴장
+    _socket!.on('presence:leave', (data) {
+      debugPrint('📥 PRESENCE_LEAVE received: $data');
+
+      if (data is! Map) return;
+
+      final userId = data['userId'] as String?;
+      final role = data['role'] as String?;
+
+      if (userId != null && role != null) {
+        onPresenceLeave?.call(userId, role);
+      }
+    });
+  }
+
+  /// ===============================
+  /// ✅ Presence 리스너 설정 (신규 메서드!)
+  /// DrawingProvider에서 호출용
+  /// ===============================
+  void setupPresenceListeners() {
+    // 이미 _setupEventListeners()에서 등록되어 있음
+    // 이 메서드는 명시적 호출용 (실제 리스너는 위에서 이미 설정됨)
+    debugPrint('🔔 Presence listeners are ready');
+  }
+
+  /// ===============================
+  /// ✅ Presence 리스너 제거 (신규 메서드!)
+  /// ===============================
+  void removePresenceListeners() {
+    if (_socket == null) return;
+
+    _socket!.off('presence:state');
+    _socket!.off('presence:join');
+    _socket!.off('presence:leave');
+
+    onPresenceState = null;
+    onPresenceJoin = null;
+    onPresenceLeave = null;
+
+    debugPrint('🔕 Presence listeners removed');
   }
 
   /// ===============================
@@ -177,7 +259,6 @@ class SocketService {
       return;
     }
 
-    // 명세서 방식: role 사용, timestamp 제거
     final role = isTeacher ? 'teacher' : 'student';
 
     _socket!.emit('join_room', {
@@ -207,7 +288,6 @@ class SocketService {
 
     _socket!.emit('draw_event', data);
 
-    // draw_move는 너무 많이 로그되므로 제외
     if (event.eventType != DrawEventType.drawMove) {
       debugPrint('📤 Sent draw_event: ${event.eventType.code}');
     }
@@ -273,11 +353,16 @@ class SocketService {
   /// ===============================
   void disconnect() {
     leaveRoom();
+
+    // ✅ Presence 리스너 정리 추가!
+    removePresenceListeners();
+
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
     _currentRoomId = null;
     _currentUserId = null;
+
     debugPrint('🔌 Socket.IO disconnected and disposed');
   }
 
