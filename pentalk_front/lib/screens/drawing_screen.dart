@@ -16,6 +16,7 @@ class DrawingScreen extends StatefulWidget {
   final String? serverUrl; // Socket.IO 서버 URL
   final String? roomId; // 방 ID
   final String? userId; // 사용자 ID
+  final String? classId; // 클래스 ID
 
   const DrawingScreen({
     Key? key,
@@ -26,6 +27,7 @@ class DrawingScreen extends StatefulWidget {
     this.serverUrl,
     this.roomId,
     this.userId,
+    this.classId,
   }) : super(key: key);
 
   @override
@@ -54,6 +56,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
     if (widget.isTeacher) {
       provider.setDrawingMode(true);
       debugPrint('Drawing mode enabled for teacher');
+    } else {
+      provider.clearStudentPrivateStrokes();
     }
 
     // Socket.IO 연결
@@ -81,6 +85,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         serverUrl: widget.serverUrl!,
         userId: widget.userId!,
         roomId: widget.roomId!,
+        classId: widget.classId,
         isTeacher: widget.isTeacher,
         materialId: widget.materialId,
       );
@@ -184,8 +189,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   isTeacher: widget.isTeacher,
                   enableTouchInput: !(defaultTargetPlatform == TargetPlatform.iOS &&
                       provider.isDrawingMode),
-                  showMyStrokes: !(defaultTargetPlatform == TargetPlatform.iOS &&
-                      provider.isDrawingMode),
+                  // iOS drawing mode에서도 기존 stroke를 계속 표시해야 한다.
+                  showMyStrokes: true,
                   onCanvasSize: (size) => _updateDrawingMetrics(provider, size),
                 ),
                 if (widget.isTeacher &&

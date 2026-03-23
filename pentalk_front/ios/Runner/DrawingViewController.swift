@@ -61,11 +61,8 @@ final class DrawingViewController: UIViewController, PKCanvasViewDelegate {
         canvasView.translatesAutoresizingMaskIntoConstraints = false
         canvasView.backgroundColor = .white
         if #available(iOS 14.0, *) {
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                canvasView.drawingPolicy = .pencilOnly
-            } else {
-                canvasView.drawingPolicy = .anyInput
-            }
+            // Keep touch behavior consistent across iPhone/iPad.
+            canvasView.drawingPolicy = .anyInput
         }
         canvasView.delegate = self
         view.addSubview(canvasView)

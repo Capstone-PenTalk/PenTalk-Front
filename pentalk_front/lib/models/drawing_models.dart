@@ -8,7 +8,8 @@ enum DrawEventType {
   drawMove('dm'),
   drawEnd('de'),
   undo('un'),
-  eraser('er');
+  eraser('er'),
+  clearAll('cl');
 
   final String code;
   const DrawEventType(this.code);
@@ -16,7 +17,7 @@ enum DrawEventType {
   static DrawEventType fromCode(String code) {
     return DrawEventType.values.firstWhere(
           (type) => type.code == code,
-      orElse: () => DrawEventType.drawMove,
+      orElse: () => DrawEventType.undo,
     );
   }
 }

@@ -68,12 +68,18 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                 child: _MyDrawingLayer(canvasSize: canvasSize),
               ),
 
+            if (!widget.isTeacher)
+              RepaintBoundary(
+                child: _StudentPrivateDrawingLayer(canvasSize: canvasSize),
+              ),
+
             // ====================================
             // 레이어 4: 터치 입력 (교사 전용)
             // ====================================
-            if (widget.isTeacher && widget.enableTouchInput)
+            if (widget.enableTouchInput)
               _TouchInputLayer(
                 canvasSize: canvasSize,
+                requireDrawingMode: widget.isTeacher,
                 currentStrokeId: _currentStrokeId,
                 currentPoints: _currentPoints,
                 onPanStart: _onPanStart,
@@ -101,7 +107,11 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     final point = DrawPoint.fromPixelOffset(details.localPosition, canvasSize);
     _currentPoints.add(point);
 
-    _currentStrokeId = provider.sendDrawStart(point);
+    if (widget.isTeacher) {
+      _currentStrokeId = provider.sendDrawStart(point);
+    } else {
+      _currentStrokeId = provider.startStudentPrivateStroke(point);
+    }
   }
 
   void _onPanUpdate(DragUpdateDetails details, Size canvasSize, DrawingProvider provider) {
@@ -110,13 +120,22 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     final point = DrawPoint.fromPixelOffset(details.localPosition, canvasSize);
     _currentPoints.add(point);
 
-    provider.sendDrawMove(_currentStrokeId!, point);
+    if (widget.isTeacher) {
+      provider.sendDrawMove(_currentStrokeId!, point);
+    } else {
+      provider.appendStudentPrivatePoint(_currentStrokeId!, point);
+    }
   }
 
   void _onPanEnd(Size canvasSize, DrawingProvider provider) {
     if (_currentStrokeId == null) return;
 
-    provider.sendDrawEnd(_currentStrokeId!, _currentPoints);
+    final points = List<DrawPoint>.from(_currentPoints);
+    if (widget.isTeacher) {
+      provider.sendDrawEnd(_currentStrokeId!, points);
+    } else {
+      provider.endStudentPrivateStroke(_currentStrokeId!, points);
+    }
 
     _currentStrokeId = null;
     _currentPoints.clear();
@@ -266,6 +285,42 @@ class _MyDrawingLayer extends StatelessWidget {
   }
 }
 
+class _StudentPrivateDrawingLayer extends StatelessWidget {
+  final Size canvasSize;
+
+  const _StudentPrivateDrawingLayer({required this.canvasSize});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Selector<DrawingProvider, List<Stroke>>(
+          selector: (context, provider) => provider.studentPrivateCompletedStrokes,
+          builder: (context, strokes, child) {
+            return _RasterizedStrokeLayer(
+              canvasSize: canvasSize,
+              strokes: strokes,
+            );
+          },
+        ),
+        Selector<DrawingProvider, List<Stroke>>(
+          selector: (context, provider) => provider.studentPrivateActiveStrokeList,
+          builder: (context, strokes, child) {
+            return SizedBox.expand(
+              child: CustomPaint(
+                painter: DrawingPainter(
+                  strokes: strokes,
+                  canvasSize: canvasSize,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _RasterizedStrokeLayer extends StatefulWidget {
   final List<Stroke> strokes;
   final Size canvasSize;
@@ -375,10 +430,11 @@ class _RasterizedStrokeLayerState extends State<_RasterizedStrokeLayer> {
 }
 
 /// ===============================
-/// 터치 입력 레이어 (교사 전용)
+/// 터치 입력 레이어
 /// ===============================
 class _TouchInputLayer extends StatelessWidget {
   final Size canvasSize;
+  final bool requireDrawingMode;
   final int? currentStrokeId;
   final List<DrawPoint> currentPoints;
   final Function(DragStartDetails, Size, DrawingProvider) onPanStart;
@@ -387,6 +443,7 @@ class _TouchInputLayer extends StatelessWidget {
 
   const _TouchInputLayer({
     required this.canvasSize,
+    required this.requireDrawingMode,
     required this.currentStrokeId,
     required this.currentPoints,
     required this.onPanStart,
@@ -394,30 +451,37 @@ class _TouchInputLayer extends StatelessWidget {
     required this.onPanEnd,
   });
 
+  Widget _buildDetector(BuildContext context) {
+    return Positioned.fill(
+      child: GestureDetector(
+        onPanStart: (details) {
+          final provider = context.read<DrawingProvider>();
+          onPanStart(details, canvasSize, provider);
+        },
+        onPanUpdate: (details) {
+          final provider = context.read<DrawingProvider>();
+          onPanUpdate(details, canvasSize, provider);
+        },
+        onPanEnd: (details) {
+          final provider = context.read<DrawingProvider>();
+          onPanEnd(canvasSize, provider);
+        },
+        child: Container(color: Colors.transparent),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (!requireDrawingMode) {
+      return _buildDetector(context);
+    }
+
     return Selector<DrawingProvider, bool>(
       selector: (context, provider) => provider.isDrawingMode,
       builder: (context, isDrawingMode, child) {
         if (!isDrawingMode) return const SizedBox.shrink();
-
-        return Positioned.fill(
-          child: GestureDetector(
-            onPanStart: (details) {
-              final provider = context.read<DrawingProvider>();
-              onPanStart(details, canvasSize, provider);
-            },
-            onPanUpdate: (details) {
-              final provider = context.read<DrawingProvider>();
-              onPanUpdate(details, canvasSize, provider);
-            },
-            onPanEnd: (details) {
-              final provider = context.read<DrawingProvider>();
-              onPanEnd(canvasSize, provider);
-            },
-            child: Container(color: Colors.transparent),
-          ),
-        );
+        return _buildDetector(context);
       },
     );
   }

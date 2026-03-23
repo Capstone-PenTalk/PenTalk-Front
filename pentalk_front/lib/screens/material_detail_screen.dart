@@ -1,5 +1,5 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/student_session_model.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
@@ -8,14 +8,81 @@ class MaterialDetailScreen extends StatelessWidget {
   final MaterialModel material;
   final String sessionTitle;
   final String teacherName;
-  static const String _demoSessionId =
-      '58e29366-0563-47bd-8137-54500bf3d957';
-  static const String _demoMaterialId = 'seed-material-01';
+  static const String _socketHostOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_HOST',
+    defaultValue: 'pentalk-server-production.up.railway.app',
+  );
+  static const String _socketPortOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_PORT',
+    defaultValue: '',
+  );
+  static const String _socketSchemeOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_SCHEME',
+    defaultValue: 'https',
+  );
+  static const String _teacherServerUrlOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_URL_TEACHER',
+    defaultValue: '',
+  );
+  static const String _studentServerUrlOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_URL_STUDENT',
+    defaultValue: '',
+  );
+  static const String _demoClassId = String.fromEnvironment(
+    'PENTALK_DEMO_CLASS_ID',
+    defaultValue: 'seed-class-01',
+  );
+  static const String _demoMaterialId = String.fromEnvironment(
+    'PENTALK_DEMO_MATERIAL_ID',
+    defaultValue: 'seed-material-01',
+  );
+  static const String _demoTeacherId = String.fromEnvironment(
+    'PENTALK_DEMO_TEACHER_ID',
+    defaultValue: 'seed-teacher-01',
+  );
+  static const String _demoStudentId = String.fromEnvironment(
+    'PENTALK_DEMO_STUDENT_ID',
+    defaultValue: 'seed-student-01',
+  );
+  static const String _demoRoomIdOverride = String.fromEnvironment(
+    'PENTALK_DEMO_ROOM_ID',
+    defaultValue: '6af5c577-2874-4096-8e07-4d6b0fc3035b',
+  );
 
-  static const String _teacherServerUrl =
-      'http://192.168.219.143:3000/?role=teacher&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyMSIsInJvbGUiOiJ0ZWFjaGVyIiwiaWF0IjoxNzczMTUxNDA2LCJleHAiOjE3NzM3NTYyMDZ9.JTsfuuL2K5C-OWURkvYM0PcPUVYvDzdzveqBu4w-8gA';
-  static const String _studentServerUrl =
-      'http://192.168.219.143:3000/?role=student&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJzdHVkZW50MSIsInJvbGUiOiJzdHVkZW50IiwiaWF0IjoxNzczMTUxNDE2LCJleHAiOjE3NzM3NTYyMTZ9.xDtnlgluJbUM9vjPKSnyvc0P-RtpBKCrt3cMaIN9mGs';
+  static String get _socketHost {
+    if (_socketHostOverride.isNotEmpty) {
+      return _socketHostOverride;
+    }
+    if (kIsWeb) {
+      return 'localhost';
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        // Android emulator -> host machine loopback
+        return '10.0.2.2';
+      case TargetPlatform.iOS:
+        return '127.0.0.1';
+      default:
+        return 'localhost';
+    }
+  }
+
+  static String get _socketAuthority {
+    final port = _socketPortOverride.trim();
+    if (port.isEmpty) {
+      return _socketHost;
+    }
+    return '$_socketHost:$port';
+  }
+
+  static String get _teacherServerUrl =>
+      _teacherServerUrlOverride.isNotEmpty
+          ? _teacherServerUrlOverride
+          : '$_socketSchemeOverride://$_socketAuthority';
+  static String get _studentServerUrl =>
+      _studentServerUrlOverride.isNotEmpty
+          ? _studentServerUrlOverride
+          : '$_socketSchemeOverride://$_socketAuthority';
 
   const MaterialDetailScreen({
     Key? key,
@@ -113,10 +180,28 @@ class MaterialDetailScreen extends StatelessWidget {
     );
   }
 
-  void _startDrawingWithRole(BuildContext context, {required bool isTeacher}) {
-    // Demo session/material are seeded on the backend and used for local testing.
+  Future<void> _startDrawingWithRole(
+    BuildContext context, {
+    required bool isTeacher,
+  }) async {
+    // Demo class/material are seeded on the backend and used for local testing.
     final serverUrl = _resolveServerUrl(isTeacher);
-    const userId = 'user_124'; // 실제 사용자 ID로 변경
+    if (serverUrl == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('서버 URL이 비어 있어요.')),
+      );
+      return;
+    }
+    final userId = isTeacher ? _demoTeacherId : _demoStudentId;
+    final roomId = _demoRoomIdOverride.trim();
+    if (roomId.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PENTALK_DEMO_ROOM_ID를 설정해주세요. (고정 세션 모드)')),
+      );
+      return;
+    }
+    if (!context.mounted) return;
 
     Navigator.push(
       context,
@@ -125,9 +210,10 @@ class MaterialDetailScreen extends StatelessWidget {
           materialTitle: material.title,
           backgroundUrl: null,
           materialId: _demoMaterialId,
+          classId: _demoClassId,
           isTeacher: isTeacher,
           serverUrl: serverUrl,
-          roomId: _demoSessionId,
+          roomId: roomId,
           userId: userId,
         ),
       ),

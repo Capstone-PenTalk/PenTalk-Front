@@ -23,6 +23,10 @@ class DrawingProvider extends ChangeNotifier {
   final Map<int, Stroke> _othersStrokes = {};
   final Map<int, Stroke> _othersActiveStrokes = {};
 
+  // 학생 개인 필기 (로컬 전용, 서버 미전송)
+  final Map<int, Stroke> _studentPrivateStrokes = {};
+  final Map<int, Stroke> _studentPrivateActiveStrokes = {};
+
   // 배경 이미지 URL
   String? _backgroundUrl;
   double? _pdfWidth;
@@ -42,17 +46,24 @@ class DrawingProvider extends ChangeNotifier {
 
   // 소켓 연결 상태
   bool _isSocketConnected = false;
+  int _strokeIdSeed = DateTime.now().microsecondsSinceEpoch;
 
   // Getters
   Map<int, Stroke> get myStrokes => _myStrokes;
   Map<int, Stroke> get myActiveStrokes => _myActiveStrokes;
   Map<int, Stroke> get othersStrokes => _othersStrokes;
   Map<int, Stroke> get othersActiveStrokes => _othersActiveStrokes;
+  Map<int, Stroke> get studentPrivateStrokes => _studentPrivateStrokes;
+  Map<int, Stroke> get studentPrivateActiveStrokes => _studentPrivateActiveStrokes;
   List<Stroke> get myCompletedStrokes => _myStrokes.values.toList();
   List<Stroke> get myActiveStrokeList => _myActiveStrokes.values.toList();
   List<Stroke> get othersCompletedStrokes => _othersStrokes.values.toList();
   List<Stroke> get othersActiveStrokeList =>
       _othersActiveStrokes.values.toList();
+  List<Stroke> get studentPrivateCompletedStrokes =>
+      _studentPrivateStrokes.values.toList();
+  List<Stroke> get studentPrivateActiveStrokeList =>
+      _studentPrivateActiveStrokes.values.toList();
   String? get backgroundUrl => _backgroundUrl;
   double? get pdfWidth => _pdfWidth;
   double? get pdfHeight => _pdfHeight;
@@ -91,6 +102,7 @@ class DrawingProvider extends ChangeNotifier {
     required String userId,
     required String roomId,
     required bool isTeacher,
+    String? classId,
     String? materialId,
   }) async {
     _userId = userId;
@@ -103,6 +115,7 @@ class DrawingProvider extends ChangeNotifier {
         userId: userId,
         roomId: roomId,
         isTeacher: isTeacher,
+        classId: classId,
         materialId: materialId,
       );
 
@@ -194,6 +207,9 @@ class DrawingProvider extends ChangeNotifier {
       case DrawEventType.eraser:
         _handleOthersEraser(event);
         break;
+      case DrawEventType.clearAll:
+        _handleRemoteClearAll();
+        break;
     }
   }
 
@@ -222,10 +238,28 @@ class DrawingProvider extends ChangeNotifier {
         }
         _handleMyUndo(event);
         break;
+      case DrawEventType.clearAll:
+        clear();
+        return;
     }
 
     if (_socketService.isConnected && _userId != null) {
-      _socketService.sendDrawEvent(event, _userId!);
+      switch (event.eventType) {
+        case DrawEventType.drawStart:
+        case DrawEventType.drawMove:
+        case DrawEventType.drawEnd:
+          _socketService.sendDrawEvent(event, _userId!);
+          break;
+        case DrawEventType.undo:
+          _socketService.sendUndo(event.strokeId, _userId!);
+          break;
+        case DrawEventType.eraser:
+          _socketService.sendEraser(event.strokeId, _userId!);
+          break;
+        case DrawEventType.clearAll:
+          _socketService.sendClearAll(_userId!);
+          break;
+      }
     }
   }
 
@@ -261,6 +295,9 @@ class DrawingProvider extends ChangeNotifier {
       case DrawEventType.undo:
       case DrawEventType.eraser:
         debugPrint('[draw][$source] ${event.eventType.code} sId=${event.strokeId}');
+        break;
+      case DrawEventType.clearAll:
+        debugPrint('[draw][$source] cl');
         break;
     }
   }
@@ -340,6 +377,14 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
+  void _handleRemoteClearAll() {
+    _myStrokes.clear();
+    _myActiveStrokes.clear();
+    _othersStrokes.clear();
+    _othersActiveStrokes.clear();
+    notifyListeners();
+  }
+
   /// ===============================
   /// 내 판서 이벤트 처리 (로컬)
   /// ===============================
@@ -412,9 +457,14 @@ class DrawingProvider extends ChangeNotifier {
     final removed = _myStrokes.remove(event.strokeId) != null ||
         _myActiveStrokes.remove(event.strokeId) != null;
 
-    if (removed) {
-      notifyListeners();
+    if (!removed) {
+      debugPrint(
+        '[draw][warn] my undo/eraser target not found sId=${event.strokeId} '
+        'myCompleted=${_myStrokes.length} myActive=${_myActiveStrokes.length}',
+      );
+      return;
     }
+    notifyListeners();
   }
 
   /// ===============================
@@ -443,8 +493,9 @@ class DrawingProvider extends ChangeNotifier {
 
   Future<void> syncMyStrokesFromNativeSnapshot() async {
     final snapshot = await NativeDrawingBridge.exportDrawingSnapshot();
-    _myStrokes.clear();
-    _myActiveStrokes.clear();
+    final restoredStrokes = <int, Stroke>{};
+    Color? restoredLastColor;
+    double? restoredLastWidth;
 
     for (final stroke in snapshot) {
       final strokeId = (stroke['sId'] as num?)?.toInt();
@@ -464,15 +515,31 @@ class DrawingProvider extends ChangeNotifier {
       }
 
       final color = _parseSnapshotColor(colorHex);
-      _myStrokes[strokeId] = Stroke(
+      restoredStrokes[strokeId] = Stroke(
         strokeId: strokeId,
         color: color,
         width: width,
         points: points,
       );
-      _lastNativeColor = color;
-      _lastNativeWidth = width;
+      restoredLastColor = color;
+      restoredLastWidth = width;
     }
+
+    // iOS에서 drawing mode를 다시 켰다가 바로 끄면 새 native view가 빈 스냅샷을
+    // 반환할 수 있어 기존 stroke를 유지한다.
+    if (restoredStrokes.isEmpty) {
+      debugPrint(
+        '[draw][native-sync] empty snapshot -> keep existing ${_myStrokes.length} strokes',
+      );
+      return;
+    }
+
+    // 기존 Flutter stroke를 유지한 채, native snapshot 결과만 누적 반영한다.
+    // (drawing mode on/off 반복 시 과거 stroke가 사라지지 않아야 함)
+    _myStrokes.addAll(restoredStrokes);
+    _myActiveStrokes.removeWhere((strokeId, _) => restoredStrokes.containsKey(strokeId));
+    _lastNativeColor = restoredLastColor ?? _lastNativeColor;
+    _lastNativeWidth = restoredLastWidth ?? _lastNativeWidth;
 
     debugPrint('[draw][native-sync] restored ${_myStrokes.length} strokes from native snapshot');
     notifyListeners();
@@ -504,8 +571,13 @@ class DrawingProvider extends ChangeNotifier {
   /// ===============================
   /// 내가 그릴 때: 로컬 + 소켓 전송
   /// ===============================
+  int _nextStrokeId() {
+    _strokeIdSeed += 1;
+    return _strokeIdSeed;
+  }
+
   int sendDrawStart(DrawPoint point) {
-    final strokeId = DateTime.now().millisecondsSinceEpoch;
+    final strokeId = _nextStrokeId();
 
     final event = DrawEvent(
       eventType: DrawEventType.drawStart,
@@ -561,10 +633,11 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void sendDrawEnd(int strokeId, List<DrawPoint> points) {
+    final copiedPoints = List<DrawPoint>.from(points);
     final event = DrawEvent(
       eventType: DrawEventType.drawEnd,
       strokeId: strokeId,
-      points: points,
+      points: copiedPoints,
     );
 
     // 로컬에 먼저 표시
@@ -631,6 +704,50 @@ class DrawingProvider extends ChangeNotifier {
   void disconnectSocket() {
     _socketService.disconnect();
     _isSocketConnected = false;
+    notifyListeners();
+  }
+
+  /// ===============================
+  /// 학생 개인 필기 (로컬 전용, 서버 미전송)
+  /// ===============================
+  int startStudentPrivateStroke(DrawPoint point) {
+    final strokeId = _nextStrokeId();
+    final stroke = Stroke(
+      strokeId: strokeId,
+      color: _currentColor,
+      width: _currentWidth,
+      points: [point],
+    );
+    _studentPrivateActiveStrokes[strokeId] = stroke;
+    notifyListeners();
+    return strokeId;
+  }
+
+  void appendStudentPrivatePoint(int strokeId, DrawPoint point) {
+    final stroke = _studentPrivateActiveStrokes[strokeId];
+    if (stroke == null) return;
+    final updatedPoints = [...stroke.points, point];
+    _studentPrivateActiveStrokes[strokeId] =
+        stroke.copyWith(points: updatedPoints);
+    if (updatedPoints.length % 3 == 0) {
+      notifyListeners();
+    }
+  }
+
+  void endStudentPrivateStroke(int strokeId, List<DrawPoint> points) {
+    final stroke = _studentPrivateActiveStrokes.remove(strokeId);
+    if (stroke == null) return;
+    final copiedPoints = List<DrawPoint>.from(points);
+    final finalStroke = copiedPoints.isNotEmpty
+        ? stroke.withRefinedPoints(copiedPoints)
+        : stroke;
+    _studentPrivateStrokes[strokeId] = finalStroke;
+    notifyListeners();
+  }
+
+  void clearStudentPrivateStrokes() {
+    _studentPrivateStrokes.clear();
+    _studentPrivateActiveStrokes.clear();
     notifyListeners();
   }
 

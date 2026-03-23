@@ -3,6 +3,7 @@ package com.example.pentalk_front
 import android.content.Intent
 import android.util.Log
 import com.example.pentalk_front.drawing.DrawingChannel
+import com.example.pentalk_front.drawing.DrawingMetricsStore
 import com.example.pentalk_front.drawing.InkDrawingActivity
 import com.example.pentalk_front.drawing.InkDrawingView
 import io.flutter.embedding.android.FlutterActivity

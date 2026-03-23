@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.widget.FrameLayout
+import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.ink.brush.Brush
@@ -13,7 +14,6 @@ import androidx.ink.geometry.AffineTransform
 import androidx.ink.geometry.ImmutableSegment
 import androidx.ink.geometry.ImmutableVec
 import androidx.ink.geometry.Intersection.intersects
-import androidx.ink.strokes.InProgressStrokeId
 import androidx.ink.strokes.Stroke
 import kotlin.math.max
 import kotlin.math.min
@@ -47,6 +47,8 @@ class InkDrawingView @JvmOverloads constructor(
     private var penBrush = buildPenBrush(brushConfig)
     private var fingerBrush = buildFingerBrush(brushConfig)
     private val activeStrokeIds = mutableMapOf<Int, Long>()
+    private val activeInkStrokeIds = mutableMapOf<Int, InProgressStrokeId>()
+    private val finishedStrokeEventIds = mutableMapOf<InProgressStrokeId, Long>()
     private val activePoints = mutableMapOf<Int, MutableList<Map<String, Double>>>()
 
     init {
@@ -54,8 +56,10 @@ class InkDrawingView @JvmOverloads constructor(
         isFocusable = true
 
         inkView.addFinishedStrokesListener(
-            InProgressStrokesFinishedListener { strokes ->
-                finishedStrokes.putAll(strokes)
+            object : InProgressStrokesFinishedListener {
+                override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
+                    finishedStrokes.putAll(strokes)
+                }
             }
         )
 
@@ -128,7 +132,8 @@ class InkDrawingView @JvmOverloads constructor(
         }
 
         requestUnbufferedDispatch(event)
-        inkView.startStroke(event, pointerId, brushFor(tool))
+        val inkStrokeId = inkView.startStroke(event, pointerId, brushFor(tool))
+        activeInkStrokeIds[pointerId] = inkStrokeId
     }
 
     private fun handleMove(event: MotionEvent) {
@@ -173,6 +178,7 @@ class InkDrawingView @JvmOverloads constructor(
         val pointerId = event.getPointerId(pointerIndex)
         val tool = toolKindFor(event, pointerIndex)
         val strokeId = activeStrokeIds.remove(pointerId)
+        val inkStrokeId = activeInkStrokeIds.remove(pointerId)
         val points = activePoints.remove(pointerId)
         if (tool == ToolKind.FINGER) {
             return
@@ -184,6 +190,9 @@ class InkDrawingView @JvmOverloads constructor(
             }
         } else {
             inkView.finishStroke(event, pointerId)
+            if (inkStrokeId != null && strokeId != null) {
+                finishedStrokeEventIds[inkStrokeId] = strokeId
+            }
         }
 
         if (strokeId != null && points != null) {
@@ -201,6 +210,7 @@ class InkDrawingView @JvmOverloads constructor(
             val pointerId = event.getPointerId(i)
             val tool = toolKindFor(event, i)
             val strokeId = activeStrokeIds.remove(pointerId)
+            activeInkStrokeIds.remove(pointerId)
             val points = activePoints.remove(pointerId)
             if (tool == ToolKind.ERASER) {
                 eraserPaths.remove(pointerId)
@@ -262,8 +272,21 @@ class InkDrawingView @JvmOverloads constructor(
         }
 
         if (toRemove.isNotEmpty()) {
+            toRemove.forEach { id ->
+                finishedStrokeEventIds[id]?.let { eventStrokeId ->
+                    DrawingChannel.notifyDrawEvent(
+                        mapOf(
+                            "e" to "er",
+                            "sId" to eventStrokeId,
+                        )
+                    )
+                }
+            }
             inkView.removeFinishedStrokes(toRemove)
-            toRemove.forEach { finishedStrokes.remove(it) }
+            toRemove.forEach {
+                finishedStrokes.remove(it)
+                finishedStrokeEventIds.remove(it)
+            }
             invalidate()
         }
     }

@@ -92,11 +92,9 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
         canvasView.backgroundColor = .clear
         canvasView.isOpaque = false
         if #available(iOS 14.0, *) {
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                canvasView.drawingPolicy = .pencilOnly
-            } else {
-                canvasView.drawingPolicy = .anyInput
-            }
+            // Allow finger input on iPad as well; pencil-only mode makes the
+            // canvas look unresponsive on devices without Apple Pencil.
+            canvasView.drawingPolicy = .anyInput
         }
         canvasView.delegate = self
         canvasView.onTouchesBegan = { [weak self] touches in
