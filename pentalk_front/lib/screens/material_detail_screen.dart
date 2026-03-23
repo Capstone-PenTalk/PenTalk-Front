@@ -1,5 +1,5 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/student_session_model.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
@@ -8,6 +8,81 @@ class MaterialDetailScreen extends StatelessWidget {
   final MaterialModel material;
   final String sessionTitle;
   final String teacherName;
+  static const String _socketHostOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_HOST',
+    defaultValue: 'pentalk-server-production.up.railway.app',
+  );
+  static const String _socketPortOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_PORT',
+    defaultValue: '',
+  );
+  static const String _socketSchemeOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_SCHEME',
+    defaultValue: 'https',
+  );
+  static const String _teacherServerUrlOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_URL_TEACHER',
+    defaultValue: '',
+  );
+  static const String _studentServerUrlOverride = String.fromEnvironment(
+    'PENTALK_SOCKET_URL_STUDENT',
+    defaultValue: '',
+  );
+  static const String _demoClassId = String.fromEnvironment(
+    'PENTALK_DEMO_CLASS_ID',
+    defaultValue: 'seed-class-01',
+  );
+  static const String _demoMaterialId = String.fromEnvironment(
+    'PENTALK_DEMO_MATERIAL_ID',
+    defaultValue: 'seed-material-01',
+  );
+  static const String _demoTeacherId = String.fromEnvironment(
+    'PENTALK_DEMO_TEACHER_ID',
+    defaultValue: 'seed-teacher-01',
+  );
+  static const String _demoStudentId = String.fromEnvironment(
+    'PENTALK_DEMO_STUDENT_ID',
+    defaultValue: 'seed-student-01',
+  );
+  static const String _demoRoomIdOverride = String.fromEnvironment(
+    'PENTALK_DEMO_ROOM_ID',
+    defaultValue: '6af5c577-2874-4096-8e07-4d6b0fc3035b',
+  );
+
+  static String get _socketHost {
+    if (_socketHostOverride.isNotEmpty) {
+      return _socketHostOverride;
+    }
+    if (kIsWeb) {
+      return 'localhost';
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        // Android emulator -> host machine loopback
+        return '10.0.2.2';
+      case TargetPlatform.iOS:
+        return '127.0.0.1';
+      default:
+        return 'localhost';
+    }
+  }
+
+  static String get _socketAuthority {
+    final port = _socketPortOverride.trim();
+    if (port.isEmpty) {
+      return _socketHost;
+    }
+    return '$_socketHost:$port';
+  }
+
+  static String get _teacherServerUrl =>
+      _teacherServerUrlOverride.isNotEmpty
+          ? _teacherServerUrlOverride
+          : '$_socketSchemeOverride://$_socketAuthority';
+  static String get _studentServerUrl =>
+      _studentServerUrlOverride.isNotEmpty
+          ? _studentServerUrlOverride
+          : '$_socketSchemeOverride://$_socketAuthority';
 
   const MaterialDetailScreen({
     Key? key,
@@ -71,24 +146,86 @@ class MaterialDetailScreen extends StatelessWidget {
   }
 
   void _handleStartDrawing(BuildContext context) {
-    // TODO: 실제 서버 URL, roomId, userId 설정
-    const serverUrl = 'http://localhost:3000'; // 실제 서버 URL로 변경
-    final roomId = 'room_${sessionTitle}_${DateTime.now().millisecondsSinceEpoch}';
-    const userId = 'user_123'; // 실제 사용자 ID로 변경
+    _showRolePicker(context);
+  }
+
+  void _showRolePicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.school),
+                title: const Text('선생님으로 시작'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _startDrawingWithRole(context, isTeacher: true);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person),
+                title: const Text('학생으로 시작'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _startDrawingWithRole(context, isTeacher: false);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _startDrawingWithRole(
+    BuildContext context, {
+    required bool isTeacher,
+  }) async {
+    // Demo class/material are seeded on the backend and used for local testing.
+    final serverUrl = _resolveServerUrl(isTeacher);
+    if (serverUrl == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('서버 URL이 비어 있어요.')),
+      );
+      return;
+    }
+    final userId = isTeacher ? _demoTeacherId : _demoStudentId;
+    final roomId = _demoRoomIdOverride.trim();
+    if (roomId.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PENTALK_DEMO_ROOM_ID를 설정해주세요. (고정 세션 모드)')),
+      );
+      return;
+    }
+    if (!context.mounted) return;
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
           materialTitle: material.title,
-          backgroundUrl: material.url, // PDF/이미지 URL
-          isTeacher: true, // TODO: 실제 역할에 따라 변경
+          backgroundUrl: null,
+          materialId: _demoMaterialId,
+          classId: _demoClassId,
+          isTeacher: isTeacher,
           serverUrl: serverUrl,
           roomId: roomId,
           userId: userId,
         ),
       ),
     );
+  }
+
+  String? _resolveServerUrl(bool isTeacher) {
+    final url = isTeacher ? _teacherServerUrl : _studentServerUrl;
+    if (url.isEmpty) {
+      return null;
+    }
+    return url;
   }
 
   @override

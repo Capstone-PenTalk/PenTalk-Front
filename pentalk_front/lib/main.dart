@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,7 +9,12 @@ import 'screens/student_home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await NativeDrawingBridge.init();
+  NativeDrawingBridge.init().catchError((error, stackTrace) {
+    debugPrint('NativeDrawingBridge.init failed: $error');
+    if (stackTrace is StackTrace) {
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  });
   runApp(const MyApp());
 }
 

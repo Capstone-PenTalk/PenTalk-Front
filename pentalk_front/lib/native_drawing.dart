@@ -90,6 +90,17 @@ class NativeDrawingBridge {
     });
   }
 
+  static Future<List<Map<String, dynamic>>> exportDrawingSnapshot() async {
+    final result = await _channel.invokeMethod<List<dynamic>>('exportDrawing');
+    if (result == null) {
+      return const <Map<String, dynamic>>[];
+    }
+    return result
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+  }
+
   static Future<void> sendDrawEvent(Map<String, dynamic> payload) async {
     debugPrint('[draw][send] $payload');
     await _eventStore.saveEvent(direction: 'outbound', payload: payload);

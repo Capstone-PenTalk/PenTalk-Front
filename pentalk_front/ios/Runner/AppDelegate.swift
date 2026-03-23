@@ -10,6 +10,10 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = registrar(forPlugin: "drawing_platform_view") {
+      let factory = DrawingPlatformViewFactory(messenger: registrar.messenger())
+      registrar.register(factory, withId: "pentalk/drawing_view")
+    }
 
     if let controller = window?.rootViewController as? FlutterViewController {
       let channel = FlutterMethodChannel(
@@ -46,8 +50,11 @@ import UIKit
             )
           }
           result(nil)
+        case "exportDrawing":
+          result(DrawingSurfaceManager.shared.exportDrawingSnapshot())
         case "sendDrawEvent":
           if let payload = call.arguments as? [String: Any] {
+            NSLog("[draw][ios] sendDrawEvent received: %@", String(describing: payload))
             // TODO: forward payload to socket server.
             _ = payload
           }
