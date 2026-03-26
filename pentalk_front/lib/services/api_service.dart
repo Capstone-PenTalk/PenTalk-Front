@@ -1,16 +1,15 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';  // Color 사용
+import 'package:flutter/material.dart';
 import '../models/drawing_models.dart';
 import 'auth_service.dart';
 
 /// ===============================
 /// REST API 클라이언트 서비스
-/// 판서 데이터 저장/불러오기
 /// ===============================
 class ApiService {
-  // 서버 베이스 URL (개발 환경)
   static const String baseUrl = 'http://localhost:3000';
 
   /// ===============================
@@ -21,19 +20,22 @@ class ApiService {
     required List<Stroke> strokes,
   }) async {
     try {
-      // JWT 토큰 가져오기
       final token = await AuthService.getToken();
 
-      // Stroke → JSON 변환
-      final strokesJson = strokes.map((stroke) => {
-        'sId': stroke.strokeId,  // id → strokeId
-        'pts': stroke.points.map((p) => {
+      final strokesJson = strokes
+          .map((stroke) => {
+        'sId': stroke.strokeId,
+        'pts': stroke.points
+            .map((p) => {
           'x': p.x,
           'y': p.y,
-        }).toList(),
-        'c': '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
+        })
+            .toList(),
+        'c':
+        '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
         'w': stroke.width,
-      }).toList();
+      })
+          .toList();
 
       final body = {
         'sessionId': sessionId,
@@ -42,34 +44,27 @@ class ApiService {
 
       debugPrint('📤 POST /strokes: ${strokes.length} strokes');
 
-      // HTTP 요청
-      final response = await http.post(
+      final response = await http
+          .post(
         Uri.parse('$baseUrl/strokes'),
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode(body),
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Request timeout');
-        },
+        onTimeout: () => throw TimeoutException('Request timeout'),
       );
 
-      // 응답 처리
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
         debugPrint('✅ Saved ${data['count']} strokes');
-
-        return ApiResponse(
-          success: true,
-          data: data,
-        );
+        return ApiResponse(success: true, data: data);
       } else {
         final error = jsonDecode(response.body);
         debugPrint('❌ Save failed: ${error['message']}');
-
         return ApiResponse(
           success: false,
           error: error['error'] ?? 'UNKNOWN_ERROR',
@@ -93,42 +88,38 @@ class ApiService {
     required String sessionId,
   }) async {
     try {
-      // JWT 토큰 가져오기
       final token = await AuthService.getToken();
 
       debugPrint('📥 GET /strokes?sessionId=$sessionId');
 
-      // HTTP 요청
-      final response = await http.get(
+      final response = await http
+          .get(
         Uri.parse('$baseUrl/strokes?sessionId=$sessionId'),
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Request timeout');
-        },
+        onTimeout: () => throw TimeoutException('Request timeout'),
       );
 
-      // 응답 처리
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final strokesJson = data['strokes'] as List;
 
-        // JSON → Stroke 변환
         final strokes = strokesJson.map((json) {
-          final points = (json['pts'] as List).map((p) =>
-              DrawPoint(
-                x: (p['x'] as num).toDouble(),
-                y: (p['y'] as num).toDouble(),
-              )
-          ).toList();
+          final points = (json['pts'] as List)
+              .map((p) => DrawPoint(
+            x: (p['x'] as num).toDouble(),
+            y: (p['y'] as num).toDouble(),
+          ))
+              .toList();
 
-          // 색상 파싱 (#RRGGBB → Color)
           final colorString = json['c'] as String;
-          final colorInt = int.parse(colorString.replaceFirst('#', ''), radix: 16);
+          final colorInt =
+          int.parse(colorString.replaceFirst('#', ''), radix: 16);
           final color = Color(0xFF000000 | colorInt);
 
           return Stroke(
@@ -140,15 +131,10 @@ class ApiService {
         }).toList();
 
         debugPrint('✅ Loaded ${strokes.length} strokes');
-
-        return ApiResponse<List<Stroke>>(
-          success: true,
-          data: strokes,
-        );
+        return ApiResponse<List<Stroke>>(success: true, data: strokes);
       } else {
         final error = jsonDecode(response.body);
         debugPrint('❌ Load failed: ${error['message']}');
-
         return ApiResponse<List<Stroke>>(
           success: false,
           error: error['error'] ?? 'UNKNOWN_ERROR',
@@ -166,6 +152,92 @@ class ApiService {
   }
 
   /// ===============================
+  /// PDF 내보내기 (POST /export/pdf)
+  ///
+  /// [sessionId]: 세션 ID
+  /// [strokes]: 학생 개인 필기 stroke 배열
+  ///   각 stroke 형식:
+  ///   { sId, color(int), width, page(1~), points:[{x,y,p?}] }
+  ///
+  /// 반환: PDF 바이너리 (Uint8List)
+  /// ===============================
+  static Future<Uint8List> exportPdf({
+    required String sessionId,
+    required List<Map<String, dynamic>> strokes,
+  }) async {
+    final token = await AuthService.getToken();
+
+    final body = {
+      'sessionId': sessionId,
+      'strokes': strokes,
+    };
+
+    debugPrint('📤 POST /export/pdf');
+    debugPrint('   sessionId: $sessionId');
+    debugPrint('   strokes: ${strokes.length}개');
+
+    final response = await http
+        .post(
+      Uri.parse('$baseUrl/export/pdf'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    )
+        .timeout(
+      // PDF 생성은 시간이 걸릴 수 있으므로 타임아웃 넉넉하게
+      const Duration(seconds: 60),
+      onTimeout: () => throw TimeoutException('PDF export timeout'),
+    );
+
+    if (response.statusCode == 200) {
+      debugPrint('✅ PDF received: ${response.bodyBytes.length} bytes');
+      return response.bodyBytes;
+    }
+
+    // 에러 응답 파싱
+    String errorMessage = 'PDF 생성에 실패했습니다';
+    String errorCode = 'EXPORT_FAILED';
+
+    try {
+      final error = jsonDecode(response.body) as Map<String, dynamic>;
+      errorMessage = error['message'] as String? ?? errorMessage;
+      errorCode = error['code'] as String? ?? errorCode;
+    } catch (_) {
+      // 응답이 JSON이 아닌 경우 무시
+    }
+
+    debugPrint('❌ Export failed [${response.statusCode}]: $errorMessage');
+
+    if (response.statusCode == 400) {
+      throw PdfExportApiException(
+        errorMessage,
+        statusCode: 400,
+        code: errorCode,
+      );
+    } else if (response.statusCode == 401) {
+      throw PdfExportApiException(
+        '인증이 만료되었습니다. 다시 로그인해주세요.',
+        statusCode: 401,
+        code: 'UNAUTHORIZED',
+      );
+    } else if (response.statusCode == 404) {
+      throw PdfExportApiException(
+        '세션을 찾을 수 없습니다.',
+        statusCode: 404,
+        code: 'SESSION_NOT_FOUND',
+      );
+    } else {
+      throw PdfExportApiException(
+        errorMessage,
+        statusCode: response.statusCode,
+        code: errorCode,
+      );
+    }
+  }
+
+  /// ===============================
   /// 로그인 (POST /auth/dev-login)
   /// ===============================
   static Future<ApiResponse<LoginResponse>> login({
@@ -175,26 +247,19 @@ class ApiService {
     try {
       debugPrint('📤 POST /auth/dev-login: userId=$userId, role=$role');
 
-      final body = {
-        'userId': userId,
-        'role': role,
-      };
+      final body = {'userId': userId, 'role': role};
 
-      // HTTP 요청
-      final response = await http.post(
+      final response = await http
+          .post(
         Uri.parse('$baseUrl/auth/dev-login'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Login timeout');
-        },
+        onTimeout: () => throw TimeoutException('Login timeout'),
       );
 
-      // 응답 처리
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         debugPrint('✅ Login success: ${data['user']['userId']}');
@@ -210,7 +275,6 @@ class ApiService {
       } else {
         final error = jsonDecode(response.body);
         debugPrint('❌ Login failed: ${error['message']}');
-
         return ApiResponse<LoginResponse>(
           success: false,
           error: error['code'] ?? 'LOGIN_FAILED',
@@ -229,32 +293,28 @@ class ApiService {
 
   /// ===============================
   /// 세션 종료 (POST /sessions/{sessionId}/end)
-  /// 교사 전용
   /// ===============================
   static Future<ApiResponse<EndSessionResponse>> endSession({
     required String sessionId,
   }) async {
     try {
-      // JWT 토큰 가져오기
       final token = await AuthService.getToken();
 
       debugPrint('📤 POST /sessions/$sessionId/end');
 
-      // HTTP 요청
-      final response = await http.post(
+      final response = await http
+          .post(
         Uri.parse('$baseUrl/sessions/$sessionId/end'),
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Request timeout');
-        },
+        onTimeout: () => throw TimeoutException('Request timeout'),
       );
 
-      // 응답 처리
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         debugPrint('✅ Session ended: ${data['sessionId']}');
@@ -272,7 +332,6 @@ class ApiService {
       } else {
         final error = jsonDecode(response.body);
         debugPrint('❌ End session failed: ${error['message']}');
-
         return ApiResponse<EndSessionResponse>(
           success: false,
           error: error['code'] ?? 'END_SESSION_FAILED',
@@ -291,35 +350,32 @@ class ApiService {
 
   /// ===============================
   /// 판서 데이터 조회 (GET /sessions/{sessionId}/whiteboard)
-  /// 읽기 전용 뷰어용
   /// ===============================
   static Future<ApiResponse<WhiteboardData>> getWhiteboard({
     required String sessionId,
   }) async {
     try {
-      // JWT 토큰 가져오기
       final token = await AuthService.getToken();
 
       debugPrint('📤 GET /sessions/$sessionId/whiteboard');
 
-      // HTTP 요청
-      final response = await http.get(
+      final response = await http
+          .get(
         Uri.parse('$baseUrl/sessions/$sessionId/whiteboard'),
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Request timeout');
-        },
+        onTimeout: () => throw TimeoutException('Request timeout'),
       );
 
-      // 응답 처리
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        debugPrint('✅ Whiteboard loaded: ${data['strokes']?.length ?? 0} strokes');
+        debugPrint(
+            '✅ Whiteboard loaded: ${data['strokes']?.length ?? 0} strokes');
 
         return ApiResponse<WhiteboardData>(
           success: true,
@@ -328,13 +384,13 @@ class ApiService {
             readOnly: data['readOnly'] ?? true,
             strokes: (data['strokes'] as List?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
-                .toList() ?? [],
+                .toList() ??
+                [],
           ),
         );
       } else {
         final error = jsonDecode(response.body);
         debugPrint('❌ Get whiteboard failed: ${error['message']}');
-
         return ApiResponse<WhiteboardData>(
           success: false,
           error: error['code'] ?? 'GET_WHITEBOARD_FAILED',
@@ -353,32 +409,28 @@ class ApiService {
 
   /// ===============================
   /// 세션 상태 확인 (GET /sessions/{sessionId}/status)
-  /// 자동 재join용 - 세션이 ACTIVE인지 확인
   /// ===============================
   static Future<ApiResponse<SessionStatus>> getSessionStatus({
     required String sessionId,
   }) async {
     try {
-      // JWT 토큰 가져오기
       final token = await AuthService.getToken();
 
       debugPrint('📤 GET /sessions/$sessionId/status');
 
-      // HTTP 요청
-      final response = await http.get(
+      final response = await http
+          .get(
         Uri.parse('$baseUrl/sessions/$sessionId/status'),
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 5),
-        onTimeout: () {
-          throw TimeoutException('Request timeout');
-        },
+        onTimeout: () => throw TimeoutException('Request timeout'),
       );
 
-      // 응답 처리
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         debugPrint('✅ Session status: ${data['status']}');
@@ -391,9 +443,7 @@ class ApiService {
           ),
         );
       } else if (response.statusCode == 404) {
-        // 세션이 없음
         debugPrint('❌ Session not found: $sessionId');
-
         return ApiResponse<SessionStatus>(
           success: false,
           error: 'SESSION_NOT_FOUND',
@@ -402,7 +452,6 @@ class ApiService {
       } else {
         final error = jsonDecode(response.body);
         debugPrint('❌ Get session status failed: ${error['message']}');
-
         return ApiResponse<SessionStatus>(
           success: false,
           error: error['code'] ?? 'GET_STATUS_FAILED',
@@ -421,8 +470,9 @@ class ApiService {
 }
 
 /// ===============================
-/// 세션 종료 응답 모델
+/// 모델 클래스들
 /// ===============================
+
 class EndSessionResponse {
   final String sessionId;
   final String status;
@@ -439,9 +489,6 @@ class EndSessionResponse {
   });
 }
 
-/// ===============================
-/// 로그인 응답 모델
-/// ===============================
 class LoginResponse {
   final String token;
   final String userId;
@@ -454,9 +501,6 @@ class LoginResponse {
   });
 }
 
-/// ===============================
-/// Whiteboard 데이터 모델
-/// ===============================
 class WhiteboardData {
   final String sessionId;
   final bool readOnly;
@@ -469,25 +513,16 @@ class WhiteboardData {
   });
 }
 
-/// ===============================
-/// 세션 상태 모델
-/// ===============================
 class SessionStatus {
   final String sessionId;
-  final String status;  // 'ACTIVE' | 'ARCHIVED' | 'UNKNOWN'
+  final String status;
 
-  SessionStatus({
-    required this.sessionId,
-    required this.status,
-  });
+  SessionStatus({required this.sessionId, required this.status});
 
   bool get isActive => status == 'ACTIVE';
   bool get isArchived => status == 'ARCHIVED';
 }
 
-/// ===============================
-/// API 응답 모델
-/// ===============================
 class ApiResponse<T> {
   final bool success;
   final T? data;
@@ -502,9 +537,22 @@ class ApiResponse<T> {
   });
 }
 
-/// ===============================
-/// 타임아웃 예외
-/// ===============================
+/// PDF export API 전용 예외
+class PdfExportApiException implements Exception {
+  final String message;
+  final int statusCode;
+  final String code;
+
+  const PdfExportApiException(
+      this.message, {
+        required this.statusCode,
+        required this.code,
+      });
+
+  @override
+  String toString() => message;
+}
+
 class TimeoutException implements Exception {
   final String message;
   TimeoutException(this.message);

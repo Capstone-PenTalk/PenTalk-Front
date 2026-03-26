@@ -9,29 +9,18 @@ import '../services/local_db_service.dart';
 class PersonalDrawingProvider extends ChangeNotifier {
   final LocalDbService _dbService = LocalDbService();
 
-  // 현재 페이지 ID
   String? _currentPageId;
-
-  // 개인 필기 데이터 (완성된 선들)
   final Map<int, Stroke> _personalStrokes = {};
-
-  // 현재 그리는 중인 선
   final Map<int, Stroke> _personalActiveStrokes = {};
-
-  // 개인 필기 표시 여부
   bool _showPersonalLayer = true;
-
-  // 로딩 상태
   bool _isLoading = false;
 
-  // Getters
   Map<int, Stroke> get personalStrokes => _personalStrokes;
   Map<int, Stroke> get personalActiveStrokes => _personalActiveStrokes;
   bool get showPersonalLayer => _showPersonalLayer;
   bool get isLoading => _isLoading;
   String? get currentPageId => _currentPageId;
 
-  /// 모든 개인 필기 (완성 + 진행중)
   List<Stroke> get allPersonalStrokes {
     return [..._personalStrokes.values, ..._personalActiveStrokes.values];
   }
@@ -102,7 +91,6 @@ class PersonalDrawingProvider extends ChangeNotifier {
     final updatedPoints = [...stroke.points, point];
     _personalActiveStrokes[strokeId] = stroke.copyWith(points: updatedPoints);
 
-    // 3개마다 한번씩만 리렌더링 (최적화)
     if (updatedPoints.length % 3 == 0) {
       notifyListeners();
     }
@@ -123,32 +111,27 @@ class PersonalDrawingProvider extends ChangeNotifier {
       return;
     }
 
-    // refined points가 있으면 적용
     final finalStroke = refinedPoints != null && refinedPoints.isNotEmpty
         ? stroke.withRefinedPoints(refinedPoints)
         : stroke;
 
-    // 메모리에 추가
     _personalStrokes[strokeId] = finalStroke;
     notifyListeners();
 
-    // DB에 저장 (비동기)
     try {
       final personalStroke = PersonalStroke.fromStroke(
         finalStroke,
         _currentPageId!,
       );
-
       await _dbService.insertStroke(personalStroke);
       debugPrint('💾 Saved personal stroke #$strokeId to DB');
     } catch (e) {
       debugPrint('❌ Failed to save stroke: $e');
-      // DB 저장 실패해도 메모리에는 있으므로 계속 사용 가능
     }
   }
 
   /// ===============================
-  /// 실행 취소 (마지막 선 삭제)
+  /// 실행 취소
   /// ===============================
   Future<void> undoLastStroke() async {
     if (_personalStrokes.isEmpty) {
@@ -158,16 +141,13 @@ class PersonalDrawingProvider extends ChangeNotifier {
 
     if (_currentPageId == null) return;
 
-    // 마지막 선 찾기 (strokeId가 가장 큰 것)
     final lastStrokeId = _personalStrokes.keys.reduce(
           (a, b) => a > b ? a : b,
     );
 
-    // 메모리에서 삭제
     _personalStrokes.remove(lastStrokeId);
     notifyListeners();
 
-    // DB에서 삭제
     try {
       await _dbService.deleteStroke(_currentPageId!, lastStrokeId);
       debugPrint('🗑️ Undo: Removed stroke #$lastStrokeId');
@@ -187,7 +167,6 @@ class PersonalDrawingProvider extends ChangeNotifier {
 
     if (removed) {
       notifyListeners();
-
       try {
         await _dbService.deleteStroke(_currentPageId!, strokeId);
         debugPrint('🗑️ Deleted stroke #$strokeId');
@@ -198,7 +177,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   }
 
   /// ===============================
-  /// 현재 페이지의 모든 필기 삭제
+  /// 현재 페이지 모든 필기 삭제
   /// ===============================
   Future<void> clearCurrentPage() async {
     if (_currentPageId == null) return;
@@ -213,6 +192,55 @@ class PersonalDrawingProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('❌ Failed to clear page: $e');
     }
+  }
+
+  /// ===============================
+  /// PDF export용 전체 stroke 취합
+  ///
+  /// [pageIdOrder]: 세션의 materialTitle 순서대로 전달
+  ///   예) ['1단원: 물질의 규칙성', '2단원: 자연의 구성 물질']
+  ///   → 각각 page: 1, page: 2 로 매핑
+  ///
+  /// 반환: POST /export/pdf 의 strokes 배열 형식
+  /// ===============================
+  Future<List<Map<String, dynamic>>> getAllPersonalStrokesForExport({
+    required List<String> pageIdOrder,
+  }) async {
+    // pageId(materialTitle) → pageNumber(1부터 시작) 매핑 생성
+    final pageMapping = <String, int>{};
+    for (int i = 0; i < pageIdOrder.length; i++) {
+      pageMapping[pageIdOrder[i]] = i + 1;
+    }
+
+    debugPrint('📋 Page mapping: $pageMapping');
+
+    // DB에 저장된 모든 페이지 ID 조회
+    final allPageIds = await _dbService.getAllPageIds();
+
+    final result = <Map<String, dynamic>>[];
+
+    for (final pageId in allPageIds) {
+      // 알 수 없는 pageId는 page: 1로 fallback (안전 처리)
+      final pageNumber = pageMapping[pageId] ?? 1;
+
+      if (!pageMapping.containsKey(pageId)) {
+        debugPrint('⚠️ Unknown pageId "$pageId" → fallback to page 1');
+      }
+
+      final strokes = await _dbService.getStrokesByPageId(pageId);
+
+      for (final ps in strokes) {
+        result.add(ps.toServerJson(pageNumber));
+      }
+
+      debugPrint(
+          '📄 Page "$pageId" (page: $pageNumber): ${strokes.length} strokes');
+    }
+
+    debugPrint(
+        '✅ Total export strokes: ${result.length} across ${allPageIds.length} pages');
+
+    return result;
   }
 
   /// ===============================
@@ -246,17 +274,11 @@ class PersonalDrawingProvider extends ChangeNotifier {
     return await _dbService.getAllPageIds();
   }
 
-  /// ===============================
-  /// 정리
-  /// ===============================
-
-  /// 30일 이상 된 필기 삭제
   Future<int> cleanupOldStrokes({int days = 30}) async {
     final cutoffDate = DateTime.now().subtract(Duration(days: days));
     return await _dbService.deleteStrokesOlderThan(cutoffDate);
   }
 
-  /// 전체 개인 필기 삭제 (초기화)
   Future<void> deleteAllPersonalStrokes() async {
     _personalStrokes.clear();
     _personalActiveStrokes.clear();

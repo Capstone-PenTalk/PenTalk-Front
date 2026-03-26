@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'drawing_models.dart';
 
@@ -5,14 +6,14 @@ import 'drawing_models.dart';
 /// 개인 필기용 Stroke 모델 (로컬 DB 저장)
 /// ===============================
 class PersonalStroke {
-  final int? id; // SQLite auto-increment ID
+  final int? id;
   final String pageId; // materialTitle
-  final int strokeId; // 고유 stroke ID
+  final int strokeId;
   final Color color;
   final double width;
   final List<DrawPoint> points;
   final List<DrawPoint>? refinedPoints;
-  final DateTime timestamp; // 생성 시간
+  final DateTime timestamp;
 
   PersonalStroke({
     this.id,
@@ -25,7 +26,6 @@ class PersonalStroke {
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
 
-  /// Stroke → PersonalStroke 변환
   factory PersonalStroke.fromStroke(
       Stroke stroke,
       String pageId, {
@@ -42,7 +42,6 @@ class PersonalStroke {
     );
   }
 
-  /// PersonalStroke → Stroke 변환
   Stroke toStroke() {
     return Stroke(
       strokeId: strokeId,
@@ -53,7 +52,29 @@ class PersonalStroke {
     );
   }
 
-  /// JSON → PersonalStroke (SQLite 저장용)
+  /// ===============================
+  /// 서버 export용 JSON 변환
+  /// POST /export/pdf 요청 형식
+  /// ===============================
+  Map<String, dynamic> toServerJson(int pageNumber) {
+    // refinedPoints 우선 사용 (정확도 높음)
+    final exportPoints = refinedPoints ?? points;
+
+    return {
+      'sId': strokeId,
+      'color': color.value, // Flutter Color.value (ARGB int)
+      'width': width,
+      'page': pageNumber, // 1부터 시작하는 정수
+      'points': exportPoints
+          .map((p) => {
+        'x': p.x,
+        'y': p.y,
+        if (p.pressure != null) 'p': p.pressure,
+      })
+          .toList(),
+    };
+  }
+
   factory PersonalStroke.fromJson(Map<String, dynamic> json) {
     return PersonalStroke(
       id: json['id'] as int?,
@@ -73,7 +94,6 @@ class PersonalStroke {
     );
   }
 
-  /// PersonalStroke → JSON (SQLite 저장용)
   Map<String, dynamic> toJson() {
     return {
       if (id != null) 'id': id,
@@ -88,9 +108,7 @@ class PersonalStroke {
     };
   }
 
-  /// SQLite Row → PersonalStroke
   factory PersonalStroke.fromMap(Map<String, dynamic> map) {
-    // SQLite에서는 points를 JSON 문자열로 저장했다가 파싱
     final pointsData = map['points_json'] as String;
     final refinedPointsData = map['refined_points_json'] as String?;
 
@@ -101,12 +119,12 @@ class PersonalStroke {
       color: Color(map['color'] as int),
       width: (map['width'] as num).toDouble(),
       points: _parsePoints(pointsData),
-      refinedPoints: refinedPointsData != null ? _parsePoints(refinedPointsData) : null,
+      refinedPoints:
+      refinedPointsData != null ? _parsePoints(refinedPointsData) : null,
       timestamp: DateTime.parse(map['timestamp'] as String),
     );
   }
 
-  /// PersonalStroke → SQLite Row
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
@@ -115,47 +133,32 @@ class PersonalStroke {
       'color': color.value,
       'width': width,
       'points_json': _pointsToJson(points),
-      'refined_points_json': refinedPoints != null ? _pointsToJson(refinedPoints!) : null,
+      'refined_points_json':
+      refinedPoints != null ? _pointsToJson(refinedPoints!) : null,
       'timestamp': timestamp.toIso8601String(),
     };
   }
 
-  /// DrawPoint 리스트 → JSON 문자열
   static String _pointsToJson(List<DrawPoint> points) {
-    return '[${points.map((p) => '{"x":${p.x},"y":${p.y}${p.pressure != null ? ',"p":${p.pressure}' : ''}}').join(',')}]';
+    return jsonEncode(points
+        .map((p) => {
+      'x': p.x,
+      'y': p.y,
+      if (p.pressure != null) 'p': p.pressure,
+    })
+        .toList());
   }
 
-  /// JSON 문자열 → DrawPoint 리스트
   static List<DrawPoint> _parsePoints(String json) {
-    // 간단한 JSON 파싱 (dart:convert 사용하지 않고)
-    final cleaned = json.replaceAll('[', '').replaceAll(']', '');
-    if (cleaned.isEmpty) return [];
-
-    final List<DrawPoint> points = [];
-    final regex = RegExp(r'\{([^}]+)\}');
-    final matches = regex.allMatches(cleaned);
-
-    for (final match in matches) {
-      final content = match.group(1)!;
-      final parts = content.split(',');
-
-      double? x, y, p;
-      for (final part in parts) {
-        final kv = part.split(':');
-        final key = kv[0].replaceAll('"', '').trim();
-        final value = double.tryParse(kv[1].trim());
-
-        if (key == 'x') x = value;
-        if (key == 'y') y = value;
-        if (key == 'p') p = value;
-      }
-
-      if (x != null && y != null) {
-        points.add(DrawPoint(x: x, y: y, pressure: p));
-      }
-    }
-
-    return points;
+    final list = jsonDecode(json) as List<dynamic>;
+    return list
+        .map((p) => DrawPoint(
+      x: (p['x'] as num).toDouble(),
+      y: (p['y'] as num).toDouble(),
+      pressure:
+      p['p'] != null ? (p['p'] as num).toDouble() : null,
+    ))
+        .toList();
   }
 
   PersonalStroke copyWith({
