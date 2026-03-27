@@ -197,7 +197,6 @@ class PdfSaveCompleteDialog extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    // PDF 앱이 없는 경우 안내
     if (result.type == ResultType.noAppToOpen) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -55,7 +56,7 @@ class PdfFileService {
   /// PDF 파일 열기
   /// 기기의 기본 PDF 앱으로 열기
   /// ===============================
-  static Future<OpenFileResult> open(String filePath) async {
+  static Future<OpenResult> open(String filePath) async {
     debugPrint('📂 Opening PDF: $filePath');
 
     final result = await OpenFile.open(filePath, type: 'application/pdf');
