@@ -236,22 +236,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// PDF 내보내기 (학생 전용)
   /// ===============================
   Future<void> _handleExportPdf() async {
-    // sessionId 확인
     final sessionId = widget.roomId ?? widget.sessionId;
     if (sessionId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('세션 정보가 없습니다'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showExportError(message: '세션 정보가 없습니다.', canRetry: false);
       return;
     }
 
-    // export 시작 → 뒤로가기 차단
     setState(() => _isExporting = true);
-
-    // 로딩 다이얼로그 표시
     PdfExportLoadingDialog.show(context);
 
     try {
@@ -264,35 +255,96 @@ class _DrawingScreenState extends State<DrawingScreen> {
       );
 
       if (!mounted) return;
-
-      // 로딩 다이얼로그 닫기
       PdfExportLoadingDialog.dismiss(context);
-
-      // 완료 다이얼로그 표시
       await PdfSaveCompleteDialog.show(context, saveResult: saveResult);
+
+      // ① 클라이언트 사이드 에러 (stroke 수 초과 등) → 재시도 불가
     } on PdfExportException catch (e) {
       if (!mounted) return;
       PdfExportLoadingDialog.dismiss(context);
-      _showExportError(e.message);
+      _showExportError(message: e.message, canRetry: false);
+
+      // ② 서버 에러 → 상태코드별 분기
     } on PdfExportApiException catch (e) {
       if (!mounted) return;
       PdfExportLoadingDialog.dismiss(context);
-      _showExportError(e.message);
+
+      switch (e.statusCode) {
+        case 400: // 데이터 문제 → 재시도해도 의미 없음
+          _showExportError(message: e.message, canRetry: false);
+          break;
+        case 401: // 인증 만료 → 재로그인 유도
+          _showExportError(
+            message: '로그인이 만료됐습니다. 다시 로그인해주세요.',
+            canRetry: false,
+          );
+          break;
+        case 404: // 세션 없음
+          _showExportError(
+            message: '세션을 찾을 수 없습니다. 수업이 종료됐을 수 있습니다.',
+            canRetry: false,
+          );
+          break;
+        default: // 5xx 등 서버 일시 오류 → 재시도 가능
+          _showExportError(
+            message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            canRetry: true,
+          );
+      }
+
+      // ③ 네트워크 / 타임아웃 / 파일 저장 오류 → 재시도 가능
     } catch (e) {
       if (!mounted) return;
       PdfExportLoadingDialog.dismiss(context);
-      _showExportError('PDF 생성 중 오류가 발생했습니다: $e');
+      _showExportError(
+        message: _resolveUnknownError(e),
+        canRetry: true,
+      );
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
   }
 
-  void _showExportError(String message) {
+  /// 알 수 없는 예외 → 원인에 맞는 사용자 메시지 반환
+  String _resolveUnknownError(Object e) {
+    final msg = e.toString().toLowerCase();
+
+    if (msg.contains('timeout')) {
+      return 'PDF 생성 시간이 초과됐습니다. 네트워크 상태를 확인 후 다시 시도해주세요.';
+    }
+    if (msg.contains('socketexception') ||
+        msg.contains('network') ||
+        msg.contains('connection')) {
+      return '네트워크 연결을 확인해주세요.';
+    }
+    if (msg.contains('file') ||
+        msg.contains('path') ||
+        msg.contains('permission') ||
+        msg.contains('storage')) {
+      return '파일 저장에 실패했습니다. 저장 공간을 확인해주세요.';
+    }
+
+    return 'PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.';
+  }
+
+  /// 에러 스낵바 표시
+  /// [canRetry]: true면 재시도 버튼 포함
+  void _showExportError({
+    required String message,
+    required bool canRetry,
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 4),
+        backgroundColor: Colors.red[700],
+        duration: Duration(seconds: canRetry ? 6 : 4),
+        action: canRetry
+            ? SnackBarAction(
+          label: '재시도',
+          textColor: Colors.white,
+          onPressed: _handleExportPdf,
+        )
+            : null,
       ),
     );
   }
