@@ -23,6 +23,10 @@ class SocketService {
   Function(List<dynamic>)? onSyncState; // 동기화 데이터 수신
   Function(Map<String, dynamic>)? onSessionEnded; // 세션 종료 알림
 
+  // room_joined(JOIN_SUCCESS) 수신 콜백
+  // data: { roomId, classId, user: { userId, role } }
+  Function(Map<String, dynamic>)? onRoomJoined;
+
   // ✅ Presence 콜백
   Function(List<Participant>)? onPresenceState;
   Function(Participant)? onPresenceJoin;
@@ -95,12 +99,11 @@ class SocketService {
       debugPrint('✅ Socket.IO connected: ${_socket!.id}');
 
       // 재접속 시 자동으로 방 다시 참여
+      // sync:request는 room_joined(JOIN_SUCCESS) 수신 후 전송
       if (_currentRoomId != null && _currentUserId != null) {
         final isTeacher = _isTeacher ?? false;
         _joinRoom(_currentRoomId!, _currentUserId!, isTeacher);
-        debugPrint('🔄 Re-joined room after reconnection');
-
-        // ✅ 동기화 요청은 DrawingProvider에서 처리 (lastTick 전달 위해)
+        debugPrint('🔄 Re-joining room after reconnection...');
       }
 
       onConnected?.call();
@@ -143,9 +146,20 @@ class SocketService {
       onUserLeft?.call(userId);
     });
 
-    // 방 참여 확인
+    // JOIN_SUCCESS: 방 참여 완료
+    // 최초 입장 & 재접속 모두 여기서 sync:request 전송
     _socket!.on('room_joined', (data) {
-      debugPrint('✅ Joined room: ${data['roomId']}');
+      final roomId = data['roomId'] as String?;
+      final classId = data['classId'] as String?;
+      final user = data['user'] as Map<String, dynamic>?;
+
+      debugPrint('✅ JOIN_SUCCESS received');
+      debugPrint('   roomId: $roomId');
+      debugPrint('   classId: $classId');
+      debugPrint('   user: $user');
+
+      // room_joined 콜백 (DrawingProvider에서 lastTick과 함께 sync:request 전송)
+      onRoomJoined?.call(Map<String, dynamic>.from(data));
     });
 
     // 동기화 데이터 수신 (재접속 시)

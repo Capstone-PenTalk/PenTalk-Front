@@ -32,7 +32,7 @@ class DrawingProvider extends ChangeNotifier {
   // 그리기 모드 (교사용)
   bool _isDrawingMode = false;
   Color _currentColor = Colors.black;
-  double _currentWidth = 2.5;
+  double _currentWidth = 6.0;  // 기본값: 보통 굵기 (테스트용)
 
   // 사용자 정보
   String? _userId;
@@ -181,10 +181,18 @@ class DrawingProvider extends ChangeNotifier {
       _isSocketConnected = true;
       notifyListeners();
       debugPrint('✅ Socket connected');
+      // sync:request는 room_joined(JOIN_SUCCESS) 수신 후 전송
+    };
 
-      // ✅ 재접속 시 동기화 요청 (lastTick과 함께)
-      Future.delayed(const Duration(milliseconds: 100), () {
+    // JOIN_SUCCESS 수신 → UI 렌더링 여유 후 sync:request 전송
+    // 최초 입장 & 재접속 모두 처리
+    _socketService.onRoomJoined = (data) {
+      debugPrint('✅ Room joined, scheduling sync:request...');
+
+      // UI(캔버스) 렌더링 여유 시간 후 sync:request 전송
+      Future.delayed(const Duration(milliseconds: 300), () {
         _socketService.requestSync(lastTick: _lastTick);
+        debugPrint('📤 sync:request sent (lastTick: $_lastTick)');
       });
     };
 
@@ -267,7 +275,7 @@ class DrawingProvider extends ChangeNotifier {
     final stroke = Stroke(
       strokeId: event.strokeId,
       color: event.color ?? Colors.blue, // 다른 사람은 파란색
-      width: event.width ?? 2.5,
+      width: event.width ?? 6.0,  // ✅ 기본값 6.0
       points: [event.point!],
     );
 
@@ -301,9 +309,23 @@ class DrawingProvider extends ChangeNotifier {
       return;
     }
 
-    final finalStroke = event.points != null && event.points!.isNotEmpty
-        ? stroke.withRefinedPoints(event.points!)
-        : stroke;
+    // ✅ de 이벤트에 color/width가 있으면 업데이트
+    var finalStroke = stroke;
+
+    // refinedPoints 적용
+    if (event.points != null && event.points!.isNotEmpty) {
+      finalStroke = finalStroke.copyWith(refinedPoints: event.points);
+    }
+
+    // color 적용 (de 이벤트에 있으면)
+    if (event.color != null) {
+      finalStroke = finalStroke.copyWith(color: event.color);
+    }
+
+    // width 적용 (de 이벤트에 있으면)
+    if (event.width != null) {
+      finalStroke = finalStroke.copyWith(width: event.width);
+    }
 
     _othersStrokes[event.strokeId] = finalStroke;
 
@@ -345,7 +367,7 @@ class DrawingProvider extends ChangeNotifier {
     final stroke = Stroke(
       strokeId: event.strokeId,
       color: event.color ?? Colors.black,
-      width: event.width ?? 2.5,
+      width: event.width ?? 6.0,  // ✅ 기본값 6.0
       points: [event.point!],
     );
 
@@ -368,15 +390,53 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void _handleMyDrawEnd(DrawEvent event) {
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    debugPrint('🏁 _handleMyDrawEnd START');
+    debugPrint('   strokeId: ${event.strokeId}');
+    debugPrint('   _myActiveStrokes.length BEFORE: ${_myActiveStrokes.length}');
+
     final stroke = _myActiveStrokes.remove(event.strokeId);
-    if (stroke == null) return;
 
-    final finalStroke = event.points != null && event.points!.isNotEmpty
-        ? stroke.withRefinedPoints(event.points!)
-        : stroke;
+    debugPrint('   _myActiveStrokes.length AFTER remove: ${_myActiveStrokes.length}');
+    debugPrint('   stroke found: ${stroke != null}');
 
+    if (stroke == null) {
+      debugPrint('❌ stroke is NULL! Returning.');
+      debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      return;
+    }
+
+    // ✅ de 이벤트의 정보를 최종 stroke에 반영
+    var finalStroke = stroke;
+
+    // refinedPoints 적용
+    if (event.points != null && event.points!.isNotEmpty) {
+      finalStroke = finalStroke.copyWith(refinedPoints: event.points);
+      debugPrint('   ✅ refinedPoints applied: ${event.points!.length} points');
+    }
+
+    // ✅ color 적용 (de 이벤트에 있으면)
+    if (event.color != null) {
+      finalStroke = finalStroke.copyWith(color: event.color);
+      debugPrint('   ✅ color applied: ${event.color}');
+    }
+
+    // ✅ width 적용 (de 이벤트에 있으면)
+    if (event.width != null) {
+      finalStroke = finalStroke.copyWith(width: event.width);
+      debugPrint('   ✅ width applied: ${event.width}');
+    }
+
+    debugPrint('   _myStrokes.length BEFORE add: ${_myStrokes.length}');
     _myStrokes[event.strokeId] = finalStroke;
+    debugPrint('   _myStrokes.length AFTER add: ${_myStrokes.length}');
+    debugPrint('   Final stroke width: ${finalStroke.width}');
+    debugPrint('   Final stroke color: ${finalStroke.color}');
+
     notifyListeners();
+    debugPrint('   ✅ notifyListeners called');
+    debugPrint('🏁 _handleMyDrawEnd END');
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   void _handleMyUndo(DrawEvent event) {
@@ -408,12 +468,16 @@ class DrawingProvider extends ChangeNotifier {
   void setColor(Color color) {
     if (_currentColor != color) {
       _currentColor = color;
+      notifyListeners();  // ✅ 추가!
+      debugPrint('🎨 Color changed: $color');
     }
   }
 
   void setWidth(double width) {
     if (_currentWidth != width) {
       _currentWidth = width;
+      notifyListeners();  // ✅ 추가!
+      debugPrint('📏 Width changed: $width');
     }
   }
 
@@ -422,6 +486,13 @@ class DrawingProvider extends ChangeNotifier {
   /// ===============================
   int sendDrawStart(DrawPoint point) {
     final strokeId = DateTime.now().millisecondsSinceEpoch;
+
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    debugPrint('📝 sendDrawStart');
+    debugPrint('   strokeId: $strokeId');
+    debugPrint('   color: $_currentColor');
+    debugPrint('   width: $_currentWidth');  // ← 이게 2.0인지 확인!
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     final event = DrawEvent(
       eventType: DrawEventType.drawStart,
@@ -473,10 +544,15 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void sendDrawEnd(int strokeId, List<DrawPoint> points) {
+    // ✅ 현재 활성화된 stroke에서 color와 width 가져오기
+    final activeStroke = _myActiveStrokes[strokeId];
+
     final event = DrawEvent(
       eventType: DrawEventType.drawEnd,
       strokeId: strokeId,
       points: points,
+      color: activeStroke?.color ?? _currentColor,  // ✅ color 포함
+      width: activeStroke?.width ?? _currentWidth,  // ✅ width 포함
     );
 
     // 로컬에 먼저 표시
