@@ -33,9 +33,14 @@ class DrawingPainter extends CustomPainter {
 
     if (points.isEmpty) return;
 
-    // 줌 레벨에 따라 펜 굵기 보정
-    // scale이 2.0이면 펜 굵기를 0.5배로 줄여서 실제로는 같은 굵기로 보이게
-    final adjustedWidth = stroke.width / scale;
+    // ✅ 굵기 비율 유지하면서 최소값 보장
+    final adjustedWidth = (stroke.width / scale).clamp(
+      stroke.width * 0.25,
+      stroke.width * 2.0,
+    );
+
+    // ✅ 디버그: 모든 stroke 로그 출력
+    debugPrint('🎨 [RENDER] original: ${stroke.width.toStringAsFixed(1)}, scale: ${scale.toStringAsFixed(2)}, adjusted: ${adjustedWidth.toStringAsFixed(2)}');
 
     final paint = Paint()
       ..color = stroke.color

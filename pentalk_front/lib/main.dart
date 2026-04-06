@@ -1,49 +1,51 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import 'providers/drawing_provider.dart';
-import 'providers/personal_drawing_provider.dart';
-import 'providers/participants_provider.dart';
-import 'screens/drawing_screen.dart';
-import 'services/auth_service.dart';
+import 'providers/student_session_provider.dart';
+import 'screens/student_home_screen.dart';
+import 'providers/poll_provider.dart';
 
-/// ===============================
-/// 세션 종료 UI 테스트용 main.dart
-/// ===============================
-void main() async {
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 테스트용 토큰 저장
-  await AuthService.saveUserInfo(
-    token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZWFjaGVyX3Rlc3QiLCJyb2xlIjoidGVhY2hlciIsImlhdCI6MTc3MjYwMzk5MCwiZXhwIjoxNzczMjA4NzkwfQ.4_MvcZTSvmfNBeBHqr_jWcWGwH-lfklzhbUVFLMYRAk',
-    userId: 'teacher_test',
-    role: 'teacher',
-  );
-
-  runApp(const SessionEndTestApp());
+  /*NativeDrawingBridge.init().catchError((error, stackTrace) {
+    debugPrint('NativeDrawingBridge.init failed: $error');
+    if (stackTrace is StackTrace) {
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }); */
+  runApp(const MyApp());
 }
 
-class SessionEndTestApp extends StatelessWidget {
-  const SessionEndTestApp({Key? key}) : super(key: key);
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => StudentSessionProvider()),
         ChangeNotifierProvider(create: (_) => DrawingProvider()),
-        ChangeNotifierProvider(create: (_) => PersonalDrawingProvider()),
-        ChangeNotifierProvider(create: (_) => ParticipantsProvider()),
+        ChangeNotifierProvider(create: (_) => PollProvider()),
       ],
       child: MaterialApp(
-        title: '세션 종료 UI 테스트',
+        title: '하이브리드 교실 - 학생',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           primarySwatch: Colors.blue,
           useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.light,
+          ),
+          appBarTheme: const AppBarTheme(
+            centerTitle: false,
+            elevation: 0,
+          ),
         ),
-        home: const DrawingScreen(
-          materialTitle: '🧪 세션 종료 UI 테스트',
-          isTeacher: true,
-        ),
+        home: const StudentHomeScreen(),
       ),
     );
   }

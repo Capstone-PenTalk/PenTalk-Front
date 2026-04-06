@@ -24,8 +24,12 @@ class SocketService {
   Function(Map<String, dynamic>)? onSessionEnded; // 세션 종료 알림
 
   // room_joined(JOIN_SUCCESS) 수신 콜백
-  // data: { roomId, classId, user: { userId, role } }
   Function(Map<String, dynamic>)? onRoomJoined;
+
+  // ✅ Poll 콜백
+  Function(Map<String, dynamic>)? onPollStart;   // poll:start 수신
+  Function(Map<String, dynamic>)? onPollResult;  // poll:result 수신 (교사)
+  Function(Map<String, dynamic>)? onPollEnd;     // poll:end 수신
 
   // ✅ Presence 콜백
   Function(List<Participant>)? onPresenceState;
@@ -188,6 +192,34 @@ class SocketService {
       debugPrint('📥 Received session:ended: $data');
       if (data is Map) {
         onSessionEnded?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    // ========================================
+    // ✅ Poll 이벤트 리스너
+    // ========================================
+
+    // poll:start → 학생/교사 모두 수신
+    _socket!.on('poll:start', (data) {
+      debugPrint('📥 poll:start received: $data');
+      if (data is Map) {
+        onPollStart?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    // poll:result → 교사에게 실시간 집계
+    _socket!.on('poll:result', (data) {
+      debugPrint('📥 poll:result received: $data');
+      if (data is Map) {
+        onPollResult?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    // poll:end → 학생/교사 모두 수신 (최종 집계)
+    _socket!.on('poll:end', (data) {
+      debugPrint('📥 poll:end received: $data');
+      if (data is Map) {
+        onPollEnd?.call(Map<String, dynamic>.from(data));
       }
     });
 
@@ -404,9 +436,66 @@ class SocketService {
   }
 
   /// ===============================
-  /// 동기화 요청 (재접속 시 이전 판서 복구)
-  /// lastTick이 있으면 delta sync, 없으면 full sync
+  /// poll:answer 전송 (학생 전용)
   /// ===============================
+  void sendPollAnswer({
+    required String pollId,
+    required dynamic optionId,
+  }) {
+    if (_socket == null || !_socket!.connected) {
+      debugPrint('Cannot send poll:answer: Socket not connected');
+      return;
+    }
+
+    _socket!.emit('poll:answer', {
+      'pollId': pollId,
+      'optionId': optionId,
+      'roomId': _currentRoomId,
+    });
+
+    debugPrint('📤 Sent poll:answer: pollId=$pollId, optionId=$optionId');
+  }
+
+  /// ===============================
+  /// poll:start 전송 (교사 전용)
+  /// ===============================
+  void sendPollStart({
+    required String question,
+    required List<Map<String, dynamic>> options,
+    int? duration,
+  }) {
+    if (_socket == null || !_socket!.connected) {
+      debugPrint('Cannot send poll:start: Socket not connected');
+      return;
+    }
+
+    final payload = {
+      'roomId': _currentRoomId,
+      'question': question,
+      'options': options,
+      if (duration != null) 'duration': duration,
+    };
+
+    _socket!.emit('poll:start', payload);
+    debugPrint('📤 Sent poll:start: question=$question, duration=$duration');
+  }
+
+  /// ===============================
+  /// poll:end 전송 (교사 조기 종료)
+  /// ===============================
+  void sendPollEnd(String pollId) {
+    if (_socket == null || !_socket!.connected) {
+      debugPrint('Cannot send poll:end: Socket not connected');
+      return;
+    }
+
+    _socket!.emit('poll:end', {
+      'pollId': pollId,
+      'roomId': _currentRoomId,
+    });
+
+    debugPrint('📤 Sent poll:end: $pollId');
+  }
   void requestSync({int? lastTick}) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('Cannot request sync: Socket not connected');

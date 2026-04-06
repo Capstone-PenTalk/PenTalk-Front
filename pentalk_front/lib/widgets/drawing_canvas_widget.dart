@@ -490,6 +490,9 @@ class _OthersDrawingLayer extends StatelessWidget {
     for (int i = 0; i < a.length; i++) {
       if (a[i].strokeId != b[i].strokeId) return false;
       if (a[i].points.length != b[i].points.length) return false;
+      // ✅ color와 width 비교 추가!
+      if (a[i].color != b[i].color) return false;
+      if (a[i].width != b[i].width) return false;
     }
     return true;
   }
@@ -542,6 +545,9 @@ class _MyDrawingLayer extends StatelessWidget {
     for (int i = 0; i < a.length; i++) {
       if (a[i].strokeId != b[i].strokeId) return false;
       if (a[i].points.length != b[i].points.length) return false;
+      // ✅ color와 width 비교 추가!
+      if (a[i].color != b[i].color) return false;
+      if (a[i].width != b[i].width) return false;
     }
     return true;
   }
@@ -736,6 +742,9 @@ class _PersonalDrawingLayer extends StatelessWidget {
     for (int i = 0; i < a.length; i++) {
       if (a[i].strokeId != b[i].strokeId) return false;
       if (a[i].points.length != b[i].points.length) return false;
+      // ✅ color와 width 비교 추가!
+      if (a[i].color != b[i].color) return false;
+      if (a[i].width != b[i].width) return false;
     }
     return true;
   }

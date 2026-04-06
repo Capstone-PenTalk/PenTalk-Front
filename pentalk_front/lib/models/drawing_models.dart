@@ -178,7 +178,9 @@ class DrawEvent {
         points: ptsList
             ?.map((pt) => DrawPoint.fromJson(pt as Map<String, dynamic>))
             .toList(),
-        tick: json['t'] as int?,  // ✅ tick 파싱 추가
+        color: _parseColor(json['c'] as String?),  // ✅ 색상 파싱
+        width: json['w'] != null ? (json['w'] as num).toDouble() : null,  // ✅ 굵기 파싱
+        tick: json['t'] as int?,
       );
     }
 

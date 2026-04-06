@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/student_session_model.dart';
+import '../models/poll_model.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../providers/participants_provider.dart';
+import '../providers/poll_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
 import '../widgets/session_ended_dialog.dart';
 import '../widgets/participants_button.dart';
 import '../widgets/color_palette_bar.dart';
 import '../widgets/width_selector_bar.dart';
 import '../widgets/pdf_save_complete_dialog.dart';
+import '../widgets/poll_overlay.dart';
+import '../widgets/poll_result_sheet.dart';
+import '../widgets/poll_start_dialog.dart';
 import '../services/api_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/pdf_file_service.dart';
@@ -63,6 +68,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       _initializeDrawing();
       _setupSessionEndedListener();
       _setupPresenceCallbacks();
+      _setupPollCallbacks();
     });
   }
 
@@ -130,6 +136,82 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
   void _setupSessionEndedListener() {
     _drawingProvider.onSessionEnded = _handleSessionEnded;
+  }
+
+  /// ===============================
+  /// Poll 콜백 설정
+  /// ===============================
+  void _setupPollCallbacks() {
+    final pollProvider = context.read<PollProvider>();
+    final socketService = _drawingProvider.socketService;
+
+    // poll:start → PollProvider 상태 업데이트 → 오버레이 자동 표시
+    socketService.onPollStart = (data) {
+      final pollData = PollStartData.fromJson(data);
+      pollProvider.onPollStart(pollData);
+      debugPrint('📊 Poll started, showing overlay');
+    };
+
+    // poll:result → 교사 실시간 집계 업데이트
+    socketService.onPollResult = (data) {
+      final resultData = PollResultData.fromJson(data);
+      pollProvider.onPollResult(resultData);
+    };
+
+    // poll:end → 종료 처리
+    socketService.onPollEnd = (data) {
+      final resultData = PollResultData.fromJson(data);
+      pollProvider.onPollEnd(resultData);
+    };
+
+    debugPrint('📊 Poll callbacks setup completed');
+  }
+
+  /// ===============================
+  /// 교사: Poll 시작 다이얼로그
+  /// ===============================
+  Future<void> _handleStartPoll() async {
+    await PollStartDialog.show(
+      context,
+      onStart: ({
+        required String question,
+        required List<Map<String, dynamic>> options,
+        int? duration,
+      }) {
+        _drawingProvider.socketService.sendPollStart(
+          question: question,
+          options: options,
+          duration: duration,
+        );
+      },
+    );
+  }
+
+  /// ===============================
+  /// 교사: Poll 조기 종료
+  /// ===============================
+  void _handleEndPoll() {
+    final pollState = context.read<PollProvider>().state;
+    if (pollState.pollData == null) return;
+
+    _drawingProvider.socketService.sendPollEnd(pollState.pollData!.pollId);
+  }
+
+  /// ===============================
+  /// 학생: Poll 응답 전송
+  /// ===============================
+  void _handlePollAnswer(dynamic optionId) {
+    final pollState = context.read<PollProvider>().state;
+    if (pollState.pollData == null) return;
+
+    // Provider 상태 업데이트 (고정)
+    context.read<PollProvider>().selectOption(optionId);
+
+    // 서버로 전송
+    _drawingProvider.socketService.sendPollAnswer(
+      pollId: pollState.pollData!.pollId,
+      optionId: optionId,
+    );
   }
 
   void _setupPresenceCallbacks() {
@@ -420,6 +502,21 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   onPressed: _handleClear,
                   tooltip: '전체 지우기',
                 ),
+
+                // 교사 전용: 이해도 체크 버튼
+                Consumer<PollProvider>(
+                  builder: (context, pollProvider, _) {
+                    final isActive = pollProvider.state.isActive;
+                    return IconButton(
+                      icon: Icon(
+                        isActive ? Icons.poll : Icons.poll_outlined,
+                        color: isActive ? Colors.amber : Colors.white,
+                      ),
+                      onPressed: isActive ? _handleEndPoll : _handleStartPoll,
+                      tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
+                    );
+                  },
+                ),
               ],
 
               const ParticipantsButton(),
@@ -468,8 +565,42 @@ class _DrawingScreenState extends State<DrawingScreen> {
             ],
           ),
         )
-            : DrawingCanvasWidget(
-          isTeacher: widget.isTeacher,
+            : Stack(
+          children: [
+            DrawingCanvasWidget(isTeacher: widget.isTeacher),
+
+            // 학생: 이해도 체크 오버레이
+            if (!widget.isTeacher)
+              Consumer<PollProvider>(
+                builder: (context, pollProvider, _) {
+                  final state = pollProvider.state;
+                  if (!state.isActive && !state.isAnswered) {
+                    return const SizedBox.shrink();
+                  }
+                  return PollOverlay(
+                    pollState: state,
+                    remainingSeconds: pollProvider.remainingSeconds,
+                    onAnswer: _handlePollAnswer,
+                  );
+                },
+              ),
+
+            // 교사: 실시간 집계 결과 표시
+            if (widget.isTeacher)
+              Consumer<PollProvider>(
+                builder: (context, pollProvider, _) {
+                  final state = pollProvider.state;
+                  if (!state.isActive && !state.isEnded) {
+                    return const SizedBox.shrink();
+                  }
+                  return PollResultSheet(
+                    pollState: state,
+                    remainingSeconds: pollProvider.remainingSeconds,
+                    onClose: () => pollProvider.reset(),
+                  );
+                },
+              ),
+          ],
         ),
         floatingActionButton: widget.isReadOnly
             ? null
