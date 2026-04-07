@@ -31,12 +31,16 @@ class DrawingScreen extends StatefulWidget {
 
   /// PDF export용 자료 목록 (학생 화면에서 필요)
   /// pageId(materialTitle) → page 번호 매핑에 사용
+  final String? materialId;   // 팀원 추가: 자료 ID
+  final String? classId;      // 팀원 추가: 클래스 ID
   final List<MaterialModel> materials;
 
   const DrawingScreen({
     Key? key,
     required this.materialTitle,
     this.backgroundUrl,
+    this.materialId,
+    this.classId,
     this.isTeacher = false,
     this.serverUrl,
     this.roomId,
@@ -256,6 +260,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
         isTeacher: widget.isTeacher,
         materialTitle: widget.materialTitle,
         backgroundUrl: widget.backgroundUrl,
+        classId: widget.classId,
+        materialId: widget.materialId,
       );
       debugPrint('✅ Socket.IO connection initiated');
     } catch (e) {

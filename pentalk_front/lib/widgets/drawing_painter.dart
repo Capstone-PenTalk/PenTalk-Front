@@ -4,9 +4,6 @@ import '../utils/coordinate_scaler.dart';
 
 /// ===============================
 /// 판서를 실제로 그리는 CustomPainter
-/// 최적화: shouldRepaint를 통해 필요할 때만 다시 그리기
-/// CoordinateScaler 사용으로 정확한 좌표 변환
-/// scale: 줌 레벨 (펜 굵기 보정용)
 /// ===============================
 class DrawingPainter extends CustomPainter {
   final List<Stroke> strokes;
@@ -21,26 +18,27 @@ class DrawingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 모든 선 그리기
     for (final stroke in strokes) {
       _drawStroke(canvas, stroke);
     }
   }
 
-  /// 개별 선 그리기
   void _drawStroke(Canvas canvas, Stroke stroke) {
     final points = stroke.displayPoints;
-
     if (points.isEmpty) return;
 
-    // ✅ 굵기 비율 유지하면서 최소값 보장
+    // 필압(pressure) 데이터가 있으면 필압 기반 렌더링
+    final hasPressure = points.any((p) => p.pressure != null);
+    if (hasPressure) {
+      _drawStrokeWithPressure(canvas, stroke, points);
+      return;
+    }
+
+    // 줌 레벨에 따른 굵기 보정
     final adjustedWidth = (stroke.width / scale).clamp(
       stroke.width * 0.25,
       stroke.width * 2.0,
     );
-
-    // ✅ 디버그: 모든 stroke 로그 출력
-    debugPrint('🎨 [RENDER] original: ${stroke.width.toStringAsFixed(1)}, scale: ${scale.toStringAsFixed(2)}, adjusted: ${adjustedWidth.toStringAsFixed(2)}');
 
     final paint = Paint()
       ..color = stroke.color
@@ -50,41 +48,70 @@ class DrawingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..isAntiAlias = true;
 
-    // 점이 1개만 있으면 점으로 표시
     if (points.length == 1) {
       final offset = scaler.normalizedToPixel(points[0]);
       canvas.drawCircle(offset, adjustedWidth / 2, paint);
       return;
     }
 
-    // 2개 이상의 점이면 Path로 연결
     final path = _createSmoothPath(points);
     canvas.drawPath(path, paint);
   }
 
-  /// 부드러운 곡선 Path 생성 (Quadratic Bezier 사용)
+  /// 필압 기반 선 그리기
+  void _drawStrokeWithPressure(
+      Canvas canvas,
+      Stroke stroke,
+      List<DrawPoint> points,
+      ) {
+    if (points.isEmpty) return;
+
+    final paint = Paint()
+      ..color = stroke.color
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
+
+    for (int i = 0; i < points.length; i++) {
+      final point = points[i];
+      // scaler.normalizedToPixel() 사용 (coordinate_scaler와 일관성)
+      final offset = scaler.normalizedToPixel(point);
+      final pressure = point.pressure ?? 1.0;
+      final width = (stroke.width * pressure) / scale;
+
+      if (i == 0) {
+        paint.strokeWidth = width;
+        canvas.drawCircle(offset, width / 2, paint);
+        continue;
+      }
+
+      final prev = scaler.normalizedToPixel(points[i - 1]);
+      final prevPressure = points[i - 1].pressure ?? 1.0;
+      paint.strokeWidth =
+          (stroke.width * (pressure + prevPressure)) / 2 / scale;
+      canvas.drawLine(prev, offset, paint);
+    }
+  }
+
+  /// 부드러운 곡선 Path 생성 (Quadratic Bezier)
   Path _createSmoothPath(List<DrawPoint> points) {
     final path = Path();
-
     if (points.isEmpty) return path;
 
-    // 첫 점으로 이동
     final firstPoint = scaler.normalizedToPixel(points[0]);
     path.moveTo(firstPoint.dx, firstPoint.dy);
 
     if (points.length == 2) {
-      // 두 점이면 직선
       final secondPoint = scaler.normalizedToPixel(points[1]);
       path.lineTo(secondPoint.dx, secondPoint.dy);
       return path;
     }
 
-    // 세 점 이상: Quadratic Bezier로 부드러운 곡선 생성
     for (int i = 0; i < points.length - 1; i++) {
       final current = scaler.normalizedToPixel(points[i]);
       final next = scaler.normalizedToPixel(points[i + 1]);
 
-      // 중점 계산 (제어점으로 사용)
       final controlPoint = current;
       final endPoint = Offset(
         (current.dx + next.dx) / 2,
@@ -99,7 +126,6 @@ class DrawingPainter extends CustomPainter {
       );
     }
 
-    // 마지막 점까지 연결
     final lastPoint = scaler.normalizedToPixel(points.last);
     path.lineTo(lastPoint.dx, lastPoint.dy);
 
@@ -108,9 +134,6 @@ class DrawingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DrawingPainter oldDelegate) {
-    // 선의 개수나 내용이 변경된 경우에만 다시 그리기
-    // 또는 scaler가 변경된 경우 (화면 회전 등)
-    // 또는 줌 레벨이 변경된 경우
     return oldDelegate.strokes != strokes ||
         oldDelegate.scaler.canvasSize != scaler.canvasSize ||
         oldDelegate.scaler.contentSize != scaler.contentSize ||

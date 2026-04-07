@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/drawing_provider.dart';
@@ -15,10 +16,12 @@ import 'drawing_painter.dart';
 /// ===============================
 class DrawingCanvasWidget extends StatefulWidget {
   final bool isTeacher;
+  final ValueChanged<Size>? onCanvasSize;
 
   const DrawingCanvasWidget({
     Key? key,
     required this.isTeacher,
+    this.onCanvasSize,
   }) : super(key: key);
 
   @override
@@ -72,6 +75,9 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.onCanvasSize?.call(canvasSize);
+        });
 
         return Consumer<DrawingProvider>(
           builder: (context, provider, child) {
@@ -272,7 +278,11 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     final point = scaler.pixelToNormalized(localPosition);
     _currentPoints.add(point);
 
-    _currentStrokeId = provider.sendDrawStart(point);
+    if (widget.isTeacher) {
+      _currentStrokeId = provider.sendDrawStart(point);
+    } else {
+      _currentStrokeId = provider.startStudentPrivateStroke(point);
+    }
   }
 
   void _onPanUpdate(DragUpdateDetails details, CoordinateScaler scaler, DrawingProvider provider) {
@@ -289,13 +299,22 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     final point = scaler.pixelToNormalized(localPosition);
     _currentPoints.add(point);
 
-    provider.sendDrawMove(_currentStrokeId!, point);
+    if (widget.isTeacher) {
+      provider.sendDrawMove(_currentStrokeId!, point);
+    } else {
+      provider.appendStudentPrivatePoint(_currentStrokeId!, point);
+    }
   }
 
   void _onPanEnd(CoordinateScaler scaler, DrawingProvider provider) {
     if (_currentStrokeId == null) return;
 
-    provider.sendDrawEnd(_currentStrokeId!, _currentPoints);
+    final points = List<DrawPoint>.from(_currentPoints);
+    if (widget.isTeacher) {
+      provider.sendDrawEnd(_currentStrokeId!, points);
+    } else {
+      provider.endStudentPrivateStroke(_currentStrokeId!, points);
+    }
 
     _currentStrokeId = null;
     _currentPoints.clear();
@@ -369,7 +388,7 @@ class _BackgroundLayer extends StatelessWidget {
       selector: (context, provider) => provider.backgroundUrl,
       builder: (context, backgroundUrl, child) {
         if (backgroundUrl != null && backgroundUrl.isNotEmpty) {
-          return Positioned.fill(
+          return SizedBox.expand(
             child: Image.network(
               backgroundUrl,
               fit: BoxFit.contain,
@@ -407,8 +426,8 @@ class _BackgroundLayer extends StatelessWidget {
           );
         }
 
-        return Positioned.fill(
-          child: Container(color: Colors.white),
+        return const SizedBox.expand(
+          child: ColoredBox(color: Colors.white),
         );
       },
     );
@@ -554,7 +573,7 @@ class _MyDrawingLayer extends StatelessWidget {
 }
 
 /// ===============================
-/// 터치 입력 레이어 (교사 전용)
+/// 터치 입력 레이어
 /// ===============================
 class _TouchInputLayer extends StatelessWidget {
   final Size canvasSize;
@@ -614,6 +633,9 @@ class _SocketStatusIndicator extends StatelessWidget {
     return Selector<DrawingProvider, bool>(
       selector: (context, provider) => provider.isSocketConnected,
       builder: (context, isConnected, child) {
+        if (isConnected) {
+          return const SizedBox.shrink();
+        }
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(

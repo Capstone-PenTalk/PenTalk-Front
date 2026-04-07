@@ -1,37 +1,35 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../models/drawing_models.dart';
 import '../models/participant_model.dart';
 
-/// ===============================
-/// Socket.IO 서비스
-/// 실시간 판서 데이터 송수신
-/// ===============================
 class SocketService {
+  static const String _tokenStoragePrefix = 'dev_socket_jwt';
+
   IO.Socket? _socket;
   String? _currentRoomId;
   String? _currentUserId;
-  bool? _isTeacher; // 재접속 시 필요
+  String? _currentMaterialId;
+  String? _currentClassId;
+  bool _currentIsTeacher = false;
+  bool _isRoomJoined = false;
+  final List<Map<String, dynamic>> _pendingEmits = [];
 
-  // 콜백 함수들
   Function(DrawEvent)? onDrawEventReceived;
   Function(String)? onUserJoined;
   Function(String)? onUserLeft;
   Function()? onConnected;
   Function()? onDisconnected;
   Function(dynamic)? onError;
-  Function(List<dynamic>)? onSyncState; // 동기화 데이터 수신
-  Function(Map<String, dynamic>)? onSessionEnded; // 세션 종료 알림
-
-  // room_joined(JOIN_SUCCESS) 수신 콜백
+  Function(List<dynamic>)? onSyncState;
+  Function(Map<String, dynamic>)? onSessionEnded;
   Function(Map<String, dynamic>)? onRoomJoined;
-
-  // ✅ Poll 콜백
-  Function(Map<String, dynamic>)? onPollStart;   // poll:start 수신
-  Function(Map<String, dynamic>)? onPollResult;  // poll:result 수신 (교사)
-  Function(Map<String, dynamic>)? onPollEnd;     // poll:end 수신
-
-  // ✅ Presence 콜백
+  Function(Map<String, dynamic>)? onPollStart;
+  Function(Map<String, dynamic>)? onPollResult;
+  Function(Map<String, dynamic>)? onPollEnd;
   Function(List<Participant>)? onPresenceState;
   Function(Participant)? onPresenceJoin;
   Function(String userId, String role)? onPresenceLeave;
@@ -40,475 +38,349 @@ class SocketService {
   String? get currentRoomId => _currentRoomId;
   String? get currentUserId => _currentUserId;
 
-  /// ===============================
-  /// Socket.IO 연결
-  /// ===============================
   Future<void> connect({
     required String serverUrl,
     required String userId,
     required String roomId,
     bool isTeacher = false,
-    String? jwtToken,
+    String? classId,
+    String? materialId,
   }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
-      _isTeacher = isTeacher;
+      _currentMaterialId = materialId;
+      _currentClassId = classId;
+      _currentIsTeacher = isTeacher;
+      _isRoomJoined = false;
+      _pendingEmits.clear();
 
-      debugPrint('Connecting to Socket.IO: $serverUrl');
-      debugPrint('User ID: $userId, Room ID: $roomId, isTeacher: $isTeacher');
+      final normalizedUrl = serverUrl.replaceFirst(RegExp(r'^hhttps'), 'https');
+      debugPrint('[socket] Connecting to $normalizedUrl');
 
-      // Socket.IO 옵션 설정
-      final optionsBuilder = IO.OptionBuilder()
+      final uri = Uri.parse(normalizedUrl);
+      final role = isTeacher ? 'teacher' : 'student';
+      final explicitToken = uri.queryParameters['token'];
+      final token = (explicitToken != null && explicitToken.isNotEmpty)
+          ? explicitToken
+          : await _getOrCreateDevToken(uri: uri, userId: userId, role: role);
+
+      final queryParams = Map<String, String>.from(uri.queryParameters)
+        ..remove('token');
+      final effectivePort = (uri.hasPort && uri.port > 0)
+          ? uri.port
+          : (uri.scheme == 'https' ? 443 : 80);
+      final baseUrl = StringBuffer()
+        ..write(uri.scheme)
+        ..write('://')
+        ..write(uri.host)
+        ..write(':')
+        ..write(effectivePort);
+      if (uri.path.isNotEmpty && uri.path != '/') baseUrl.write(uri.path);
+
+      final options = IO.OptionBuilder()
           .setTransports(['websocket'])
-          .disableAutoConnect();
+          .disableAutoConnect()
+          .setExtraHeaders({
+        'bypass-tunnel-reminder': 'true',
+        'user-id': userId,
+        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+      });
+      if (queryParams.isNotEmpty) options.setQuery(queryParams);
+      if (token.isNotEmpty) options.setAuth({'token': token});
 
-      // JWT 토큰이 있으면 인증 설정
-      if (jwtToken != null && jwtToken.isNotEmpty) {
-        optionsBuilder.setAuth({
-          'token': jwtToken,
-        });
-        debugPrint('🔐 JWT token added to auth');
-      }
-
-      _socket = IO.io(serverUrl, optionsBuilder.build());
-
-      // 이벤트 리스너 등록
+      _socket = IO.io(baseUrl.toString(), options.build());
       _setupEventListeners();
-
-      // 연결 시작
       _socket!.connect();
-
-      // 연결 대기
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (_socket!.connected) {
-        // 방 참여
-        _joinRoom(roomId, userId, isTeacher);
-      }
     } catch (e) {
-      debugPrint('Socket connection error: $e');
+      debugPrint('[socket][error] connect threw: $e');
       onError?.call(e);
     }
   }
 
-  /// ===============================
-  /// 이벤트 리스너 설정
-  /// ===============================
+  Future<String> _getOrCreateDevToken({
+    required Uri uri,
+    required String userId,
+    required String role,
+  }) async {
+    final effectivePort = (uri.hasPort && uri.port > 0)
+        ? uri.port
+        : (uri.scheme == 'https' ? 443 : 80);
+    final storageKey = [
+      _tokenStoragePrefix, uri.scheme, uri.host, '$effectivePort', role, userId
+    ].join(':');
+
+    final prefs = await SharedPreferences.getInstance();
+    final cachedToken = prefs.getString(storageKey);
+    if (cachedToken != null && cachedToken.isNotEmpty) {
+      debugPrint('[socket][auth] using cached token role=$role userId=$userId');
+      return cachedToken;
+    }
+
+    final authUri = Uri(
+        scheme: uri.scheme, host: uri.host, port: effectivePort, path: '/auth/dev-login');
+    final response = await http.post(authUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'userId': userId, 'role': role}));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('dev-login failed status=${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) throw Exception('dev-login invalid response');
+    final token = decoded['token']?.toString() ?? '';
+    if (token.isEmpty) throw Exception('dev-login token missing');
+    await prefs.setString(storageKey, token);
+    return token;
+  }
+
   void _setupEventListeners() {
     if (_socket == null) return;
 
-    // 연결 성공 (재접속 포함)
     _socket!.on('connect', (_) {
-      debugPrint('✅ Socket.IO connected: ${_socket!.id}');
-
-      // 재접속 시 자동으로 방 다시 참여
-      // sync:request는 room_joined(JOIN_SUCCESS) 수신 후 전송
-      if (_currentRoomId != null && _currentUserId != null) {
-        final isTeacher = _isTeacher ?? false;
-        _joinRoom(_currentRoomId!, _currentUserId!, isTeacher);
-        debugPrint('🔄 Re-joining room after reconnection...');
-      }
-
+      debugPrint('[socket] connected id=${_socket!.id}');
+      _isRoomJoined = false;
       onConnected?.call();
+      if (_currentRoomId != null && _currentUserId != null) {
+        _joinRoom(_currentRoomId!, _currentUserId!, _currentIsTeacher,
+            classId: _currentClassId, materialId: _currentMaterialId);
+      }
     });
 
-    // 연결 끊김
     _socket!.on('disconnect', (_) {
-      debugPrint('❌ Socket.IO disconnected');
+      debugPrint('[socket] disconnected');
+      _isRoomJoined = false;
+      _pendingEmits.clear();
       onDisconnected?.call();
     });
 
-    // 연결 에러
     _socket!.on('connect_error', (error) {
-      debugPrint('❌ Socket.IO connection error: $error');
+      debugPrint('[socket][error] connect_error: $error');
       onError?.call(error);
     });
 
-    // 판서 이벤트 수신
-    _socket!.on('draw_event', (data) {
+    _socket!.on('draw:append', (data) {
       try {
-        debugPrint('📥 Received draw_event: ${data['e']}');
-        final event = DrawEvent.fromJson(Map<String, dynamic>.from(data));
-        onDrawEventReceived?.call(event);
+        onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
       } catch (e) {
-        debugPrint('Error parsing draw_event: $e');
+        debugPrint('[socket][error] draw:append: $e');
       }
     });
 
-    // 사용자 입장
-    _socket!.on('user_joined', (data) {
-      final userId = data['userId'] as String;
-      debugPrint('👤 User joined: $userId');
-      onUserJoined?.call(userId);
+    _socket!.on('draw:clear', (data) {
+      try {
+        onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
+      } catch (e) {
+        debugPrint('[socket][error] draw:clear: $e');
+      }
     });
 
-    // 사용자 퇴장
-    _socket!.on('user_left', (data) {
-      final userId = data['userId'] as String;
-      debugPrint('👋 User left: $userId');
-      onUserLeft?.call(userId);
-    });
+    _socket!.on('user_joined', (data) => onUserJoined?.call(data['userId'] as String));
+    _socket!.on('user_left', (data) => onUserLeft?.call(data['userId'] as String));
 
-    // JOIN_SUCCESS: 방 참여 완료
-    // 최초 입장 & 재접속 모두 여기서 sync:request 전송
-    _socket!.on('room_joined', (data) {
-      final roomId = data['roomId'] as String?;
-      final classId = data['classId'] as String?;
-      final user = data['user'] as Map<String, dynamic>?;
-
-      debugPrint('✅ JOIN_SUCCESS received');
-      debugPrint('   roomId: $roomId');
-      debugPrint('   classId: $classId');
-      debugPrint('   user: $user');
-
-      // room_joined 콜백 (DrawingProvider에서 lastTick과 함께 sync:request 전송)
+    // JOIN_SUCCESS → pending emit flush → DrawingProvider에서 sync:request 전송
+    _socket!.on('join_success', (data) {
+      debugPrint('[socket] join_success roomId=${data['roomId']}');
+      _isRoomJoined = true;
+      _flushPendingEmits();
       onRoomJoined?.call(Map<String, dynamic>.from(data));
     });
 
-    // 동기화 데이터 수신 (재접속 시)
     _socket!.on('sync_state', (data) {
-      debugPrint('📥 Received sync_state');
-
       if (data is Map) {
-        // ✅ 서버 응답: { strokes, mode, serverTick }
         final strokes = data['strokes'] as List?;
-        final mode = data['mode'] as String?;
-        final serverTick = data['serverTick'] as int?;
-
-        debugPrint('📊 Sync mode: $mode, serverTick: $serverTick, strokes: ${strokes?.length ?? 0}');
-
-        if (strokes != null) {
-          onSyncState?.call(strokes);
-        }
+        if (strokes != null) onSyncState?.call(strokes);
       } else if (data is List) {
-        // ✅ 하위 호환 (기존 방식)
         onSyncState?.call(data);
       }
     });
 
-    // 세션 종료 알림
     _socket!.on('session:ended', (data) {
-      debugPrint('📥 Received session:ended: $data');
-      if (data is Map) {
-        onSessionEnded?.call(Map<String, dynamic>.from(data));
-      }
+      if (data is Map) onSessionEnded?.call(Map<String, dynamic>.from(data));
     });
 
-    // ========================================
-    // ✅ Poll 이벤트 리스너
-    // ========================================
-
-    // poll:start → 학생/교사 모두 수신
-    _socket!.on('poll:start', (data) {
-      debugPrint('📥 poll:start received: $data');
-      if (data is Map) {
-        onPollStart?.call(Map<String, dynamic>.from(data));
+    _socket!.on('server_error', (error) {
+      debugPrint('[socket][error] server_error: $error');
+      final map = error is Map ? Map<String, dynamic>.from(error) : null;
+      if (map?['code']?.toString() == 'NOT_JOINED') {
+        _isRoomJoined = false;
+        if (_currentRoomId != null && _currentUserId != null) {
+          _joinRoom(_currentRoomId!, _currentUserId!, _currentIsTeacher,
+              classId: _currentClassId, materialId: _currentMaterialId);
+        }
       }
-    });
-
-    // poll:result → 교사에게 실시간 집계
-    _socket!.on('poll:result', (data) {
-      debugPrint('📥 poll:result received: $data');
-      if (data is Map) {
-        onPollResult?.call(Map<String, dynamic>.from(data));
-      }
-    });
-
-    // poll:end → 학생/교사 모두 수신 (최종 집계)
-    _socket!.on('poll:end', (data) {
-      debugPrint('📥 poll:end received: $data');
-      if (data is Map) {
-        onPollEnd?.call(Map<String, dynamic>.from(data));
-      }
-    });
-
-    // 에러
-    _socket!.on('error', (error) {
-      debugPrint('❌ Socket error: $error');
       onError?.call(error);
     });
 
-    // ========================================
-    // ✅ Presence 이벤트 리스너 (여기 추가!)
-    // ========================================
+    _socket!.on('error', (error) => onError?.call(error));
 
-    // PRESENCE_STATE: 전체 참여자 목록
+    // Poll 이벤트
+    _socket!.on('poll:start', (data) {
+      if (data is Map) onPollStart?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('poll:result', (data) {
+      if (data is Map) onPollResult?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('poll:end', (data) {
+      if (data is Map) onPollEnd?.call(Map<String, dynamic>.from(data));
+    });
+
+    // Presence 이벤트
     _socket!.on('presence:state', (data) {
-      debugPrint('📥 PRESENCE_STATE received: $data');
-
       if (data is! Map) return;
-
       final usersList = data['users'];
       if (usersList is! List) return;
-
-      final participants = usersList
+      onPresenceState?.call(usersList
           .where((u) => u is Map)
           .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
-          .toList();
-
-      onPresenceState?.call(participants);
+          .toList());
     });
-
-    // PRESENCE_JOIN: 새 참여자 입장
     _socket!.on('presence:join', (data) {
-      debugPrint('📥 PRESENCE_JOIN received: $data');
-
       if (data is! Map) return;
-
       try {
-        final participant = Participant.fromJson(Map<String, dynamic>.from(data));
-        onPresenceJoin?.call(participant);
+        onPresenceJoin?.call(Participant.fromJson(Map<String, dynamic>.from(data)));
       } catch (e) {
-        debugPrint('❌ Failed to parse PRESENCE_JOIN: $e');
+        debugPrint('[socket][error] presence:join: $e');
       }
     });
-
-    // PRESENCE_LEAVE: 참여자 퇴장
     _socket!.on('presence:leave', (data) {
-      debugPrint('📥 PRESENCE_LEAVE received: $data');
-
       if (data is! Map) return;
-
       final userId = data['userId'] as String?;
       final role = data['role'] as String?;
-
-      if (userId != null && role != null) {
-        onPresenceLeave?.call(userId, role);
-      }
+      if (userId != null && role != null) onPresenceLeave?.call(userId, role);
     });
   }
 
-  /// ===============================
-  /// ✅ Presence 리스너 설정 (신규 메서드!)
-  /// DrawingProvider에서 호출용
-  /// ===============================
-  void setupPresenceListeners() {
-    // 이미 _setupEventListeners()에서 등록되어 있음
-    // 이 메서드는 명시적 호출용 (실제 리스너는 위에서 이미 설정됨)
-    debugPrint('🔔 Presence listeners are ready');
-  }
+  void setupPresenceListeners() {}
 
-  /// ===============================
-  /// ✅ Presence 리스너 제거 (신규 메서드!)
-  /// ===============================
   void removePresenceListeners() {
     if (_socket == null) return;
-
-    _socket!.off('presence:state');
-    _socket!.off('presence:join');
-    _socket!.off('presence:leave');
-
+    _socket!..off('presence:state')..off('presence:join')..off('presence:leave');
     onPresenceState = null;
     onPresenceJoin = null;
     onPresenceLeave = null;
-
-    debugPrint('🔕 Presence listeners removed');
   }
 
-  /// ===============================
-  /// 방 참여
-  /// ===============================
-  void _joinRoom(String roomId, String userId, bool isTeacher) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot join room: Socket not connected');
-      return;
-    }
-
-    final role = isTeacher ? 'teacher' : 'student';
-
+  void _joinRoom(String roomId, String userId, bool isTeacher,
+      {String? classId, String? materialId}) {
+    if (_socket == null || !_socket!.connected) return;
     _socket!.emit('join_room', {
       'roomId': roomId,
       'userId': userId,
-      'role': role,
+      'isTeacher': isTeacher,
+      if (classId != null && classId.isNotEmpty) 'classId': classId,
+      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
-
-    debugPrint('📤 Sent join_room: $roomId (role: $role)');
+    debugPrint('[socket][send] join_room roomId=$roomId userId=$userId');
   }
 
-  /// ===============================
-  /// 판서 이벤트 전송
-  /// ===============================
   void sendDrawEvent(DrawEvent event, String senderId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send draw event: Socket not connected');
-      return;
-    }
-
-    final data = {
+    _emitOrQueue('draw:append', {
       ...event.toJson(),
       'roomId': _currentRoomId,
       'senderId': senderId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-
-    _socket!.emit('draw_event', data);
-
-    if (event.eventType != DrawEventType.drawMove) {
-      debugPrint('📤 Sent draw_event: ${event.eventType.code}');
-    }
+    }, summary: 'draw:append e=${event.eventType.code}',
+        suppressLog: event.eventType == DrawEventType.drawMove && !kDebugMode);
   }
 
-  /// ===============================
-  /// Undo 이벤트 전송
-  /// ===============================
   void sendUndo(int strokeId, String senderId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send undo: Socket not connected');
-      return;
-    }
-
-    _socket!.emit('draw_event', {
-      'e': 'un',
-      'sId': strokeId,
-      'roomId': _currentRoomId,
-      'senderId': senderId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-
-    debugPrint('📤 Sent undo: $strokeId');
+    _emitOrQueue('draw:clear', {
+      'e': 'un', 'sId': strokeId, 'roomId': _currentRoomId,
+      'senderId': senderId, 'timestamp': DateTime.now().millisecondsSinceEpoch,
+    }, summary: 'draw:clear e=un sId=$strokeId');
   }
 
-  /// ===============================
-  /// 전체 캔버스 클리어 (교사 전용)
-  /// ===============================
   void sendClearAll(String senderId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send clear: Socket not connected');
-      return;
-    }
-
-    _socket!.emit('clear_all', {
-      'roomId': _currentRoomId,
-      'senderId': senderId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-
-    debugPrint('📤 Sent clear_all');
+    _emitOrQueue('draw:clear', {
+      'e': 'cl', 'roomId': _currentRoomId,
+      'senderId': senderId, 'timestamp': DateTime.now().millisecondsSinceEpoch,
+    }, summary: 'draw:clear e=cl');
   }
 
-  /// ===============================
-  /// 방 나가기
-  /// ===============================
+  void sendPollAnswer({required String pollId, required dynamic optionId}) {
+    _emitOrQueue('poll:answer', {
+      'pollId': pollId, 'optionId': optionId, 'roomId': _currentRoomId,
+    }, summary: 'poll:answer pollId=$pollId');
+  }
+
+  void sendPollStart({required String question,
+    required List<Map<String, dynamic>> options, int? duration}) {
+    _emitOrQueue('poll:start', {
+      'roomId': _currentRoomId, 'question': question, 'options': options,
+      if (duration != null) 'duration': duration,
+    }, summary: 'poll:start');
+  }
+
+  void sendPollEnd(String pollId) {
+    _emitOrQueue('poll:end', {
+      'pollId': pollId, 'roomId': _currentRoomId,
+    }, summary: 'poll:end pollId=$pollId');
+  }
+
+  void requestSync({int? lastTick}) {
+    if (_socket == null || !_socket!.connected) return;
+    _socket!.emit('sync:request', {
+      'roomId': _currentRoomId,
+      if (lastTick != null) 'lastTick': lastTick,
+    });
+    debugPrint('[socket][send] sync:request lastTick=$lastTick');
+  }
+
   void leaveRoom() {
-    if (_socket == null || !_socket!.connected || _currentRoomId == null) {
-      return;
-    }
-
+    if (_socket == null || !_socket!.connected || _currentRoomId == null) return;
+    _isRoomJoined = false;
     _socket!.emit('leave_room', {
-      'roomId': _currentRoomId,
-      'userId': _currentUserId,
+      'roomId': _currentRoomId, 'userId': _currentUserId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
-
-    debugPrint('📤 Sent leave_room: $_currentRoomId');
   }
 
-  /// ===============================
-  /// 연결 종료
-  /// ===============================
   void disconnect() {
     leaveRoom();
-
-    // ✅ Presence 리스너 정리 추가!
     removePresenceListeners();
-
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
     _currentRoomId = null;
     _currentUserId = null;
-
-    debugPrint('🔌 Socket.IO disconnected and disposed');
+    _currentMaterialId = null;
+    _currentClassId = null;
+    _isRoomJoined = false;
+    _pendingEmits.clear();
+    debugPrint('[socket] disposed');
   }
 
-  /// ===============================
-  /// 재연결 시도
-  /// ===============================
   Future<void> reconnect() async {
-    if (_socket?.connected == true) {
-      debugPrint('Already connected, no need to reconnect');
-      return;
-    }
-
-    debugPrint('Attempting to reconnect...');
+    if (_socket?.connected == true) return;
     _socket?.connect();
   }
 
-  /// ===============================
-  /// poll:answer 전송 (학생 전용)
-  /// ===============================
-  void sendPollAnswer({
-    required String pollId,
-    required dynamic optionId,
-  }) {
+  void _emitOrQueue(String eventName, Map<String, dynamic> payload,
+      {required String summary, bool suppressLog = false}) {
     if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send poll:answer: Socket not connected');
+      debugPrint('[socket][send] skipped(not connected) $summary');
       return;
     }
-
-    _socket!.emit('poll:answer', {
-      'pollId': pollId,
-      'optionId': optionId,
-      'roomId': _currentRoomId,
-    });
-
-    debugPrint('📤 Sent poll:answer: pollId=$pollId, optionId=$optionId');
+    if (!_isRoomJoined) {
+      _pendingEmits.add({'event': eventName, 'payload': payload, 'summary': summary});
+      debugPrint('[socket][send] queued(not_joined) $summary');
+      return;
+    }
+    _socket!.emit(eventName, payload);
+    if (!suppressLog) debugPrint('[socket][send] $summary');
   }
 
-  /// ===============================
-  /// poll:start 전송 (교사 전용)
-  /// ===============================
-  void sendPollStart({
-    required String question,
-    required List<Map<String, dynamic>> options,
-    int? duration,
-  }) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send poll:start: Socket not connected');
-      return;
+  void _flushPendingEmits() {
+    if (_socket == null || !_socket!.connected || !_isRoomJoined) return;
+    if (_pendingEmits.isEmpty) return;
+    debugPrint('[socket] flushing ${_pendingEmits.length} pending emits');
+    for (final q in _pendingEmits) {
+      final event = q['event'] as String?;
+      final payload = q['payload'] as Map<String, dynamic>?;
+      if (event != null && payload != null) _socket!.emit(event, payload);
     }
-
-    final payload = {
-      'roomId': _currentRoomId,
-      'question': question,
-      'options': options,
-      if (duration != null) 'duration': duration,
-    };
-
-    _socket!.emit('poll:start', payload);
-    debugPrint('📤 Sent poll:start: question=$question, duration=$duration');
-  }
-
-  /// ===============================
-  /// poll:end 전송 (교사 조기 종료)
-  /// ===============================
-  void sendPollEnd(String pollId) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot send poll:end: Socket not connected');
-      return;
-    }
-
-    _socket!.emit('poll:end', {
-      'pollId': pollId,
-      'roomId': _currentRoomId,
-    });
-
-    debugPrint('📤 Sent poll:end: $pollId');
-  }
-  void requestSync({int? lastTick}) {
-    if (_socket == null || !_socket!.connected) {
-      debugPrint('Cannot request sync: Socket not connected');
-      return;
-    }
-
-    final payload = {
-      'roomId': _currentRoomId,
-      if (lastTick != null) 'lastTick': lastTick,  // ✅ lastTick 추가
-    };
-
-    _socket!.emit('sync:request', payload);  // ✅ 이벤트명 'sync:request'
-
-    debugPrint('📤 Sent sync:request for room: $_currentRoomId (lastTick: $lastTick)');
+    _pendingEmits.clear();
   }
 }
