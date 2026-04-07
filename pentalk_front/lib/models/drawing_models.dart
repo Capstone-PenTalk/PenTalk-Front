@@ -8,7 +8,8 @@ enum DrawEventType {
   drawMove('dm'),
   drawEnd('de'),
   undo('un'),
-  eraser('er');
+  eraser('er'),
+  clearAll('cl');
 
   final String code;
   const DrawEventType(this.code);
@@ -16,7 +17,7 @@ enum DrawEventType {
   static DrawEventType fromCode(String code) {
     return DrawEventType.values.firstWhere(
           (type) => type.code == code,
-      orElse: () => DrawEventType.drawMove,
+      orElse: () => DrawEventType.undo,
     );
   }
 }
@@ -144,8 +145,13 @@ class DrawEvent {
 
   /// JSON → DrawEvent
   factory DrawEvent.fromJson(Map<String, dynamic> json) {
+    Map<String, dynamic> _stringKeyed(Map input) {
+      return input.map((key, value) => MapEntry(key.toString(), value));
+    }
+
     final eventType = DrawEventType.fromCode(json['e'] as String);
-    final strokeId = json['sId'] as int;
+    final rawStrokeId = json['sId'];
+    final strokeId = (rawStrokeId as num?)?.toInt() ?? 0;
 
     // draw_start
     if (eventType == DrawEventType.drawStart) {
@@ -176,7 +182,7 @@ class DrawEvent {
         eventType: eventType,
         strokeId: strokeId,
         points: ptsList
-            ?.map((pt) => DrawPoint.fromJson(pt as Map<String, dynamic>))
+            ?.map((pt) => DrawPoint.fromJson(_stringKeyed(pt as Map)))
             .toList(),
         color: _parseColor(json['c'] as String?),  // ✅ 색상 파싱
         width: json['w'] != null ? (json['w'] as num).toDouble() : null,  // ✅ 굵기 파싱

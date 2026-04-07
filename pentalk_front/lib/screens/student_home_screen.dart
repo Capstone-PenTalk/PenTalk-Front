@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../native_drawing.dart';
 import '../providers/student_session_provider.dart';
 import '../widgets/student_session_card.dart';
 import 'material_list_screen.dart';
@@ -51,6 +52,14 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_note),
+            onPressed: () {
+              NativeDrawingBridge.open(
+                NativeDrawingBridge.currentBrush.value,
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.account_circle),
             onPressed: () {

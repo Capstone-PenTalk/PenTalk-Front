@@ -42,3 +42,10 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("androidx.ink:ink-authoring-android:1.0.0")
+    implementation("androidx.ink:ink-brush-android:1.0.0")
+    implementation("androidx.ink:ink-geometry-android:1.0.0")
+    implementation("androidx.ink:ink-strokes-android:1.0.0")
+}
