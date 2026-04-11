@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import 'student_home_screen.dart';
+import 'teacher_home_screen.dart';
 
 /// ===============================
 /// 로그인 화면
@@ -50,8 +52,18 @@ class _LoginScreenState extends State<LoginScreen> {
           token: response.data!.token,
         );
 
-        // 홈 화면으로 이동
-        Navigator.pushReplacementNamed(context, '/home');
+        // 역할에 따라 홈 화면 분기
+        if (response.data!.role == 'teacher') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherHomeScreen()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const StudentHomeScreen()),
+          );
+        }
       } else {
         _showError(response.message ?? '로그인 실패');
       }

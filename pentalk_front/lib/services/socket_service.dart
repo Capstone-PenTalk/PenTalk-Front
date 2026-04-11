@@ -30,6 +30,8 @@ class SocketService {
   Function(Map<String, dynamic>)? onPollStart;
   Function(Map<String, dynamic>)? onPollResult;
   Function(Map<String, dynamic>)? onPollEnd;
+  // 자료 업로드 실시간 알림 (수업 중)
+  Function(Map<String, dynamic>)? onMaterialUploaded;
   Function(List<Participant>)? onPresenceState;
   Function(Participant)? onPresenceJoin;
   Function(String userId, String role)? onPresenceLeave;
@@ -223,6 +225,12 @@ class SocketService {
     });
     _socket!.on('poll:end', (data) {
       if (data is Map) onPollEnd?.call(Map<String, dynamic>.from(data));
+    });
+
+    // material:uploaded → 수업 중 자료 추가 시 실시간 반영
+    _socket!.on('material:uploaded', (data) {
+      debugPrint('[socket] material:uploaded received: $data');
+      if (data is Map) onMaterialUploaded?.call(Map<String, dynamic>.from(data));
     });
 
     // Presence 이벤트

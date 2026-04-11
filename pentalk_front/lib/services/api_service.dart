@@ -467,6 +467,104 @@ class ApiService {
       );
     }
   }
+
+
+  /// ===============================
+  /// 자료 업로드 (POST /materials/pdf)
+  /// 교사 전용, multipart/form-data
+  /// ===============================
+  static Future<MaterialUploadResponse> uploadMaterial({
+    required String classId,
+    required String filePath,
+    required String fileName,
+  }) async {
+    final token = await AuthService.getToken();
+
+    debugPrint('📤 POST /materials/pdf: $fileName (classId: $classId)');
+
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/materials/pdf'),
+    );
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    request.fields['classId'] = classId;
+    request.files.add(await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      filename: fileName,
+    ));
+
+    final streamedResponse = await request.send().timeout(
+      const Duration(seconds: 60),
+      onTimeout: () => throw TimeoutException('Upload timeout'),
+    );
+
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 201) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      debugPrint('✅ Material uploaded: ${data['id']}');
+      return MaterialUploadResponse.fromJson(data);
+    }
+
+    // 에러 처리
+    String errorMessage = '자료 업로드에 실패했습니다';
+    try {
+      final error = jsonDecode(response.body) as Map<String, dynamic>;
+      errorMessage = error['message'] as String? ?? errorMessage;
+    } catch (_) {}
+
+    debugPrint('❌ Upload failed [${response.statusCode}]: $errorMessage');
+
+    if (response.statusCode == 413) {
+      throw MaterialUploadException('파일 크기가 너무 큽니다 (최대 50MB)', code: 'FILE_TOO_LARGE');
+    }
+    if (response.statusCode == 400) {
+      throw MaterialUploadException(errorMessage, code: 'INVALID_REQUEST');
+    }
+    if (response.statusCode == 403) {
+      throw MaterialUploadException('이 수업에 자료를 업로드할 권한이 없습니다', code: 'FORBIDDEN');
+    }
+    throw MaterialUploadException(errorMessage, code: 'UPLOAD_FAILED');
+  }
+
+  /// ===============================
+  /// 자료 목록 조회 (GET /materials?classId=)
+  /// ===============================
+  static Future<List<MaterialUploadResponse>> getMaterials({
+    required String classId,
+  }) async {
+    final token = await AuthService.getToken();
+
+    debugPrint('📥 GET /materials?classId=$classId');
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/materials?classId=$classId'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+    ).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Request timeout'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = data['items'] as List<dynamic>? ?? [];
+      debugPrint('✅ Materials loaded: ${items.length}개');
+      return items
+          .map((e) => MaterialUploadResponse.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    debugPrint('❌ Get materials failed [${response.statusCode}]');
+    return [];
+  }
 }
 
 /// ===============================
@@ -535,6 +633,51 @@ class ApiResponse<T> {
     this.error,
     this.message,
   });
+}
+
+/// ===============================
+/// 자료 업로드 응답 모델
+/// ===============================
+class MaterialUploadResponse {
+  final String id;
+  final String type;
+  final String url;
+  final String name;
+  final String classId;
+  final String createdAt;
+
+  MaterialUploadResponse({
+    required this.id,
+    required this.type,
+    required this.url,
+    required this.name,
+    required this.classId,
+    required this.createdAt,
+  });
+
+  factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
+    return MaterialUploadResponse(
+      id: json['id'] as String,
+      type: json['type'] as String? ?? 'pdf',
+      url: json['url'] as String,
+      name: json['name'] as String,
+      classId: json['classId'] as String,
+      createdAt: json['createdAt'] as String,
+    );
+  }
+}
+
+/// ===============================
+/// 자료 업로드 예외
+/// ===============================
+class MaterialUploadException implements Exception {
+  final String message;
+  final String code;
+
+  const MaterialUploadException(this.message, {required this.code});
+
+  @override
+  String toString() => message;
 }
 
 /// PDF export API 전용 예외

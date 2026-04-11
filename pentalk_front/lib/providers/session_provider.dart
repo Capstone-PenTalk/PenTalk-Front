@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 import '../models/session_model.dart';
 
@@ -26,6 +25,7 @@ class SessionProvider extends ChangeNotifier {
         SessionModel(
           id: '1',
           title: '1-2',
+          classId: 'seed-class-01',
           maxParticipants: 30,
           password: '1234',
           createdAt: DateTime.now().subtract(const Duration(days: 2)),
@@ -43,6 +43,7 @@ class SessionProvider extends ChangeNotifier {
         SessionModel(
           id: '2',
           title: '1-3',
+          classId: 'seed-class-02',
           maxParticipants: 28,
           createdAt: DateTime.now().subtract(const Duration(days: 1)),
         ),

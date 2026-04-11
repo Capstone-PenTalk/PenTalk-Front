@@ -1,7 +1,7 @@
-
 class StudentSessionModel {
   final String id;
   final String title;
+  final String? classId;        // 자료 조회에 필요
   final String teacherName;
   final String subject;
   final DateTime joinedAt;
@@ -10,6 +10,7 @@ class StudentSessionModel {
   StudentSessionModel({
     required this.id,
     required this.title,
+    this.classId,
     required this.teacherName,
     required this.subject,
     required this.joinedAt,
@@ -20,6 +21,7 @@ class StudentSessionModel {
     return StudentSessionModel(
       id: json['id'] as String,
       title: json['title'] as String,
+      classId: json['classId'] as String?,
       teacherName: json['teacherName'] as String,
       subject: json['subject'] as String,
       joinedAt: DateTime.parse(json['joinedAt'] as String),
@@ -34,6 +36,7 @@ class StudentSessionModel {
     return {
       'id': id,
       'title': title,
+      'classId': classId,
       'teacherName': teacherName,
       'subject': subject,
       'joinedAt': joinedAt.toIso8601String(),
@@ -44,6 +47,7 @@ class StudentSessionModel {
   StudentSessionModel copyWith({
     String? id,
     String? title,
+    String? classId,
     String? teacherName,
     String? subject,
     DateTime? joinedAt,
@@ -52,6 +56,7 @@ class StudentSessionModel {
     return StudentSessionModel(
       id: id ?? this.id,
       title: title ?? this.title,
+      classId: classId ?? this.classId,
       teacherName: teacherName ?? this.teacherName,
       subject: subject ?? this.subject,
       joinedAt: joinedAt ?? this.joinedAt,

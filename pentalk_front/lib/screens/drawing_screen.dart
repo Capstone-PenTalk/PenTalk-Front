@@ -546,7 +546,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   icon: const Icon(Icons.picture_as_pdf),
                   onPressed: _handleExportPdf,
                   tooltip: 'PDF 내보내기',
-                  color: Colors.white,
                 ),
 
               // 교사 전용: 세션 종료
