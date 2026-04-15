@@ -35,66 +35,20 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 줌 레벨에 따른 굵기 보정
-    final adjustedWidth = (stroke.width / scale).clamp(
-      stroke.width * 0.25,
-      stroke.width * 2.0,
-    );
+    final adjustedWidth = (stroke.width / scale).clamp(1.0, 50.0);
 
+    // 👇 날아갔던 '진짜 선 그리기' 로직 복구!
     final paint = Paint()
       ..color = stroke.color
       ..strokeWidth = adjustedWidth
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke
-      ..isAntiAlias = true;
-
-    if (points.length == 1) {
-      final offset = scaler.normalizedToPixel(points[0]);
-      canvas.drawCircle(offset, adjustedWidth / 2, paint);
-      return;
-    }
+      ..style = PaintingStyle.stroke;
 
     final path = _createSmoothPath(points);
     canvas.drawPath(path, paint);
   }
 
-  /// 필압 기반 선 그리기
-  void _drawStrokeWithPressure(
-      Canvas canvas,
-      Stroke stroke,
-      List<DrawPoint> points,
-      ) {
-    if (points.isEmpty) return;
-
-    final paint = Paint()
-      ..color = stroke.color
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke
-      ..isAntiAlias = true;
-
-    for (int i = 0; i < points.length; i++) {
-      final point = points[i];
-      // scaler.normalizedToPixel() 사용 (coordinate_scaler와 일관성)
-      final offset = scaler.normalizedToPixel(point);
-      final pressure = point.pressure ?? 1.0;
-      final width = (stroke.width * pressure) / scale;
-
-      if (i == 0) {
-        paint.strokeWidth = width;
-        canvas.drawCircle(offset, width / 2, paint);
-        continue;
-      }
-
-      final prev = scaler.normalizedToPixel(points[i - 1]);
-      final prevPressure = points[i - 1].pressure ?? 1.0;
-      paint.strokeWidth =
-          (stroke.width * (pressure + prevPressure)) / 2 / scale;
-      canvas.drawLine(prev, offset, paint);
-    }
-  }
-
-  /// 부드러운 곡선 Path 생성 (Quadratic Bezier)
   Path _createSmoothPath(List<DrawPoint> points) {
     final path = Path();
     if (points.isEmpty) return path;
@@ -142,4 +96,35 @@ class DrawingPainter extends CustomPainter {
 
   @override
   bool shouldRebuildSemantics(covariant DrawingPainter oldDelegate) => false;
+
+  // 👇 추가할 함수 시작
+  void _drawStrokeWithPressure(Canvas canvas, Stroke stroke, List<DrawPoint> points) {
+    if (points.isEmpty) return;
+
+    // 기본 굵기 계산
+    final baseWidth = (stroke.width / scale).clamp(1.0, 50.0);
+
+    for (int i = 0; i < points.length - 1; i++) {
+      final p1 = scaler.normalizedToPixel(points[i]);
+      final p2 = scaler.normalizedToPixel(points[i + 1]);
+
+      // 필압이 없으면 기본값 0.5로 처리
+      final pressure1 = points[i].pressure ?? 0.5;
+      final pressure2 = points[i + 1].pressure ?? 0.5;
+
+      // 두 점 사이의 평균 필압으로 선 굵기 조절
+      final avgPressure = (pressure1 + pressure2) / 2;
+      final currentWidth = baseWidth * (avgPressure * 2);
+
+      final paint = Paint()
+        ..color = stroke.color
+        ..strokeWidth = currentWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+
+      canvas.drawLine(p1, p2, paint);
+    }
+  }
+// 👆 추가할 함수 끝
 }

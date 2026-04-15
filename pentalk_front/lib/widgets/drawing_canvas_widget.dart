@@ -9,18 +9,17 @@ import '../models/drawing_models.dart';
 import '../utils/coordinate_scaler.dart';
 import 'drawing_painter.dart';
 
-/// ===============================
-/// 판서 캔버스 위젯 (레이어 분리 + 최적화 + InteractiveViewer)
-/// CoordinateScaler 통합으로 정확한 좌표 변환
-/// InteractiveViewer로 줌/팬 지원
-/// ===============================
 class DrawingCanvasWidget extends StatefulWidget {
   final bool isTeacher;
+  final bool enableTouchInput;
+  final bool showMyStrokes;
   final ValueChanged<Size>? onCanvasSize;
 
   const DrawingCanvasWidget({
     Key? key,
     required this.isTeacher,
+    required this.enableTouchInput,
+    required this.showMyStrokes,
     this.onCanvasSize,
   }) : super(key: key);
 

@@ -7,6 +7,7 @@ import '../widgets/file_list_item.dart';
 import '../services/file_service.dart';
 import '../services/api_service.dart';
 import '../models/student_session_model.dart';
+import 'drawing_screen.dart'; // 👈 추가
 
 class SessionDetailScreen extends StatefulWidget {
   final String sessionId;
@@ -32,6 +33,23 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadMaterials();
     });
+  }
+  // ⭐ 추가: 판서 화면으로 넘어가는 핵심 함수
+  void _navigateToDrawing(BuildContext context, {required MaterialModel material}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DrawingScreen(
+          materialTitle: material.title,
+          backgroundUrl: material.url, // PDF 경로
+          isTeacher: true,             // 교사 모드 켜기
+          sessionId: widget.sessionId,
+          roomId: 'room_${widget.sessionId}', // 임시 방 ID 세팅
+          userId: '선생님',             // 임시 교사 이름
+          serverUrl: 'pentalk-server-production.up.railway.app',
+        ),
+      ),
+    );
   }
 
   /// ===============================
@@ -117,7 +135,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           fileName: fileName,
         );
         if (!mounted) return;
-        context.read<MaterialProvider>().addMaterial(MaterialModel(
+
+        // 👉 수정: 생성된 자료를 newMaterial 변수에 먼저 담습니다.
+        final newMaterial = MaterialModel(
           id: uploaded.id,
           title: uploaded.name,
           fileName: uploaded.name,
@@ -125,11 +145,19 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           sizeInBytes: fileSize,
           uploadedAt: DateTime.parse(uploaded.createdAt),
           type: FileMaterialType.pdf,
-        ));
+        );
+
+        context.read<MaterialProvider>().addMaterial(newMaterial);
+
+        // ⭐ 핵심 추가: Provider에 저장 후, 이 자료를 들고 판서 화면으로 바로 이동!
+        _navigateToDrawing(context, material: newMaterial);
+
       } else {
         // 오프라인 더미: 로컬에만 추가
         if (!mounted) return;
-        context.read<MaterialProvider>().addMaterial(MaterialModel(
+
+        // 👉 수정: 생성된 더미 자료를 newMaterial 변수에 먼저 담습니다.
+        final newMaterial = MaterialModel(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           title: fileName,
           fileName: fileName,
@@ -137,7 +165,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           sizeInBytes: fileSize,
           uploadedAt: DateTime.now(),
           type: FileMaterialType.pdf,
-        ));
+        );
+
+        context.read<MaterialProvider>().addMaterial(newMaterial);
+
+        // ⭐ 핵심 추가: Provider에 저장 후, 이 자료를 들고 판서 화면으로 바로 이동!
+        _navigateToDrawing(context, material: newMaterial);
       }
 
       ScaffoldMessenger.of(context).showSnackBar(

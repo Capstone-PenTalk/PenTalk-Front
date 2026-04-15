@@ -1,5 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
+import '../native_drawing.dart';
 import '../models/student_session_model.dart';
 import '../models/poll_model.dart';
 import '../providers/drawing_provider.dart';
@@ -572,7 +576,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
         )
             : Stack(
           children: [
-            DrawingCanvasWidget(isTeacher: widget.isTeacher),
+            DrawingCanvasWidget(
+                isTeacher: widget.isTeacher,
+                enableTouchInput: true,     // 👈 추가 (터치 입력 켜기)
+                showMyStrokes: true,        // 👈 추가 (내 필기 보이기)
+            ),
 
             // 학생: 이해도 체크 오버레이
             if (!widget.isTeacher)

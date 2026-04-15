@@ -7,6 +7,7 @@ import '../widgets/session_card.dart';
 import '../widgets/create_session_dialog.dart';
 import 'session_detail_screen.dart';
 import 'login_screen.dart';
+import 'drawing_screen.dart'; // 👈 추가
 
 /// ===============================
 /// 교사 홈 화면
@@ -29,6 +30,24 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       context.read<SessionProvider>().loadSessions();
       _loadUserName();
     });
+  }
+
+  //⭐추가
+  void _navigateToDrawing(BuildContext context, {required dynamic material}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DrawingScreen(
+          materialTitle: material.title ?? '수업 자료',
+          backgroundUrl: material.url, // 서버에서 받아온 PDF 이미지 주소
+          isTeacher: true,             // 선생님 권한으로 실행
+          sessionId: material.sessionId,
+          roomId: material.roomId ?? 'default_room',
+          userId: _userName,           // 현재 로그인한 선생님 이름
+          serverUrl: 'pentalk-server-production.up.railway.app', // 서버 주소
+        ),
+      ),
+    );
   }
 
   Future<void> _loadUserName() async {
@@ -191,7 +210,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               return SessionCard(
                 session: session,
                 onTap: () {
-                  // MaterialProvider 초기화 후 이동
+                  //  세션 상세 페이지로 이동
                   context.read<MaterialProvider>().clear();
                   Navigator.push(
                     context,
