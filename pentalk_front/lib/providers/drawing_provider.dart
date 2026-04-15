@@ -2,37 +2,39 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/drawing_models.dart';
 import '../native_drawing.dart';
 import '../services/socket_service.dart';
+import '../services/session_storage.dart';
 
 /// ===============================
-/// 판서 데이터 Provider (Socket.IO 통합)
-/// 최적화: notifyListeners() 호출 최소화
+/// 판서 데이터 Provider (Socket.IO + Native 통합)
 /// ===============================
 class DrawingProvider extends ChangeNotifier {
-  // Socket.IO 서비스
   final SocketService _socketService = SocketService();
   StreamSubscription<Map<String, dynamic>>? _nativeDrawEventSubscription;
 
-  // 내 펜 (로컬에서 그린 선들)
+  SocketService get socketService => _socketService;
+
+  // 내 펜
   final Map<int, Stroke> _myStrokes = {};
   final Map<int, Stroke> _myActiveStrokes = {};
 
-  // 상대 펜 (다른 사람이 그린 선들)
+  // 상대 펜
   final Map<int, Stroke> _othersStrokes = {};
   final Map<int, Stroke> _othersActiveStrokes = {};
 
-  // 학생 개인 필기 (로컬 전용, 서버 미전송)
+  // 학생 개인 필기 (로컬 전용, 서버 미전송 / 팀원 추가)
   final Map<int, Stroke> _studentPrivateStrokes = {};
   final Map<int, Stroke> _studentPrivateActiveStrokes = {};
 
-  // 배경 이미지 URL
+  // 배경
   String? _backgroundUrl;
   double? _pdfWidth;
   double? _pdfHeight;
 
-  // 그리기 모드 (교사용)
+  // 그리기 모드
   bool _isDrawingMode = false;
   Color _currentColor = Colors.black;
   double _currentWidth = 2.5;
@@ -44,9 +46,15 @@ class DrawingProvider extends ChangeNotifier {
   String? _roomId;
   bool _isTeacher = false;
 
-  // 소켓 연결 상태
+  // 소켓 상태
   bool _isSocketConnected = false;
   int _strokeIdSeed = DateTime.now().microsecondsSinceEpoch;
+
+  // lastTick (자동 재join용)
+  int? _lastTick;
+  Timer? _tickSaveTimer;
+
+  int? get lastTick => _lastTick;
 
   // Getters
   Map<int, Stroke> get myStrokes => _myStrokes;
@@ -55,15 +63,6 @@ class DrawingProvider extends ChangeNotifier {
   Map<int, Stroke> get othersActiveStrokes => _othersActiveStrokes;
   Map<int, Stroke> get studentPrivateStrokes => _studentPrivateStrokes;
   Map<int, Stroke> get studentPrivateActiveStrokes => _studentPrivateActiveStrokes;
-  List<Stroke> get myCompletedStrokes => _myStrokes.values.toList();
-  List<Stroke> get myActiveStrokeList => _myActiveStrokes.values.toList();
-  List<Stroke> get othersCompletedStrokes => _othersStrokes.values.toList();
-  List<Stroke> get othersActiveStrokeList =>
-      _othersActiveStrokes.values.toList();
-  List<Stroke> get studentPrivateCompletedStrokes =>
-      _studentPrivateStrokes.values.toList();
-  List<Stroke> get studentPrivateActiveStrokeList =>
-      _studentPrivateActiveStrokes.values.toList();
   String? get backgroundUrl => _backgroundUrl;
   double? get pdfWidth => _pdfWidth;
   double? get pdfHeight => _pdfHeight;
@@ -74,20 +73,11 @@ class DrawingProvider extends ChangeNotifier {
   String? get userId => _userId;
   String? get roomId => _roomId;
 
-  /// 내 모든 선들 (완성 + 진행중)
-  List<Stroke> get myAllStrokes {
-    return [..._myStrokes.values, ..._myActiveStrokes.values];
-  }
-
-  /// 다른 사람들의 모든 선들
-  List<Stroke> get othersAllStrokes {
-    return [..._othersStrokes.values, ..._othersActiveStrokes.values];
-  }
-
-  /// 전체 선들 (내 것 + 남의 것)
-  List<Stroke> get allStrokes {
-    return [...myAllStrokes, ...othersAllStrokes];
-  }
+  List<Stroke> get myAllStrokes =>
+      [..._myStrokes.values, ..._myActiveStrokes.values];
+  List<Stroke> get othersAllStrokes =>
+      [..._othersStrokes.values, ..._othersActiveStrokes.values];
+  List<Stroke> get allStrokes => [...myAllStrokes, ...othersAllStrokes];
 
   DrawingProvider() {
     _setupNativeDrawingListener();
@@ -104,10 +94,19 @@ class DrawingProvider extends ChangeNotifier {
     required bool isTeacher,
     String? classId,
     String? materialId,
+    String? materialTitle,   // 세션 저장용 (내 코드)
+    String? backgroundUrl,   // 세션 저장용 (내 코드)
   }) async {
     _userId = userId;
     _roomId = roomId;
     _isTeacher = isTeacher;
+
+    // 저장된 lastTick 로드 (자동 재join용)
+    final session = await SessionStorage.getLastSession();
+    if (session?.lastTick != null) {
+      _lastTick = session!.lastTick;
+      debugPrint('📥 LastTick loaded: $_lastTick');
+    }
 
     try {
       await _socketService.connect(
@@ -120,10 +119,24 @@ class DrawingProvider extends ChangeNotifier {
       );
 
       _isSocketConnected = _socketService.isConnected;
-      debugPrint(
-        '[socket][provider] connect requested roomId=$roomId userId=$userId materialId=$materialId connected=$_isSocketConnected',
-      );
       notifyListeners();
+
+      _setupPresenceListeners();
+
+      // 세션 정보 저장 (materialTitle 있을 때만)
+      if (materialTitle != null) {
+        await SessionStorage.saveSession(
+          sessionId: roomId,
+          roomId: roomId,
+          role: isTeacher ? 'teacher' : 'student',
+          materialTitle: materialTitle,
+          backgroundUrl: backgroundUrl,
+          serverUrl: serverUrl,
+          lastTick: _lastTick,
+        );
+      }
+
+      _startTickSaveTimer();
     } catch (e) {
       debugPrint('Failed to connect socket: $e');
       _isSocketConnected = false;
@@ -131,116 +144,103 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
+  void _startTickSaveTimer() {
+    _tickSaveTimer?.cancel();
+    _tickSaveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_lastTick != null) SessionStorage.updateLastTick(_lastTick!);
+    });
+  }
+
+  void _stopTickSaveTimer() {
+    _tickSaveTimer?.cancel();
+    _tickSaveTimer = null;
+  }
+
   /// ===============================
-  /// Socket.IO 이벤트 리스너 설정
+  /// Socket 이벤트 리스너
   /// ===============================
   void _setupSocketListeners() {
-    // 판서 이벤트 수신
-    _socketService.onDrawEventReceived = (event) {
-      _handleReceivedDrawEvent(event);
-    };
+    _socketService.onDrawEventReceived = _handleReceivedDrawEvent;
 
-    // 연결 상태
     _socketService.onConnected = () {
       _isSocketConnected = true;
       notifyListeners();
       debugPrint('✅ Socket connected');
     };
 
+    // JOIN_SUCCESS → 300ms 후 sync:request (최초 & 재접속 모두)
+    _socketService.onRoomJoined = (data) {
+      debugPrint('✅ Room joined, scheduling sync:request...');
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _socketService.requestSync(lastTick: _lastTick);
+        debugPrint('📤 sync:request sent (lastTick: $_lastTick)');
+      });
+    };
+
     _socketService.onDisconnected = () {
       _isSocketConnected = false;
       notifyListeners();
-      debugPrint('❌ Socket disconnected');
     };
 
     _socketService.onError = (error) {
       debugPrint('[socket][provider] error: $error');
     };
 
-    // 사용자 입/퇴장
-    _socketService.onUserJoined = (userId) {
-      debugPrint('👤 User joined: $userId');
-    };
+    _socketService.onUserJoined = (userId) => debugPrint('👤 User joined: $userId');
+    _socketService.onUserLeft = (userId) => debugPrint('👋 User left: $userId');
+    _socketService.onSessionEnded = _handleSessionEnded;
+  }
 
-    _socketService.onUserLeft = (userId) {
-      debugPrint('👋 User left: $userId');
-    };
+  void _setupPresenceListeners() {
+    _socketService.setupPresenceListeners();
   }
 
   /// ===============================
-  /// Native drawing 이벤트 수신 설정
+  /// Native drawing 이벤트
   /// ===============================
   void _setupNativeDrawingListener() {
     _nativeDrawEventSubscription = NativeDrawingBridge.drawEvents.listen(
-      (payload) {
+          (payload) {
         try {
           final event = DrawEvent.fromJson(payload);
           _logNormalized(event, source: 'native');
           _handleLocalNativeEvent(event);
         } catch (e) {
-          debugPrint('[draw][error] Native event parse failed: $e payload=$payload');
+          debugPrint('[draw][error] Native event parse failed: $e');
         }
       },
-      onError: (error, stackTrace) {
-        debugPrint('[draw][error] Native event stream failed: $error');
-      },
+      onError: (error) => debugPrint('[draw][error] Native stream: $error'),
     );
   }
 
   /// ===============================
-  /// 수신된 판서 이벤트 처리 (다른 사람의 펜)
+  /// 수신된 이벤트 처리 (다른 사람)
   /// ===============================
   void _handleReceivedDrawEvent(DrawEvent event) {
     switch (event.eventType) {
-      case DrawEventType.drawStart:
-        _handleOthersDrawStart(event);
-        break;
-      case DrawEventType.drawMove:
-        _handleOthersDrawMove(event);
-        break;
-      case DrawEventType.drawEnd:
-        _handleOthersDrawEnd(event);
-        break;
-      case DrawEventType.undo:
-        _handleOthersUndo(event);
-        break;
-      case DrawEventType.eraser:
-        _handleOthersEraser(event);
-        break;
-      case DrawEventType.clearAll:
-        _handleRemoteClearAll();
-        break;
+      case DrawEventType.drawStart: _handleOthersDrawStart(event); break;
+      case DrawEventType.drawMove: _handleOthersDrawMove(event); break;
+      case DrawEventType.drawEnd: _handleOthersDrawEnd(event); break;
+      case DrawEventType.undo: _handleOthersUndo(event); break;
+      case DrawEventType.eraser: _handleOthersEraser(event); break;
+      case DrawEventType.clearAll: _handleRemoteClearAll(); break;
     }
   }
 
   void _handleLocalNativeEvent(DrawEvent event) {
     if (event.eventType == DrawEventType.drawEnd &&
-        (event.points == null || event.points!.isEmpty)) {
-      return;
-    }
+        (event.points == null || event.points!.isEmpty)) return;
+
     switch (event.eventType) {
-      case DrawEventType.drawStart:
-        _handleMyDrawStart(event);
-        break;
-      case DrawEventType.drawMove:
-        _handleMyDrawMove(event);
-        break;
-      case DrawEventType.drawEnd:
-        _handleMyDrawEnd(event);
-        break;
-      case DrawEventType.undo:
-        _handleMyUndo(event);
-        break;
+      case DrawEventType.drawStart: _handleMyDrawStart(event); break;
+      case DrawEventType.drawMove: _handleMyDrawMove(event); break;
+      case DrawEventType.drawEnd: _handleMyDrawEnd(event); break;
+      case DrawEventType.undo: _handleMyUndo(event); break;
       case DrawEventType.eraser:
-        if (event.strokeId == 0) {
-          clear();
-          return;
-        }
+        if (event.strokeId == 0) { clear(); return; }
         _handleMyUndo(event);
         break;
-      case DrawEventType.clearAll:
-        clear();
-        return;
+      case DrawEventType.clearAll: clear(); return;
     }
 
     if (_socketService.isConnected && _userId != null) {
@@ -254,7 +254,7 @@ class DrawingProvider extends ChangeNotifier {
           _socketService.sendUndo(event.strokeId, _userId!);
           break;
         case DrawEventType.eraser:
-          _socketService.sendEraser(event.strokeId, _userId!);
+          _socketService.sendClearAll(_userId!);
           break;
         case DrawEventType.clearAll:
           _socketService.sendClearAll(_userId!);
@@ -271,97 +271,55 @@ class DrawingProvider extends ChangeNotifier {
 
   void _logNormalized(DrawEvent event, {required String source}) {
     if (!kDebugMode && event.eventType == DrawEventType.drawMove) return;
-    switch (event.eventType) {
-      case DrawEventType.drawStart:
-        if (event.point == null) return;
-        debugPrint(
-          '[draw][$source] ds sId=${event.strokeId} x=${event.point!.x} y=${event.point!.y} c=${event.color} w=${event.width}',
-        );
-        break;
-      case DrawEventType.drawMove:
-        if (event.point == null) return;
-        debugPrint(
-          '[draw][$source] dm sId=${event.strokeId} x=${event.point!.x} y=${event.point!.y}',
-        );
-        break;
-      case DrawEventType.drawEnd:
-        final points = event.points ?? const <DrawPoint>[];
-        final first = points.isNotEmpty ? points.first : null;
-        final last = points.isNotEmpty ? points.last : null;
-        debugPrint(
-          '[draw][$source] de sId=${event.strokeId} pts=${points.length} first=${first?.x},${first?.y} last=${last?.x},${last?.y}',
-        );
-        break;
-      case DrawEventType.undo:
-      case DrawEventType.eraser:
-        debugPrint('[draw][$source] ${event.eventType.code} sId=${event.strokeId}');
-        break;
-      case DrawEventType.clearAll:
-        debugPrint('[draw][$source] cl');
-        break;
-    }
+    debugPrint('[draw][$source] ${event.eventType.code} sId=${event.strokeId}');
   }
 
-  /// 다른 사람의 draw_start
+  // Others 핸들러
   void _handleOthersDrawStart(DrawEvent event) {
     if (event.point == null) return;
-
-    final stroke = Stroke(
+    _othersActiveStrokes[event.strokeId] = Stroke(
       strokeId: event.strokeId,
-      color: event.color ?? Colors.blue, // 다른 사람은 파란색
+      color: event.color ?? Colors.blue,
       width: event.width ?? 2.5,
       points: [event.point!],
     );
-
-    _othersActiveStrokes[event.strokeId] = stroke;
     notifyListeners();
   }
 
-  /// 다른 사람의 draw_move
   void _handleOthersDrawMove(DrawEvent event) {
     if (event.point == null) return;
-
     final stroke = _othersActiveStrokes[event.strokeId];
-    if (stroke == null) {
-      debugPrint('Warning: draw_move for unknown stroke ${event.strokeId}');
-      return;
-    }
-
-    final updatedPoints = [...stroke.points, event.point!];
-    _othersActiveStrokes[event.strokeId] = stroke.copyWith(points: updatedPoints);
-
-    if (updatedPoints.length % 3 == 0) {
-      notifyListeners();
-    }
+    if (stroke == null) return;
+    final updated = [...stroke.points, event.point!];
+    _othersActiveStrokes[event.strokeId] = stroke.copyWith(points: updated);
+    if (updated.length % 3 == 0) notifyListeners();
   }
 
-  /// 다른 사람의 draw_end
   void _handleOthersDrawEnd(DrawEvent event) {
     final stroke = _othersActiveStrokes.remove(event.strokeId);
-    if (stroke == null) {
-      debugPrint('Warning: draw_end for unknown stroke ${event.strokeId}');
-      return;
+    if (stroke == null) return;
+
+    var final_ = stroke;
+    if (event.points != null && event.points!.isNotEmpty) {
+      final_ = final_.copyWith(refinedPoints: event.points);
     }
+    if (event.color != null) final_ = final_.copyWith(color: event.color);
+    if (event.width != null) final_ = final_.copyWith(width: event.width);
 
-    final finalStroke = event.points != null && event.points!.isNotEmpty
-        ? stroke.withRefinedPoints(event.points!)
-        : stroke;
+    _othersStrokes[event.strokeId] = final_;
 
-    _othersStrokes[event.strokeId] = finalStroke;
+    if (event.tick != null) {
+      _lastTick = event.tick;
+    }
     notifyListeners();
   }
 
-  /// 다른 사람의 undo
   void _handleOthersUndo(DrawEvent event) {
     final removed = _othersStrokes.remove(event.strokeId) != null ||
         _othersActiveStrokes.remove(event.strokeId) != null;
-
-    if (removed) {
-      notifyListeners();
-    }
+    if (removed) notifyListeners();
   }
 
-  /// 다른 사람의 eraser
   void _handleOthersEraser(DrawEvent event) {
     if (event.strokeId == 0) {
       _othersStrokes.clear();
@@ -371,10 +329,7 @@ class DrawingProvider extends ChangeNotifier {
     }
     final removed = _othersStrokes.remove(event.strokeId) != null ||
         _othersActiveStrokes.remove(event.strokeId) != null;
-
-    if (removed) {
-      notifyListeners();
-    }
+    if (removed) notifyListeners();
   }
 
   void _handleRemoteClearAll() {
@@ -385,90 +340,74 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ===============================
-  /// 내 판서 이벤트 처리 (로컬)
-  /// ===============================
+  // My 핸들러
   void _handleMyDrawStart(DrawEvent event) {
     if (event.point == null) return;
-
     _lastNativeColor = event.color ?? _lastNativeColor ?? _currentColor;
     _lastNativeWidth = event.width ?? _lastNativeWidth ?? _currentWidth;
-    final stroke = Stroke(
+    _myActiveStrokes[event.strokeId] = Stroke(
       strokeId: event.strokeId,
       color: _lastNativeColor ?? Colors.black,
       width: _lastNativeWidth ?? 2.5,
       points: [event.point!],
     );
-
-    _myActiveStrokes[event.strokeId] = stroke;
     notifyListeners();
   }
 
   void _handleMyDrawMove(DrawEvent event) {
     if (event.point == null) return;
-
     final stroke = _myActiveStrokes[event.strokeId];
     if (stroke == null) {
-      final fallbackColor = _lastNativeColor ?? _currentColor;
-      final fallbackWidth = _lastNativeWidth ?? _currentWidth;
       _myActiveStrokes[event.strokeId] = Stroke(
         strokeId: event.strokeId,
-        color: fallbackColor,
-        width: fallbackWidth,
+        color: _lastNativeColor ?? _currentColor,
+        width: _lastNativeWidth ?? _currentWidth,
         points: [event.point!],
       );
       notifyListeners();
       return;
     }
-
-    final updatedPoints = [...stroke.points, event.point!];
-    _myActiveStrokes[event.strokeId] = stroke.copyWith(points: updatedPoints);
-
-    if (updatedPoints.length % 3 == 0) {
-      notifyListeners();
-    }
+    final updated = [...stroke.points, event.point!];
+    _myActiveStrokes[event.strokeId] = stroke.copyWith(points: updated);
+    if (updated.length % 3 == 0) notifyListeners();
   }
 
   void _handleMyDrawEnd(DrawEvent event) {
     final stroke = _myActiveStrokes.remove(event.strokeId);
+
+    // stroke 없으면 fallback으로 생성 (팀원 코드)
     if (stroke == null) {
       if (event.points == null || event.points!.isEmpty) return;
-      final fallbackColor = _lastNativeColor ?? _currentColor;
-      final fallbackWidth = _lastNativeWidth ?? _currentWidth;
       _myStrokes[event.strokeId] = Stroke(
         strokeId: event.strokeId,
-        color: fallbackColor,
-        width: fallbackWidth,
+        color: _lastNativeColor ?? _currentColor,
+        width: _lastNativeWidth ?? _currentWidth,
         points: event.points!,
       );
       notifyListeners();
       return;
     }
 
-    final finalStroke = event.points != null && event.points!.isNotEmpty
-        ? stroke.withRefinedPoints(event.points!)
-        : stroke;
+    var final_ = stroke;
+    if (event.points != null && event.points!.isNotEmpty) {
+      final_ = final_.copyWith(refinedPoints: event.points);
+    }
+    // de 이벤트의 color/width 반영 (내 코드 - 서버 전송에 필요)
+    if (event.color != null) final_ = final_.copyWith(color: event.color);
+    if (event.width != null) final_ = final_.copyWith(width: event.width);
 
-    _myStrokes[event.strokeId] = finalStroke;
+    _myStrokes[event.strokeId] = final_;
     notifyListeners();
   }
 
   void _handleMyUndo(DrawEvent event) {
     final removed = _myStrokes.remove(event.strokeId) != null ||
         _myActiveStrokes.remove(event.strokeId) != null;
-
-    if (!removed) {
-      debugPrint(
-        '[draw][warn] my undo/eraser target not found sId=${event.strokeId} '
-        'myCompleted=${_myStrokes.length} myActive=${_myActiveStrokes.length}',
-      );
-      return;
-    }
-    notifyListeners();
+    if (removed) notifyListeners();
   }
 
   /// ===============================
-  /// 설정 관련
+  /// 설정
   /// ===============================
   void setBackgroundUrl(String? url) {
     if (_backgroundUrl != url) {
@@ -478,10 +417,8 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void setPdfPageSize({required double width, required double height}) {
-    if (_pdfWidth != width || _pdfHeight != height) {
-      _pdfWidth = width;
-      _pdfHeight = height;
-    }
+    _pdfWidth = width;
+    _pdfHeight = height;
   }
 
   void setDrawingMode(bool enabled) {
@@ -491,9 +428,31 @@ class DrawingProvider extends ChangeNotifier {
     }
   }
 
+  void setColor(Color color) {
+    if (_currentColor != color) {
+      _currentColor = color;
+      notifyListeners();
+    }
+  }
+
+  void setWidth(double width) {
+    if (_currentWidth != width) {
+      _currentWidth = width;
+      notifyListeners();
+    }
+  }
+
+  Color _parseSnapshotColor(String? hexColor) {
+    if (hexColor == null) return _lastNativeColor ?? _currentColor;
+    final hex = hexColor.replaceAll('#', '');
+    if (hex.length == 6) return Color(int.parse('FF$hex', radix: 16));
+    return _lastNativeColor ?? _currentColor;
+  }
+
+  /// Native 스냅샷 동기화 (팀원 코드)
   Future<void> syncMyStrokesFromNativeSnapshot() async {
     final snapshot = await NativeDrawingBridge.exportDrawingSnapshot();
-    final restoredStrokes = <int, Stroke>{};
+    final restored = <int, Stroke>{};
     Color? restoredLastColor;
     double? restoredLastWidth;
 
@@ -502,79 +461,33 @@ class DrawingProvider extends ChangeNotifier {
       final width = (stroke['w'] as num?)?.toDouble();
       final colorHex = stroke['c'] as String?;
       final rawPoints = stroke['pts'] as List<dynamic>?;
-      if (strokeId == null || width == null || rawPoints == null || rawPoints.isEmpty) {
-        continue;
-      }
+      if (strokeId == null || width == null || rawPoints == null || rawPoints.isEmpty) continue;
 
       final points = rawPoints
           .whereType<Map>()
-          .map((point) => DrawPoint.fromJson(Map<String, dynamic>.from(point)))
+          .map((p) => DrawPoint.fromJson(Map<String, dynamic>.from(p)))
           .toList();
-      if (points.isEmpty) {
-        continue;
-      }
+      if (points.isEmpty) continue;
 
       final color = _parseSnapshotColor(colorHex);
-      restoredStrokes[strokeId] = Stroke(
-        strokeId: strokeId,
-        color: color,
-        width: width,
-        points: points,
-      );
+      restored[strokeId] = Stroke(strokeId: strokeId, color: color, width: width, points: points);
       restoredLastColor = color;
       restoredLastWidth = width;
     }
 
-    // iOS에서 drawing mode를 다시 켰다가 바로 끄면 새 native view가 빈 스냅샷을
-    // 반환할 수 있어 기존 stroke를 유지한다.
-    if (restoredStrokes.isEmpty) {
-      debugPrint(
-        '[draw][native-sync] empty snapshot -> keep existing ${_myStrokes.length} strokes',
-      );
-      return;
-    }
+    if (restored.isEmpty) return;
 
-    // 기존 Flutter stroke를 유지한 채, native snapshot 결과만 누적 반영한다.
-    // (drawing mode on/off 반복 시 과거 stroke가 사라지지 않아야 함)
-    _myStrokes.addAll(restoredStrokes);
-    _myActiveStrokes.removeWhere((strokeId, _) => restoredStrokes.containsKey(strokeId));
+    _myStrokes.addAll(restored);
+    _myActiveStrokes.removeWhere((id, _) => restored.containsKey(id));
     _lastNativeColor = restoredLastColor ?? _lastNativeColor;
     _lastNativeWidth = restoredLastWidth ?? _lastNativeWidth;
-
-    debugPrint('[draw][native-sync] restored ${_myStrokes.length} strokes from native snapshot');
     notifyListeners();
-  }
-
-  void setColor(Color color) {
-    if (_currentColor != color) {
-      _currentColor = color;
-    }
-  }
-
-  void setWidth(double width) {
-    if (_currentWidth != width) {
-      _currentWidth = width;
-    }
-  }
-
-  Color _parseSnapshotColor(String? hexColor) {
-    if (hexColor == null) {
-      return _lastNativeColor ?? _currentColor;
-    }
-    final hex = hexColor.replaceAll('#', '');
-    if (hex.length == 6) {
-      return Color(int.parse('FF$hex', radix: 16));
-    }
-    return _lastNativeColor ?? _currentColor;
   }
 
   /// ===============================
   /// 내가 그릴 때: 로컬 + 소켓 전송
   /// ===============================
-  int _nextStrokeId() {
-    _strokeIdSeed += 1;
-    return _strokeIdSeed;
-  }
+  int _nextStrokeId() => ++_strokeIdSeed;
 
   int sendDrawStart(DrawPoint point) {
     final strokeId = _nextStrokeId();
@@ -587,24 +500,13 @@ class DrawingProvider extends ChangeNotifier {
       width: _currentWidth,
     );
 
-    // 로컬에 먼저 표시
     _handleMyDrawStart(event);
 
-    // Socket.IO로 전송
     if (_isSocketConnected && _userId != null) {
       _socketService.sendDrawEvent(event, _userId!);
-    } else {
-      debugPrint(
-        '[draw][local] Socket not ready for drawStart sId=$strokeId connected=$_isSocketConnected userId=$_userId roomId=$_roomId',
-      );
     }
 
-    // MethodChannel로도 전송 (네이티브)
-    try {
-      NativeDrawingBridge.sendDrawEvent(event.toJson());
-    } catch (e) {
-      debugPrint('[draw][error] Native send drawStart failed: $e');
-    }
+    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
 
     return strokeId;
   }
@@ -616,109 +518,58 @@ class DrawingProvider extends ChangeNotifier {
       point: point,
     );
 
-    // 로컬에 먼저 표시
     _handleMyDrawMove(event);
 
-    // Socket.IO로 전송
     if (_isSocketConnected && _userId != null) {
       _socketService.sendDrawEvent(event, _userId!);
     }
 
-    // MethodChannel로도 전송
-    try {
-      NativeDrawingBridge.sendDrawEvent(event.toJson());
-    } catch (e) {
-      debugPrint('[draw][error] Native send drawMove failed: $e');
-    }
+    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   void sendDrawEnd(int strokeId, List<DrawPoint> points) {
-    final copiedPoints = List<DrawPoint>.from(points);
+    final activeStroke = _myActiveStrokes[strokeId];
+
     final event = DrawEvent(
       eventType: DrawEventType.drawEnd,
       strokeId: strokeId,
-      points: copiedPoints,
+      points: List<DrawPoint>.from(points),
+      color: activeStroke?.color ?? _currentColor,  // 서버 전송에 필요
+      width: activeStroke?.width ?? _currentWidth,  // 서버 전송에 필요
     );
 
-    // 로컬에 먼저 표시
     _handleMyDrawEnd(event);
 
-    // Socket.IO로 전송
     if (_isSocketConnected && _userId != null) {
       _socketService.sendDrawEvent(event, _userId!);
-    } else {
-      debugPrint(
-        '[draw][local] Socket not ready for drawEnd sId=$strokeId connected=$_isSocketConnected userId=$_userId roomId=$_roomId',
-      );
     }
 
-    // MethodChannel로도 전송
-    try {
-      NativeDrawingBridge.sendDrawEvent(event.toJson());
-    } catch (e) {
-      debugPrint('[draw][error] Native send drawEnd failed: $e');
-    }
+    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   void sendUndo(int strokeId) {
-    final event = DrawEvent(
-      eventType: DrawEventType.undo,
-      strokeId: strokeId,
-    );
+    final event = DrawEvent(eventType: DrawEventType.undo, strokeId: strokeId);
 
-    // 로컬에 먼저 실행
     _handleMyUndo(event);
 
-    // Socket.IO로 전송
     if (_isSocketConnected && _userId != null) {
       _socketService.sendUndo(strokeId, _userId!);
-    } else {
-      debugPrint(
-        '[draw][local] Socket not ready for undo sId=$strokeId connected=$_isSocketConnected userId=$_userId roomId=$_roomId',
-      );
     }
 
-    // MethodChannel로도 전송
-    try {
-      NativeDrawingBridge.sendDrawEvent(event.toJson());
-    } catch (e) {
-      debugPrint('[draw][error] Native send undo failed: $e');
-    }
-  }
-
-  /// 전체 초기화
-  void clear() {
-    _myStrokes.clear();
-    _myActiveStrokes.clear();
-    _othersStrokes.clear();
-    _othersActiveStrokes.clear();
-    notifyListeners();
-
-    // Socket.IO로 전송 (교사만)
-    if (_isTeacher && _isSocketConnected && _userId != null) {
-      _socketService.sendClearAll(_userId!);
-    }
-  }
-
-  /// Socket 연결 해제
-  void disconnectSocket() {
-    _socketService.disconnect();
-    _isSocketConnected = false;
-    notifyListeners();
+    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   /// ===============================
-  /// 학생 개인 필기 (로컬 전용, 서버 미전송)
+  /// 학생 개인 필기 (로컬 전용 / 팀원 추가)
   /// ===============================
   int startStudentPrivateStroke(DrawPoint point) {
     final strokeId = _nextStrokeId();
-    final stroke = Stroke(
+    _studentPrivateActiveStrokes[strokeId] = Stroke(
       strokeId: strokeId,
       color: _currentColor,
       width: _currentWidth,
       points: [point],
     );
-    _studentPrivateActiveStrokes[strokeId] = stroke;
     notifyListeners();
     return strokeId;
   }
@@ -726,22 +577,17 @@ class DrawingProvider extends ChangeNotifier {
   void appendStudentPrivatePoint(int strokeId, DrawPoint point) {
     final stroke = _studentPrivateActiveStrokes[strokeId];
     if (stroke == null) return;
-    final updatedPoints = [...stroke.points, point];
-    _studentPrivateActiveStrokes[strokeId] =
-        stroke.copyWith(points: updatedPoints);
-    if (updatedPoints.length % 3 == 0) {
-      notifyListeners();
-    }
+    final updated = [...stroke.points, point];
+    _studentPrivateActiveStrokes[strokeId] = stroke.copyWith(points: updated);
+    if (updated.length % 3 == 0) notifyListeners();
   }
 
   void endStudentPrivateStroke(int strokeId, List<DrawPoint> points) {
     final stroke = _studentPrivateActiveStrokes.remove(strokeId);
     if (stroke == null) return;
-    final copiedPoints = List<DrawPoint>.from(points);
-    final finalStroke = copiedPoints.isNotEmpty
-        ? stroke.withRefinedPoints(copiedPoints)
-        : stroke;
-    _studentPrivateStrokes[strokeId] = finalStroke;
+    final copied = List<DrawPoint>.from(points);
+    _studentPrivateStrokes[strokeId] =
+    copied.isNotEmpty ? stroke.withRefinedPoints(copied) : stroke;
     notifyListeners();
   }
 
@@ -751,8 +597,93 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// ===============================
+  /// 전체 초기화
+  /// ===============================
+  void clear() {
+    _myStrokes.clear();
+    _myActiveStrokes.clear();
+    _othersStrokes.clear();
+    _othersActiveStrokes.clear();
+    notifyListeners();
+
+    if (_isTeacher && _isSocketConnected && _userId != null) {
+      _socketService.sendClearAll(_userId!);
+    }
+  }
+
+  /// ===============================
+  /// 저장된 판서 로드 (읽기 전용)
+  /// ===============================
+  void loadSavedStrokes(List<Map<String, dynamic>> strokesData) {
+    _othersStrokes.clear();
+    _othersActiveStrokes.clear();
+
+    for (final strokeData in strokesData) {
+      try {
+        final strokeId = strokeData['sId'] as int;
+        final ptsData = strokeData['pts'] as List?;
+        final points = <DrawPoint>[];
+
+        if (ptsData != null) {
+          for (final pt in ptsData) {
+            if (pt is Map) {
+              points.add(DrawPoint(
+                x: (pt['x'] as num?)?.toDouble() ?? 0.0,
+                y: (pt['y'] as num?)?.toDouble() ?? 0.0,
+                pressure: (pt['p'] as num?)?.toDouble(),
+              ));
+            }
+          }
+        }
+
+        if (points.isEmpty) {
+          final x = (strokeData['x'] as num?)?.toDouble() ?? 0.0;
+          final y = (strokeData['y'] as num?)?.toDouble() ?? 0.0;
+          points.add(DrawPoint(x: x, y: y));
+        }
+
+        Color color = Colors.black;
+        final colorStr = strokeData['c'] as String?;
+        if (colorStr != null && colorStr.startsWith('#')) {
+          try {
+            color = Color(0xFF000000 | int.parse(colorStr.substring(1), radix: 16));
+          } catch (_) {}
+        }
+
+        _othersStrokes[strokeId] = Stroke(
+          strokeId: strokeId,
+          color: color,
+          width: (strokeData['w'] as num?)?.toDouble() ?? 2.5,
+          points: points,
+        );
+      } catch (e) {
+        debugPrint('❌ Failed to parse stroke: $e');
+      }
+    }
+
+    notifyListeners();
+  }
+
+  void disconnectSocket() {
+    _socketService.disconnect();
+    _isSocketConnected = false;
+    notifyListeners();
+  }
+
+  void _handleSessionEnded(Map<String, dynamic> data) {
+    onSessionEnded?.call(data);
+  }
+
+  Function(Map<String, dynamic>)? onSessionEnded;
+
   @override
   void dispose() {
+    // lastTick 저장
+    if (_lastTick != null) {
+      SessionStorage.updateLastTick(_lastTick!);
+    }
+    _stopTickSaveTimer();
     _nativeDrawEventSubscription?.cancel();
     disconnectSocket();
     super.dispose();

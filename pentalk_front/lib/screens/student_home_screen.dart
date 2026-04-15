@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../native_drawing.dart';
@@ -235,6 +234,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
               MaterialPageRoute(
                 builder: (context) => MaterialListScreen(
                   sessionId: session.id,
+                  classId: session.classId,
                 ),
               ),
             );

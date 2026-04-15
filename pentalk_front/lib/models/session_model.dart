@@ -1,7 +1,7 @@
-
 class SessionModel {
   final String id;
   final String title;
+  final String? classId;        // 자료 업로드/조회에 필요
   final int maxParticipants;
   final String? password;
   final DateTime createdAt;
@@ -10,6 +10,7 @@ class SessionModel {
   SessionModel({
     required this.id,
     required this.title,
+    this.classId,
     required this.maxParticipants,
     this.password,
     required this.createdAt,
@@ -20,6 +21,7 @@ class SessionModel {
     return SessionModel(
       id: json['id'] as String,
       title: json['title'] as String,
+      classId: json['classId'] as String?,
       maxParticipants: json['maxParticipants'] as int,
       password: json['password'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
@@ -34,6 +36,7 @@ class SessionModel {
     return {
       'id': id,
       'title': title,
+      'classId': classId,
       'maxParticipants': maxParticipants,
       'password': password,
       'createdAt': createdAt.toIso8601String(),
@@ -44,6 +47,7 @@ class SessionModel {
   SessionModel copyWith({
     String? id,
     String? title,
+    String? classId,
     int? maxParticipants,
     String? password,
     DateTime? createdAt,
@@ -52,6 +56,7 @@ class SessionModel {
     return SessionModel(
       id: id ?? this.id,
       title: title ?? this.title,
+      classId: classId ?? this.classId,
       maxParticipants: maxParticipants ?? this.maxParticipants,
       password: password ?? this.password,
       createdAt: createdAt ?? this.createdAt,
