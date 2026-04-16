@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/drawing_models.dart';
+import '../drawing_event_store.dart';
 import '../native_drawing.dart';
 import '../services/socket_service.dart';
 
@@ -13,6 +14,7 @@ import '../services/socket_service.dart';
 class DrawingProvider extends ChangeNotifier {
   // Socket.IO 서비스
   final SocketService _socketService = SocketService();
+  final DrawingEventStore _eventStore = DrawingEventStore.instance;
   StreamSubscription<Map<String, dynamic>>? _nativeDrawEventSubscription;
 
   // 내 펜 (로컬에서 그린 선들)
@@ -47,6 +49,8 @@ class DrawingProvider extends ChangeNotifier {
   // 소켓 연결 상태
   bool _isSocketConnected = false;
   int _strokeIdSeed = DateTime.now().microsecondsSinceEpoch;
+  String? _localDraftKey;
+  bool _isHydratingLocalDraft = false;
 
   // Getters
   Map<int, Stroke> get myStrokes => _myStrokes;
@@ -73,6 +77,7 @@ class DrawingProvider extends ChangeNotifier {
   bool get isSocketConnected => _isSocketConnected;
   String? get userId => _userId;
   String? get roomId => _roomId;
+  String? get localDraftKey => _localDraftKey;
 
   /// 내 모든 선들 (완성 + 진행중)
   List<Stroke> get myAllStrokes {
@@ -92,6 +97,120 @@ class DrawingProvider extends ChangeNotifier {
   DrawingProvider() {
     _setupNativeDrawingListener();
     _setupSocketListeners();
+  }
+
+  Future<void> openDocument({required String draftKey}) async {
+    _localDraftKey = draftKey;
+    _clearAllInMemory(notify: false);
+    await _restoreFromLocalDraft();
+    notifyListeners();
+  }
+
+  Future<void> _restoreFromLocalDraft() async {
+    final draftKey = _localDraftKey;
+    if (draftKey == null || draftKey.isEmpty) return;
+    final payload = await _eventStore.loadDraft(draftKey);
+    if (payload == null) return;
+
+    _isHydratingLocalDraft = true;
+    try {
+      _myStrokes
+        ..clear()
+        ..addAll(_deserializeStrokeMap(payload['myStrokes']));
+      _studentPrivateStrokes
+        ..clear()
+        ..addAll(_deserializeStrokeMap(payload['studentPrivateStrokes']));
+      _myActiveStrokes.clear();
+      _studentPrivateActiveStrokes.clear();
+    } finally {
+      _isHydratingLocalDraft = false;
+    }
+  }
+
+  Future<void> _persistLocalDraft() async {
+    final draftKey = _localDraftKey;
+    if (draftKey == null || draftKey.isEmpty) return;
+    await _eventStore.saveDraft(
+      draftKey: draftKey,
+      payload: {
+        'myStrokes': _serializeStrokeMap(_myStrokes),
+        'studentPrivateStrokes': _serializeStrokeMap(_studentPrivateStrokes),
+      },
+    );
+  }
+
+  void _persistLocalDraftSoon() {
+    if (_isHydratingLocalDraft || _localDraftKey == null) return;
+    unawaited(_persistLocalDraft());
+  }
+
+  Future<void> clearLocalDraft() async {
+    final draftKey = _localDraftKey;
+    if (draftKey == null || draftKey.isEmpty) return;
+    await _eventStore.deleteDraft(draftKey);
+    _clearAllInMemory();
+  }
+
+  void _clearAllInMemory({bool notify = true}) {
+    _myStrokes.clear();
+    _myActiveStrokes.clear();
+    _othersStrokes.clear();
+    _othersActiveStrokes.clear();
+    _studentPrivateStrokes.clear();
+    _studentPrivateActiveStrokes.clear();
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> _serializeStrokeMap(Map<int, Stroke> source) {
+    return source.map((strokeId, stroke) {
+      return MapEntry(
+        '$strokeId',
+        {
+          'strokeId': stroke.strokeId,
+          'color': '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+          'width': stroke.width,
+          'points': stroke.points.map((point) => point.toJson()).toList(),
+          'refinedPoints': stroke.refinedPoints?.map((point) => point.toJson()).toList(),
+        },
+      );
+    });
+  }
+
+  Map<int, Stroke> _deserializeStrokeMap(dynamic raw) {
+    if (raw is! Map) return {};
+    final result = <int, Stroke>{};
+    for (final entry in raw.entries) {
+      final value = entry.value;
+      if (value is! Map) continue;
+      final json = Map<String, dynamic>.from(value);
+      final strokeId = (json['strokeId'] as num?)?.toInt();
+      final width = (json['width'] as num?)?.toDouble();
+      final pointsRaw = json['points'] as List<dynamic>?;
+      if (strokeId == null || width == null || pointsRaw == null || pointsRaw.isEmpty) {
+        continue;
+      }
+      final points = pointsRaw
+          .whereType<Map>()
+          .map((point) => DrawPoint.fromJson(Map<String, dynamic>.from(point)))
+          .toList();
+      if (points.isEmpty) continue;
+      final refinedRaw = json['refinedPoints'] as List<dynamic>?;
+      final refinedPoints = refinedRaw
+          ?.whereType<Map>()
+          .map((point) => DrawPoint.fromJson(Map<String, dynamic>.from(point)))
+          .toList();
+
+      result[strokeId] = Stroke(
+        strokeId: strokeId,
+        color: _parseSnapshotColor(json['color'] as String?),
+        width: width,
+        points: points,
+        refinedPoints: refinedPoints == null || refinedPoints.isEmpty ? null : refinedPoints,
+      );
+    }
+    return result;
   }
 
   /// ===============================
@@ -382,6 +501,7 @@ class DrawingProvider extends ChangeNotifier {
     _myActiveStrokes.clear();
     _othersStrokes.clear();
     _othersActiveStrokes.clear();
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
@@ -441,6 +561,7 @@ class DrawingProvider extends ChangeNotifier {
         width: fallbackWidth,
         points: event.points!,
       );
+      _persistLocalDraftSoon();
       notifyListeners();
       return;
     }
@@ -450,6 +571,7 @@ class DrawingProvider extends ChangeNotifier {
         : stroke;
 
     _myStrokes[event.strokeId] = finalStroke;
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
@@ -464,6 +586,7 @@ class DrawingProvider extends ChangeNotifier {
       );
       return;
     }
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
@@ -688,10 +811,8 @@ class DrawingProvider extends ChangeNotifier {
 
   /// 전체 초기화
   void clear() {
-    _myStrokes.clear();
-    _myActiveStrokes.clear();
-    _othersStrokes.clear();
-    _othersActiveStrokes.clear();
+    _clearAllInMemory(notify: false);
+    _persistLocalDraftSoon();
     notifyListeners();
 
     // Socket.IO로 전송 (교사만)
@@ -742,12 +863,14 @@ class DrawingProvider extends ChangeNotifier {
         ? stroke.withRefinedPoints(copiedPoints)
         : stroke;
     _studentPrivateStrokes[strokeId] = finalStroke;
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
   void clearStudentPrivateStrokes() {
     _studentPrivateStrokes.clear();
     _studentPrivateActiveStrokes.clear();
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 

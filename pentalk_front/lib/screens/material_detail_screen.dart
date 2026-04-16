@@ -210,6 +210,7 @@ class MaterialDetailScreen extends StatelessWidget {
           materialTitle: material.title,
           backgroundUrl: null,
           materialId: _demoMaterialId,
+          localDraftKey: 'material:${material.id}:${isTeacher ? 'teacher' : 'student'}',
           classId: _demoClassId,
           isTeacher: isTeacher,
           serverUrl: serverUrl,

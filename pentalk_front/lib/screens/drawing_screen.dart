@@ -17,6 +17,7 @@ class DrawingScreen extends StatefulWidget {
   final String? roomId; // 방 ID
   final String? userId; // 사용자 ID
   final String? classId; // 클래스 ID
+  final String? localDraftKey; // 로컬 필기 저장 키
 
   const DrawingScreen({
     Key? key,
@@ -28,6 +29,7 @@ class DrawingScreen extends StatefulWidget {
     this.roomId,
     this.userId,
     this.classId,
+    this.localDraftKey,
   }) : super(key: key);
 
   @override
@@ -48,6 +50,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
   Future<void> _initializeDrawing() async {
     final provider = context.read<DrawingProvider>();
+    final draftKey = widget.localDraftKey ?? _buildDefaultDraftKey();
+
+    await provider.openDocument(draftKey: draftKey);
 
     // 배경 설정
     provider.setBackgroundUrl(widget.backgroundUrl);
@@ -56,8 +61,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
     if (widget.isTeacher) {
       provider.setDrawingMode(true);
       debugPrint('Drawing mode enabled for teacher');
-    } else {
-      provider.clearStudentPrivateStrokes();
     }
 
     // Socket.IO 연결
@@ -71,6 +74,14 @@ class _DrawingScreenState extends State<DrawingScreen> {
       debugPrint('roomId: ${widget.roomId}');
       debugPrint('userId: ${widget.userId}');
     }
+  }
+
+  String _buildDefaultDraftKey() {
+    final role = widget.isTeacher ? 'teacher' : 'student';
+    final material = (widget.materialId != null && widget.materialId!.isNotEmpty)
+        ? widget.materialId!
+        : widget.materialTitle;
+    return 'drawing:$role:$material';
   }
 
   Future<void> _connectSocket() async {
