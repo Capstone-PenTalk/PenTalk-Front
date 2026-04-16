@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/student_session_provider.dart';
@@ -61,7 +60,6 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                   builder: (_) => const DrawingScreen(
                     materialTitle: '필기 테스트',
                     isTeacher: false,
-                    localDraftKey: 'home:note-test:student',
                   ),
                 ),
               );
@@ -242,6 +240,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
               MaterialPageRoute(
                 builder: (context) => MaterialListScreen(
                   sessionId: session.id,
+                  classId: session.classId,
                 ),
               ),
             );

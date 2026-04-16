@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
@@ -165,6 +164,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                     MaterialPageRoute(
                       builder: (context) => SessionDetailScreen(
                         sessionId: session.id,
+                        classId: session.classId,
                       ),
                     ),
                   );
