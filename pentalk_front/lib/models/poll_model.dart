@@ -16,6 +16,20 @@ class PollOption {
     );
   }
 
+  factory PollOption.fromDynamic(dynamic raw, {required int index}) {
+    if (raw is String) {
+      return PollOption(id: index, text: raw);
+    }
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      return PollOption(
+        id: map['id'] ?? index,
+        text: map['text']?.toString() ?? '',
+      );
+    }
+    return PollOption(id: index, text: raw?.toString() ?? '');
+  }
+
   Map<String, dynamic> toJson() => {'id': id, 'text': text};
 }
 
@@ -34,13 +48,16 @@ class PollStartData {
   });
 
   factory PollStartData.fromJson(Map<String, dynamic> json) {
+    final rawOptions = (json['options'] as List?) ?? const [];
     return PollStartData(
-      pollId: json['pollId'] as String,
-      question: json['question'] as String,
-      options: (json['options'] as List<dynamic>)
-          .map((o) => PollOption.fromJson(o as Map<String, dynamic>))
+      pollId: json['pollId']?.toString() ?? '',
+      question: json['question']?.toString() ?? '',
+      options: rawOptions
+          .asMap()
+          .entries
+          .map((entry) => PollOption.fromDynamic(entry.value, index: entry.key))
           .toList(),
-      duration: json['duration'] as int?,
+      duration: (json['duration'] as num?)?.toInt(),
     );
   }
 }
@@ -67,7 +84,7 @@ class PollResultData {
     );
 
     return PollResultData(
-      pollId: json['pollId'] as String,
+      pollId: json['pollId']?.toString() ?? '',
       counts: counts,
       total: (json['total'] as num).toInt(),
     );

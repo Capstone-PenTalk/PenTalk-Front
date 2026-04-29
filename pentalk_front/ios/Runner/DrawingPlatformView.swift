@@ -185,6 +185,49 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
         syncToolbar()
     }
 
+    func undoLastStroke() {
+        guard #available(iOS 14.0, *) else { return }
+        let currentStrokes = canvasView.drawing.strokes
+        guard !currentStrokes.isEmpty else { return }
+        let removedStroke = currentStrokes.last
+        canvasView.drawing = PKDrawing(strokes: Array(currentStrokes.dropLast()))
+        if let removedStroke {
+            let signature = strokeSignature(removedStroke)
+            strokeIdBySignature.removeValue(forKey: signature)
+            previousStrokeSignatures.remove(signature)
+        }
+    }
+
+    func clearDrawing() {
+        canvasView.drawing = PKDrawing()
+        strokeIdBySignature.removeAll()
+        previousStrokeSignatures.removeAll()
+        activeStrokeId = nil
+        activePoints.removeAll()
+        isDrawing = false
+        hasSentLiveDrawStart = false
+        lastLiveMoveSentAt = 0
+    }
+
+    func replaceDrawingSnapshot(_ snapshot: [[String: Any]]) {
+        guard #available(iOS 14.0, *) else {
+            clearDrawing()
+            return
+        }
+
+        let strokes = snapshot.compactMap { makeStroke(from: $0) }
+        canvasView.drawing = PKDrawing(strokes: strokes.map(\.stroke))
+        strokeIdBySignature = Dictionary(
+            uniqueKeysWithValues: strokes.map { ($0.signature, $0.strokeId) }
+        )
+        previousStrokeSignatures = Set(strokes.map(\.signature))
+        activeStrokeId = nil
+        activePoints.removeAll()
+        isDrawing = false
+        hasSentLiveDrawStart = false
+        lastLiveMoveSentAt = 0
+    }
+
     private func setupToolbar() {
         toolbarContainer.translatesAutoresizingMaskIntoConstraints = false
         toolbarContainer.backgroundColor = UIColor.black.withAlphaComponent(0.6)
@@ -534,5 +577,43 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             "y": normalized.y,
             "p": pressure,
         ])
+    }
+
+    @available(iOS 14.0, *)
+    private func makeStroke(from payload: [String: Any]) -> (stroke: PKStroke, strokeId: Int, signature: String)? {
+        let strokeId = (payload["sId"] as? NSNumber)?.intValue ?? 0
+        let width = (payload["w"] as? NSNumber)?.doubleValue ?? Double(currentConfig.size)
+        let color = colorFromHex(payload["c"] as? String) ?? currentConfig.color
+        let rawPoints = payload["pts"] as? [[String: Any]] ?? []
+        guard !rawPoints.isEmpty else { return nil }
+        let renderWidth = DrawingMetricsStore.metrics?.renderWidth ?? max(canvasView.bounds.width, 1)
+        let renderHeight = DrawingMetricsStore.metrics?.renderHeight ?? max(canvasView.bounds.height, 1)
+
+        let controlPoints: [PKStrokePoint] = rawPoints.enumerated().map { index, rawPoint in
+            let x = (rawPoint["x"] as? NSNumber)?.doubleValue ?? 0
+            let y = (rawPoint["y"] as? NSNumber)?.doubleValue ?? 0
+            let force = (rawPoint["p"] as? NSNumber)?.doubleValue ?? 1.0
+            return PKStrokePoint(
+                location: CGPoint(x: x * renderWidth, y: y * renderHeight),
+                timeOffset: TimeInterval(index) / 120.0,
+                size: CGSize(width: width, height: width),
+                opacity: 1.0,
+                force: force,
+                azimuth: 0,
+                altitude: .pi / 2
+            )
+        }
+
+        let path = PKStrokePath(controlPoints: controlPoints, creationDate: Date())
+        let stroke = PKStroke(ink: PKInk(.pen, color: color), path: path)
+        let signature = strokeSignature(stroke)
+        return (stroke, strokeId, signature)
+    }
+
+    private func colorFromHex(_ hexColor: String?) -> UIColor? {
+        guard let hexColor else { return nil }
+        let hex = hexColor.replacingOccurrences(of: "#", with: "")
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+        return UIColor(argb: 0xFF000000 | value)
     }
 }

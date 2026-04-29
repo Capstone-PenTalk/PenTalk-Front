@@ -13,6 +13,7 @@ class SocketService {
   String? _currentRoomId;
   String? _currentUserId;
   String? _currentMaterialId;
+  int? _currentPageNumber;
   String? _currentClassId;
   bool _currentIsTeacher = false;
   bool _isRoomJoined = false;
@@ -30,6 +31,13 @@ class SocketService {
   Function(Map<String, dynamic>)? onPollStart;
   Function(Map<String, dynamic>)? onPollResult;
   Function(Map<String, dynamic>)? onPollEnd;
+  Function(Map<String, dynamic>)? onSyncStateRaw;
+  Function(Map<String, dynamic>)? onChatMessage;
+  Function(Map<String, dynamic>)? onDirectMessage;
+  Function(Map<String, dynamic>)? onQuestionAck;
+  Function(Map<String, dynamic>)? onQuestionNew;
+  Function(List<dynamic>)? onQuestionListResult;
+  Function(Map<String, dynamic>)? onQuestionAnswered;
   // 자료 업로드 실시간 알림 (수업 중)
   Function(Map<String, dynamic>)? onMaterialUploaded;
   Function(List<Participant>)? onPresenceState;
@@ -47,11 +55,13 @@ class SocketService {
     bool isTeacher = false,
     String? classId,
     String? materialId,
+    int? pageNumber,
     }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
       _currentMaterialId = materialId;
+      _currentPageNumber = pageNumber;
       _currentClassId = classId;
       _currentIsTeacher = isTeacher;
       _isRoomJoined = false;
@@ -72,13 +82,14 @@ class SocketService {
       final effectivePort = (uri.hasPort && uri.port > 0)
           ? uri.port
           : (uri.scheme == 'https' ? 443 : 80);
+      // Socket.IO는 기본 네임스페이스('/')로만 연결한다.
+      // 잘못된 API 경로(/materials/pdf 등)가 들어오면 namespace 에러가 나므로 path는 버린다.
       final baseUrl = StringBuffer()
         ..write(uri.scheme)
         ..write('://')
         ..write(uri.host)
         ..write(':')
         ..write(effectivePort);
-      if (uri.path.isNotEmpty && uri.path != '/') baseUrl.write(uri.path);
 
       final options = IO.OptionBuilder()
           .setTransports(['websocket'])
@@ -181,11 +192,16 @@ class SocketService {
     });
 
     _socket!.on('draw:clear', (data) {
-      try {
-        onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
-      } catch (e) {
-        debugPrint('[socket][error] draw:clear: $e');
-      }
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      onDrawEventReceived?.call(
+        DrawEvent.fromJson({
+          'e': 'cl',
+          'sId': 0,
+          ...payload,
+        }),
+      );
     });
 
     _socket!.on('user_joined', (data) => onUserJoined?.call(data['userId'] as String));
@@ -199,6 +215,19 @@ class SocketService {
       onRoomJoined?.call(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('sync:state', (data) {
+      if (data is Map) {
+        onSyncStateRaw?.call(Map<String, dynamic>.from(data));
+      }
+      if (data is Map) {
+        final strokes = data['strokes'] as List?;
+        if (strokes != null) onSyncState?.call(strokes);
+      } else if (data is List) {
+        onSyncState?.call(data);
+      }
+    });
+
+    // 하위 호환: 구 이벤트명
     _socket!.on('sync_state', (data) {
       if (data is Map) {
         final strokes = data['strokes'] as List?;
@@ -244,6 +273,32 @@ class SocketService {
       if (data is Map) onMaterialUploaded?.call(Map<String, dynamic>.from(data));
     });
 
+    // Chat / DM
+    _socket!.on('receive_message', (data) {
+      if (data is Map) onChatMessage?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('receive_dm', (data) {
+      if (data is Map) onDirectMessage?.call(Map<String, dynamic>.from(data));
+    });
+
+    // Q&A
+    _socket!.on('question:ack', (data) {
+      if (data is Map) onQuestionAck?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('question:new', (data) {
+      if (data is Map) onQuestionNew?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('question:list:result', (data) {
+      if (data is! Map) return;
+      final questions = data['questions'] as List?;
+      if (questions != null) onQuestionListResult?.call(questions);
+    });
+    _socket!.on('question:answered', (data) {
+      if (data is Map) {
+        onQuestionAnswered?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
     // Presence 이벤트
     _socket!.on('presence:state', (data) {
       if (data is! Map) return;
@@ -285,66 +340,111 @@ class SocketService {
     if (_socket == null || !_socket!.connected) return;
     _socket!.emit('join_room', {
       'roomId': roomId,
-      'userId': userId,
-      'isTeacher': isTeacher,
-      if (classId != null && classId.isNotEmpty) 'classId': classId,
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
     debugPrint('[socket][send] join_room roomId=$roomId userId=$userId');
   }
 
-  void sendDrawEvent(DrawEvent event, String senderId) {
+  void sendDrawEvent(DrawEvent event) {
+    _currentMaterialId = event.materialId ?? _currentMaterialId;
+    _currentPageNumber = event.pageNumber ?? _currentPageNumber;
     _emitOrQueue('draw:append', {
       ...event.toJson(),
-      'roomId': _currentRoomId,
-      'senderId': senderId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
     }, summary: 'draw:append e=${event.eventType.code}',
         suppressLog: event.eventType == DrawEventType.drawMove && !kDebugMode);
   }
 
-  void sendUndo(int strokeId, String senderId) {
-    _emitOrQueue('draw:clear', {
-      'e': 'un', 'sId': strokeId, 'roomId': _currentRoomId,
-      'senderId': senderId, 'timestamp': DateTime.now().millisecondsSinceEpoch,
-    }, summary: 'draw:clear e=un sId=$strokeId');
+  void sendUndo(int strokeId) {
+    // 서버 스펙에는 undo 이벤트가 없어 네트워크 송신하지 않음.
+    debugPrint('[socket][send] skipped undo(not in server spec) sId=$strokeId');
   }
 
-  void sendClearAll(String senderId) {
+  void sendClearAll({
+    required String? materialId,
+    required int? pageNumber,
+    required String scope,
+  }) {
     _emitOrQueue('draw:clear', {
-      'e': 'cl', 'roomId': _currentRoomId,
-      'senderId': senderId, 'timestamp': DateTime.now().millisecondsSinceEpoch,
-    }, summary: 'draw:clear e=cl');
+      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      if (pageNumber != null) 'pageNumber': pageNumber,
+      'scope': scope,
+    }, summary: 'draw:clear');
   }
 
   void sendPollAnswer({required String pollId, required dynamic optionId}) {
     _emitOrQueue('poll:answer', {
-      'pollId': pollId, 'optionId': optionId, 'roomId': _currentRoomId,
+      'pollId': pollId,
+      'optionId': optionId,
     }, summary: 'poll:answer pollId=$pollId');
   }
 
   void sendPollStart({required String question,
     required List<Map<String, dynamic>> options, int? duration}) {
+    final optionTexts = options
+        .map((option) => option['text']?.toString() ?? '')
+        .where((text) => text.isNotEmpty)
+        .toList();
     _emitOrQueue('poll:start', {
-      'roomId': _currentRoomId, 'question': question, 'options': options,
+      'question': question,
+      'options': optionTexts,
       if (duration != null) 'duration': duration,
     }, summary: 'poll:start');
   }
 
   void sendPollEnd(String pollId) {
     _emitOrQueue('poll:end', {
-      'pollId': pollId, 'roomId': _currentRoomId,
+      'pollId': pollId,
     }, summary: 'poll:end pollId=$pollId');
   }
 
-  void requestSync({int? lastTick}) {
+  void requestSync({int? lastTick, String? materialId, int? pageNumber}) {
     if (_socket == null || !_socket!.connected) return;
     _socket!.emit('sync:request', {
-      'roomId': _currentRoomId,
       if (lastTick != null) 'lastTick': lastTick,
+      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      if (pageNumber != null) 'pageNumber': pageNumber,
     });
-    debugPrint('[socket][send] sync:request lastTick=$lastTick');
+    debugPrint('[socket][send] sync:request lastTick=$lastTick materialId=$materialId pageNumber=$pageNumber');
+  }
+
+  void sendMessage(String content) {
+    _emitOrQueue(
+      'send_message',
+      {'content': content},
+      summary: 'send_message',
+    );
+  }
+
+  void sendTeacherDm(String message) {
+    _emitOrQueue(
+      'teacher_send_dm',
+      {'message': message},
+      summary: 'teacher_send_dm',
+    );
+  }
+
+  void askQuestion({required String content, bool isAnonymous = false}) {
+    _emitOrQueue(
+      'question:ask',
+      {'content': content, 'isAnonymous': isAnonymous},
+      summary: 'question:ask',
+    );
+  }
+
+  void requestQuestionList() {
+    _emitOrQueue(
+      'question:list',
+      const {},
+      summary: 'question:list',
+    );
+  }
+
+  void answerQuestion({required String questionId, required String answer}) {
+    _emitOrQueue(
+      'question:answer',
+      {'questionId': questionId, 'answer': answer},
+      summary: 'question:answer',
+    );
   }
 
   void leaveRoom() {

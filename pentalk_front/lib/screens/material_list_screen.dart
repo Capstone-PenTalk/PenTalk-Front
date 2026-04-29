@@ -64,7 +64,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
           fileName: m.name,
           url: m.url,
           sizeInBytes: 0,
-          uploadedAt: DateTime.parse(m.createdAt),
+          uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
           type: FileMaterialType.pdf,
         )).toList(),
       );
@@ -96,12 +96,14 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
         debugPrint("material:uploaded received");
         try {
           final material = MaterialModel(
-            id: data["id"] as String,
-            title: data["name"] as String,
-            fileName: data["name"] as String,
-            url: data["url"] as String,
+            id: data["id"]?.toString() ?? '',
+            title: data["name"]?.toString() ?? 'untitled',
+            fileName: data["name"]?.toString() ?? 'untitled',
+            url: data["url"]?.toString() ?? '',
             sizeInBytes: 0,
-            uploadedAt: DateTime.parse(data["createdAt"] as String),
+            uploadedAt:
+                DateTime.tryParse(data["createdAt"]?.toString() ?? '') ??
+                    DateTime.now(),
             type: FileMaterialType.pdf,
           );
           materialProvider.addMaterial(material);
@@ -215,6 +217,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                               sessionTitle: session.title,
                               teacherName: session.teacherName,
                               sessionId: widget.sessionId,
+                              classId: widget.classId,
                             ),
                           ),
                         );

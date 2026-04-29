@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../native_drawing.dart';
+import '../models/document_source.dart';
 import '../models/student_session_model.dart';
 import '../models/poll_model.dart';
+import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../providers/participants_provider.dart';
@@ -20,12 +20,13 @@ import '../widgets/poll_overlay.dart';
 import '../widgets/poll_result_sheet.dart';
 import '../widgets/poll_start_dialog.dart';
 import '../services/api_service.dart';
+import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
-import '../services/pdf_file_service.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
   final String? backgroundUrl;
+  final bool isPdfDocument;
   final bool isTeacher;
   final String? serverUrl;
   final String? roomId;
@@ -43,6 +44,7 @@ class DrawingScreen extends StatefulWidget {
     Key? key,
     required this.materialTitle,
     this.backgroundUrl,
+    this.isPdfDocument = false,
     this.materialId,
     this.classId,
     this.isTeacher = false,
@@ -61,12 +63,19 @@ class DrawingScreen extends StatefulWidget {
 class _DrawingScreenState extends State<DrawingScreen> {
   // 버그 #3 수정: dispose에서 context.read 방지용 캐싱
   late final DrawingProvider _drawingProvider;
+  DocumentSource? _documentSource;
 
   bool _isConnecting = false;
+  bool _isPreparingDocument = false;
 
   /// PDF export 진행 중 여부
   /// true일 때 뒤로가기 차단 (PopScope)
   bool _isExporting = false;
+
+  bool get _usesNativeTeacherDrawing =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      widget.isTeacher;
 
   @override
   void initState() {
@@ -83,7 +92,22 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _initializeDrawing() async {
     final provider = _drawingProvider;
 
-    provider.setBackgroundUrl(widget.backgroundUrl);
+    if (widget.isPdfDocument &&
+        widget.backgroundUrl != null &&
+        widget.backgroundUrl!.isNotEmpty &&
+        widget.materialId != null &&
+        widget.materialId!.isNotEmpty) {
+      await _preparePdfDocument();
+    } else {
+      provider.setBackgroundUrl(widget.backgroundUrl);
+      if (widget.materialId != null && widget.materialId!.isNotEmpty) {
+        provider.updatePageContext(
+          materialId: widget.materialId!,
+          pageNumber: 1,
+        );
+      }
+      await _loadPersonalPageIfNeeded(widget.materialTitle);
+    }
 
     // 그리기 모드 (교사는 기본 활성화)
     if (widget.isTeacher) {
@@ -95,6 +119,165 @@ class _DrawingScreenState extends State<DrawingScreen> {
         widget.roomId != null &&
         widget.userId != null) {
       await _connectSocket();
+    }
+  }
+
+  Future<void> _preparePdfDocument() async {
+    final materialId = widget.materialId!;
+    final backgroundUrl = widget.backgroundUrl!;
+
+    setState(() => _isPreparingDocument = true);
+    try {
+      final document = await PdfDocumentService.openDocument(
+        materialId: materialId,
+        pdfUrl: backgroundUrl,
+      );
+      final firstPage = await PdfDocumentService.renderPage(
+        document: document,
+        pageNumber: document.currentPage,
+      );
+      final hydratedDocument = document.copyWith(
+        pages: document.pages.map((page) {
+          return page.pageNumber == firstPage.pageNumber ? firstPage : page;
+        }).toList(),
+      );
+
+      _documentSource = hydratedDocument;
+      _drawingProvider.updatePageContext(
+        materialId: materialId,
+        pageNumber: firstPage.pageNumber,
+      );
+      await _switchTeacherPageDraft(
+        hydratedDocument.pageKeyFor(firstPage.pageNumber),
+      );
+      _drawingProvider.setBackgroundUrl(firstPage.imagePath ?? backgroundUrl);
+      _drawingProvider.setPdfPageSize(
+        width: firstPage.width,
+        height: firstPage.height,
+      );
+      await _loadPersonalPageIfNeeded(
+        hydratedDocument.pageKeyFor(firstPage.pageNumber),
+      );
+      await _restoreCurrentTeacherPage();
+    } catch (e) {
+      debugPrint('❌ Failed to prepare PDF document: $e');
+      _drawingProvider.setBackgroundUrl(backgroundUrl);
+      await _loadPersonalPageIfNeeded(widget.materialTitle);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('PDF 렌더링 준비 실패: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPreparingDocument = false);
+      }
+    }
+  }
+
+  Future<void> _loadPersonalPageIfNeeded(String pageKey) async {
+    if (widget.isTeacher) return;
+    await context.read<PersonalDrawingProvider>().loadPage(pageKey);
+  }
+
+  Future<void> _switchTeacherPageDraft(String draftKey) async {
+    if (!widget.isTeacher) return;
+    await _drawingProvider.switchLocalDraft(draftKey: draftKey);
+  }
+
+  Future<void> _captureCurrentTeacherPage() async {
+    if (!_usesNativeTeacherDrawing) return;
+    try {
+      await _drawingProvider.syncMyStrokesFromNativeSnapshot();
+    } catch (e) {
+      debugPrint('Failed to capture native drawing snapshot: $e');
+    }
+  }
+
+  Future<void> _restoreCurrentTeacherPage() async {
+    if (!_usesNativeTeacherDrawing) return;
+    try {
+      await NativeDrawingBridge.replaceDrawingSnapshot(
+        _drawingProvider.buildNativeSnapshotPayload(),
+      );
+    } catch (e) {
+      debugPrint('Failed to restore native drawing snapshot: $e');
+    }
+  }
+
+  bool get _hasPagedDocument =>
+      _documentSource != null && _documentSource!.pageCount > 0;
+
+  bool get _canGoPreviousPage =>
+      _hasPagedDocument && _documentSource!.currentPage > 1;
+
+  bool get _canGoNextPage =>
+      _hasPagedDocument &&
+      _documentSource!.currentPage < _documentSource!.pageCount;
+
+  Future<void> _goToPreviousPage() async {
+    if (!_canGoPreviousPage) return;
+    await _goToDocumentPage(_documentSource!.currentPage - 1);
+  }
+
+  Future<void> _goToNextPage() async {
+    if (!_canGoNextPage) return;
+    await _goToDocumentPage(_documentSource!.currentPage + 1);
+  }
+
+  Future<void> _goToDocumentPage(int pageNumber) async {
+    final document = _documentSource;
+    if (document == null) return;
+    if (pageNumber < 1 || pageNumber > document.pageCount) return;
+
+    setState(() => _isPreparingDocument = true);
+    try {
+      await _captureCurrentTeacherPage();
+      final renderedPage = await PdfDocumentService.renderPage(
+        document: document,
+        pageNumber: pageNumber,
+      );
+
+      final updatedDocument = document.copyWith(
+        currentPage: pageNumber,
+        pages: document.pages.map((page) {
+          return page.pageNumber == pageNumber ? renderedPage : page;
+        }).toList(),
+      );
+
+      _documentSource = updatedDocument;
+      _drawingProvider.updatePageContext(
+        materialId: updatedDocument.materialId,
+        pageNumber: pageNumber,
+      );
+      await _switchTeacherPageDraft(updatedDocument.pageKeyFor(pageNumber));
+      _drawingProvider.setBackgroundUrl(
+        renderedPage.imagePath ?? _drawingProvider.backgroundUrl,
+      );
+      _drawingProvider.setPdfPageSize(
+        width: renderedPage.width,
+        height: renderedPage.height,
+      );
+      await _loadPersonalPageIfNeeded(
+        updatedDocument.pageKeyFor(pageNumber),
+      );
+      await _restoreCurrentTeacherPage();
+    } catch (e) {
+      debugPrint('❌ Failed to change PDF page: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('페이지 이동 실패: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isPreparingDocument = false);
+      }
     }
   }
 
@@ -300,6 +483,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         sessionId: sessionId,
         materials: widget.materials,
         personalProvider: personalProvider,
+        documentSource: _documentSource,
       );
 
       if (!mounted) return;
@@ -422,7 +606,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
         appBar: AppBar(
           title: Row(
             children: [
-              Expanded(child: Text(widget.materialTitle)),
+              Expanded(
+                child: Text(
+                  _documentSource != null
+                      ? '${widget.materialTitle} (${_documentSource!.currentPage}/${_documentSource!.pageCount})'
+                      : widget.materialTitle,
+                ),
+              ),
               if (widget.isReadOnly)
                 Container(
                   padding:
@@ -451,13 +641,40 @@ class _DrawingScreenState extends State<DrawingScreen> {
             ],
           ),
           actions: [
-            if (!widget.isReadOnly) ...[
+              if (!widget.isReadOnly) ...[
+              if (_hasPagedDocument) ...[
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: _isPreparingDocument ? null : _goToPreviousPage,
+                  tooltip: '이전 페이지',
+                ),
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(
+                      '${_documentSource!.currentPage}/${_documentSource!.pageCount}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: _isPreparingDocument ? null : _goToNextPage,
+                  tooltip: '다음 페이지',
+                ),
+              ],
+
               // 교사용 컨트롤
               if (widget.isTeacher) ...[
-                const ColorPaletteBar(),
-                const SizedBox(width: 8),
-                const WidthSelectorBar(),
-                const SizedBox(width: 8),
+                if (!_usesNativeTeacherDrawing) ...[
+                  const ColorPaletteBar(),
+                  const SizedBox(width: 8),
+                  const WidthSelectorBar(),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
                   icon: const Icon(Icons.undo),
                   onPressed: _handleUndo,
@@ -519,14 +736,14 @@ class _DrawingScreenState extends State<DrawingScreen> {
             ],
           ],
         ),
-        body: _isConnecting
+        body: (_isConnecting || _isPreparingDocument)
             ? const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('실시간 연결 중...'),
+              Text('문서 및 실시간 연결 준비 중...'),
             ],
           ),
         )
@@ -537,6 +754,33 @@ class _DrawingScreenState extends State<DrawingScreen> {
                 enableTouchInput: true,     // 👈 추가 (터치 입력 켜기)
                 showMyStrokes: true,        // 👈 추가 (내 필기 보이기)
             ),
+
+            if (_hasPagedDocument)
+              Positioned(
+                bottom: 14,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.72),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(
+                      '${_documentSource!.currentPage} / ${_documentSource!.pageCount}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
 
             // 학생: 이해도 체크 오버레이
             if (!widget.isTeacher)
@@ -696,7 +940,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     );
   }
 
-  void _handleUndo() {
+  Future<void> _handleUndo() async {
     final strokes = _drawingProvider.myStrokes;
     if (strokes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -705,11 +949,18 @@ class _DrawingScreenState extends State<DrawingScreen> {
       return;
     }
     final lastStrokeId = strokes.keys.last;
+    if (_usesNativeTeacherDrawing) {
+      try {
+        await NativeDrawingBridge.undoLastStroke();
+      } catch (e) {
+        debugPrint('Failed to undo native stroke: $e');
+      }
+    }
     _drawingProvider.sendUndo(lastStrokeId);
   }
 
-  void _handleClear() {
-    showDialog(
+  Future<void> _handleClear() async {
+    await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('전체 지우기'),
@@ -720,9 +971,18 @@ class _DrawingScreenState extends State<DrawingScreen> {
             child: const Text('취소'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
+              if (_usesNativeTeacherDrawing) {
+                try {
+                  await NativeDrawingBridge.clearDrawing();
+                } catch (e) {
+                  debugPrint('Failed to clear native drawing: $e');
+                }
+              }
               _drawingProvider.clear();
-              Navigator.pop(context);
+              if (context.mounted) {
+                Navigator.pop(context);
+              }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('지우기'),

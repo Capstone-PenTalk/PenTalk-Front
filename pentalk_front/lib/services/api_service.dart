@@ -43,7 +43,7 @@ class ApiService {
         'strokes': strokesJson,
       };
 
-      debugPrint('📤 POST /strokes: ${strokes.length} strokes');
+      debugPrint('POST /strokes: ${strokes.length} strokes');
 
       final response = await http
           .post(
@@ -180,18 +180,19 @@ class ApiService {
   /// ===============================
   static Future<Uint8List> exportPdf({
     required String sessionId,
-    required List<Map<String, dynamic>> strokes,
+    List<Map<String, dynamic>>? strokes,
   }) async {
     final token = await AuthService.getToken();
 
     final body = {
       'sessionId': sessionId,
-      'strokes': strokes,
     };
 
-    debugPrint('📤 POST /export/pdf');
+    debugPrint('POST /export/pdf');
     debugPrint('   sessionId: $sessionId');
-    debugPrint('   strokes: ${strokes.length}개');
+    if (strokes != null) {
+      debugPrint('   client strokes prepared: ${strokes.length}개');
+    }
 
     final response = await http
         .post(
@@ -255,6 +256,71 @@ class ApiService {
   }
 
   /// ===============================
+  /// 세션 생성 (POST /session/create)
+  /// ===============================
+  static Future<ApiResponse<SessionCreateResponse>> createSession({
+    required String classId,
+    String? materialId,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+
+      final body = {
+        'classId': classId,
+        if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      };
+
+      debugPrint('POST /session/create');
+      debugPrint('   classId: $classId');
+      if (materialId != null && materialId.isNotEmpty) {
+        debugPrint('   materialId: $materialId');
+      }
+
+      final response = await http
+          .post(
+        Uri.parse('$baseUrl/session/create'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      )
+          .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutException('Request timeout'),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return ApiResponse<SessionCreateResponse>(
+          success: true,
+          data: SessionCreateResponse.fromJson(data),
+        );
+      }
+
+      String message = '세션 생성에 실패했습니다';
+      String code = 'CREATE_SESSION_FAILED';
+      try {
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        message = error['message'] as String? ?? message;
+        code = error['code'] as String? ?? code;
+      } catch (_) {}
+
+      return ApiResponse<SessionCreateResponse>(
+        success: false,
+        error: code,
+        message: message,
+      );
+    } catch (e) {
+      return ApiResponse<SessionCreateResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  /// ===============================
   /// 로그인 (POST /auth/dev-login)
   /// ===============================
   static Future<ApiResponse<LoginResponse>> login({
@@ -262,7 +328,7 @@ class ApiService {
     required String role,
   }) async {
     try {
-      debugPrint('📤 POST /auth/dev-login: userId=$userId, role=$role');
+      debugPrint('POST /auth/dev-login: userId=$userId, role=$role');
 
       final body = {'userId': userId, 'role': role};
 
@@ -278,24 +344,35 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugPrint('✅ Login success: ${data['user']['userId']}');
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final user = (data['user'] is Map)
+            ? Map<String, dynamic>.from(data['user'] as Map)
+            : <String, dynamic>{};
+        final token = data['token']?.toString() ?? '';
+        final parsedUserId =
+            user['userId']?.toString() ?? data['userId']?.toString() ?? '';
+        final parsedRole =
+            user['role']?.toString() ?? data['role']?.toString() ?? role;
+
+        debugPrint('✅ Login success: $parsedUserId');
 
         return ApiResponse<LoginResponse>(
           success: true,
           data: LoginResponse(
-            token: data['token'],
-            userId: data['user']['userId'],
-            role: data['user']['role'],
+            token: token,
+            userId: parsedUserId,
+            role: parsedRole,
           ),
         );
       } else {
-        final error = jsonDecode(response.body);
-        debugPrint('❌ Login failed: ${error['message']}');
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        final message = error['message']?.toString() ?? 'Login failed';
+        final code = error['code']?.toString() ?? 'LOGIN_FAILED';
+        debugPrint('❌ Login failed: $message');
         return ApiResponse<LoginResponse>(
           success: false,
-          error: error['code'] ?? 'LOGIN_FAILED',
-          message: error['message'] ?? 'Login failed',
+          error: code,
+          message: message,
         );
       }
     } catch (e) {
@@ -317,7 +394,7 @@ class ApiService {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('📤 POST /sessions/$sessionId/end');
+      debugPrint('POST /sessions/$sessionId/end');
 
       final response = await http
           .post(
@@ -374,7 +451,7 @@ class ApiService {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('📤 GET /sessions/$sessionId/whiteboard');
+      debugPrint('GET /sessions/$sessionId/whiteboard');
 
       final response = await http
           .get(
@@ -433,7 +510,7 @@ class ApiService {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('📤 GET /sessions/$sessionId/status');
+      debugPrint('GET /sessions/$sessionId/status');
 
       final response = await http
           .get(
@@ -497,7 +574,7 @@ class ApiService {
   }) async {
     final token = await AuthService.getToken();
 
-    debugPrint('📤 POST /materials/pdf: $fileName (classId: $classId)');
+    debugPrint('POST /materials/pdf: $fileName (classId: $classId)');
 
     final request = http.MultipartRequest(
       'POST',
@@ -643,6 +720,33 @@ class SessionStatus {
 
   bool get isActive => status == 'ACTIVE';
   bool get isArchived => status == 'ARCHIVED';
+}
+
+class SessionCreateResponse {
+  final String sessionId;
+  final String? materialId;
+  final String? joinUrlTeacher;
+  final String? joinUrlStudent;
+  final int? ttlSeconds;
+
+  SessionCreateResponse({
+    required this.sessionId,
+    this.materialId,
+    this.joinUrlTeacher,
+    this.joinUrlStudent,
+    this.ttlSeconds,
+  });
+
+  factory SessionCreateResponse.fromJson(Map<String, dynamic> json) {
+    final ttlRaw = json['ttlSeconds'];
+    return SessionCreateResponse(
+      sessionId: json['sessionId']?.toString() ?? '',
+      materialId: json['materialId']?.toString(),
+      joinUrlTeacher: json['joinUrlTeacher']?.toString(),
+      joinUrlStudent: json['joinUrlStudent']?.toString(),
+      ttlSeconds: ttlRaw is num ? ttlRaw.toInt() : int.tryParse(ttlRaw?.toString() ?? ''),
+    );
+  }
 }
 
 class ApiResponse<T> {

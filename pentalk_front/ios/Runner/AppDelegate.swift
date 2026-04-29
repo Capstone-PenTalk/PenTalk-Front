@@ -1,4 +1,5 @@
 import Flutter
+import PDFKit
 import UIKit
 
 @main
@@ -20,6 +21,10 @@ import UIKit
         name: DrawingChannel.name,
         binaryMessenger: controller.binaryMessenger
       )
+      let pdfChannel = FlutterMethodChannel(
+        name: "pentalk/pdf",
+        binaryMessenger: controller.binaryMessenger
+      )
       DrawingChannel.channel = channel
       channel.setMethodCallHandler { call, result in
         switch call.method {
@@ -33,8 +38,10 @@ import UIKit
           controller.present(drawingController, animated: true)
           result(nil)
         case "setBrush":
-          let config = Self.parseBrushConfig(call.arguments)
-          self.drawingController?.applyBrushConfig(config)
+          let surfaceConfig = BrushConfigParser.parse(call.arguments)
+          let controllerConfig = Self.parseBrushConfig(call.arguments)
+          DrawingSurfaceManager.shared.applyBrushConfig(surfaceConfig)
+          self.drawingController?.applyBrushConfig(controllerConfig)
           result(nil)
         case "setDrawingMetrics":
           if let args = call.arguments as? [String: Any] {
@@ -52,6 +59,17 @@ import UIKit
           result(nil)
         case "exportDrawing":
           result(DrawingSurfaceManager.shared.exportDrawingSnapshot())
+        case "undoLastStroke":
+          DrawingSurfaceManager.shared.undoLastStroke()
+          result(nil)
+        case "clearDrawing":
+          DrawingSurfaceManager.shared.clearDrawing()
+          result(nil)
+        case "replaceDrawing":
+          let args = call.arguments as? [String: Any]
+          let strokes = (args?["strokes"] as? [[String: Any]]) ?? []
+          DrawingSurfaceManager.shared.replaceDrawingSnapshot(strokes)
+          result(nil)
         case "sendDrawEvent":
           if let payload = call.arguments as? [String: Any] {
             NSLog("[draw][ios] sendDrawEvent received: %@", String(describing: payload))
@@ -59,6 +77,86 @@ import UIKit
             _ = payload
           }
           result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+      pdfChannel.setMethodCallHandler { call, result in
+        switch call.method {
+        case "inspectDocument":
+          guard let args = call.arguments as? [String: Any],
+                let materialId = args["materialId"] as? String,
+                let pdfUrl = args["pdfUrl"] as? String,
+                let localPdfPath = args["localPdfPath"] as? String else {
+            result(
+              FlutterError(
+                code: "INVALID_ARGS",
+                message: "inspectDocument arguments missing",
+                details: nil
+              )
+            )
+            return
+          }
+          DispatchQueue.global(qos: .userInitiated).async {
+            do {
+              let payload = try Self.inspectPdfDocument(
+                materialId: materialId,
+                pdfUrl: pdfUrl,
+                localPdfPath: localPdfPath
+              )
+              DispatchQueue.main.async {
+                result(payload)
+              }
+            } catch {
+              DispatchQueue.main.async {
+                result(
+                  FlutterError(
+                    code: "PDF_INSPECT_FAILED",
+                    message: error.localizedDescription,
+                    details: nil
+                  )
+                )
+              }
+            }
+          }
+        case "renderPage":
+          guard let args = call.arguments as? [String: Any],
+                let materialId = args["materialId"] as? String,
+                let localPdfPath = args["localPdfPath"] as? String,
+                let pageNumber = (args["pageNumber"] as? NSNumber)?.intValue,
+                let targetWidth = (args["targetWidth"] as? NSNumber)?.doubleValue else {
+            result(
+              FlutterError(
+                code: "INVALID_ARGS",
+                message: "renderPage arguments missing",
+                details: nil
+              )
+            )
+            return
+          }
+          DispatchQueue.global(qos: .userInitiated).async {
+            do {
+              let payload = try Self.renderPdfPage(
+                materialId: materialId,
+                localPdfPath: localPdfPath,
+                pageNumber: pageNumber,
+                targetWidth: CGFloat(targetWidth)
+              )
+              DispatchQueue.main.async {
+                result(payload)
+              }
+            } catch {
+              DispatchQueue.main.async {
+                result(
+                  FlutterError(
+                    code: "PDF_RENDER_FAILED",
+                    message: error.localizedDescription,
+                    details: nil
+                  )
+                )
+              }
+            }
+          }
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -81,5 +179,106 @@ import UIKit
       size: CGFloat(size),
       eraserSize: CGFloat(eraserSize)
     )
+  }
+
+  private static func inspectPdfDocument(
+    materialId: String,
+    pdfUrl: String,
+    localPdfPath: String
+  ) throws -> [String: Any] {
+    let fileUrl = URL(fileURLWithPath: localPdfPath)
+    guard let document = PDFDocument(url: fileUrl) else {
+      throw NSError(domain: "PentalkPdf", code: 1, userInfo: [
+        NSLocalizedDescriptionKey: "PDF 문서를 열지 못했습니다."
+      ])
+    }
+
+    var pages: [[String: Any]] = []
+    for index in 0..<document.pageCount {
+      let page = document.page(at: index)
+      let bounds = page?.bounds(for: .mediaBox) ?? .zero
+      pages.append([
+        "pageNumber": index + 1,
+        "width": bounds.width,
+        "height": bounds.height,
+      ])
+    }
+
+    return [
+      "materialId": materialId,
+      "pdfUrl": pdfUrl,
+      "localPdfPath": localPdfPath,
+      "pageCount": document.pageCount,
+      "currentPage": 1,
+      "pages": pages,
+    ]
+  }
+
+  private static func renderPdfPage(
+    materialId: String,
+    localPdfPath: String,
+    pageNumber: Int,
+    targetWidth: CGFloat
+  ) throws -> [String: Any] {
+    let fileUrl = URL(fileURLWithPath: localPdfPath)
+    guard let document = PDFDocument(url: fileUrl) else {
+      throw NSError(domain: "PentalkPdf", code: 2, userInfo: [
+        NSLocalizedDescriptionKey: "PDF 문서를 열지 못했습니다."
+      ])
+    }
+    guard pageNumber > 0, pageNumber <= document.pageCount,
+          let page = document.page(at: pageNumber - 1) else {
+      throw NSError(domain: "PentalkPdf", code: 3, userInfo: [
+        NSLocalizedDescriptionKey: "유효하지 않은 PDF 페이지입니다."
+      ])
+    }
+
+    let bounds = page.bounds(for: .mediaBox)
+    let scale = targetWidth > 0 && bounds.width > 0 ? targetWidth / bounds.width : 1
+    let renderSize = CGSize(
+      width: max(1, bounds.width * scale),
+      height: max(1, bounds.height * scale)
+    )
+
+    let renderer = UIGraphicsImageRenderer(size: renderSize)
+    let image = renderer.image { context in
+      UIColor.white.setFill()
+      context.fill(CGRect(origin: .zero, size: renderSize))
+      context.cgContext.saveGState()
+      context.cgContext.translateBy(x: 0, y: renderSize.height)
+      context.cgContext.scaleBy(x: scale, y: -scale)
+      page.draw(with: .mediaBox, to: context.cgContext)
+      context.cgContext.restoreGState()
+    }
+
+    guard let pngData = image.pngData() else {
+      throw NSError(domain: "PentalkPdf", code: 4, userInfo: [
+        NSLocalizedDescriptionKey: "PDF 페이지 이미지를 생성하지 못했습니다."
+      ])
+    }
+
+    let pagesDirectory = try pdfRenderDirectory(materialId: materialId)
+    let imageUrl = pagesDirectory.appendingPathComponent("page_\(pageNumber).png")
+    try pngData.write(to: imageUrl, options: .atomic)
+
+    return [
+      "pageNumber": pageNumber,
+      "imagePath": imageUrl.path,
+      "width": bounds.width,
+      "height": bounds.height,
+    ]
+  }
+
+  private static func pdfRenderDirectory(materialId: String) throws -> URL {
+    let baseDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let directory = baseDir
+      .appendingPathComponent("pdf_cache", isDirectory: true)
+      .appendingPathComponent(materialId, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true,
+      attributes: nil
+    )
+    return directory
   }
 }

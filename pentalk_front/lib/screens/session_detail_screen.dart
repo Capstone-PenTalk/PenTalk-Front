@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/material_provider.dart';
@@ -7,17 +10,22 @@ import '../widgets/breadcrumb_navigation.dart';
 import '../services/file_service.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/local_material_service.dart';
 import '../models/student_session_model.dart';
 import 'drawing_screen.dart'; // 👈 추가
 
 class SessionDetailScreen extends StatefulWidget {
   final String sessionId;
   final String? classId; // 자료 업로드에 필요
+  final bool localOnly;
+  final String? titleOverride;
 
   const SessionDetailScreen({
     Key? key,
     required this.sessionId,
     this.classId,
+    this.localOnly = false,
+    this.titleOverride,
   }) : super(key: key);
 
   @override
@@ -26,7 +34,17 @@ class SessionDetailScreen extends StatefulWidget {
 
 class _SessionDetailScreenState extends State<SessionDetailScreen> {
   final FileService _fileService = FileService();
+  final LocalMaterialService _localMaterialService = LocalMaterialService();
   bool _isUploading = false;
+
+  bool get _canUseRemoteMaterials =>
+      !widget.localOnly &&
+      !AppConfig.preferLocalPdfImport &&
+      !AppConfig.shouldAvoidLoopbackServerOnDevice &&
+      widget.classId != null &&
+      widget.classId!.isNotEmpty;
+
+  String get _screenTitle => widget.titleOverride ?? '세션';
 
   @override
   void initState() {
@@ -39,6 +57,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   Future<void> _navigateToDrawing(
     BuildContext context, {
     required MaterialModel material,
+    required bool connectRealtime,
   }) async {
     final userId = await AuthService.getUserId() ?? 'teacher';
     if (!context.mounted) return;
@@ -48,12 +67,15 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         builder: (context) => DrawingScreen(
           materialTitle: material.title,
           backgroundUrl: material.url, // PDF 경로
+          isPdfDocument: material.type == FileMaterialType.pdf,
           isTeacher: true,             // 교사 모드 켜기
-          sessionId: widget.sessionId,
-          roomId: widget.sessionId,
-          userId: userId,
-          serverUrl: AppConfig.resolveSocketUrl(isTeacher: true),
-          classId: widget.classId,
+          sessionId: connectRealtime ? widget.sessionId : null,
+          roomId: connectRealtime ? widget.sessionId : null,
+          userId: connectRealtime ? userId : null,
+          serverUrl: connectRealtime
+              ? AppConfig.resolveSocketUrl(isTeacher: true)
+              : null,
+          classId: connectRealtime ? widget.classId : null,
           materialId: material.id,
         ),
       ),
@@ -64,10 +86,20 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   /// 자료 목록 로드
   /// ===============================
   Future<void> _loadMaterials() async {
-    final classId = widget.classId;
+    final materialProvider = context.read<MaterialProvider>();
+    if (!_canUseRemoteMaterials) {
+      materialProvider.setMaterials(const []);
+      materialProvider.setLoading(false);
+      materialProvider.setError(null);
+      return;
+    }
+
+    final classId =
+        (widget.classId != null && widget.classId!.isNotEmpty)
+            ? widget.classId
+            : (kIsWeb ? Uri.base.queryParameters['classId'] : null);
     if (classId == null) return;
 
-    final materialProvider = context.read<MaterialProvider>();
     materialProvider.setLoading(true);
 
     try {
@@ -97,21 +129,17 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   /// 파일 업로드
   /// ===============================
   Future<void> _handleFileUpload() async {
-    final classId = widget.classId;
-    if (classId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('클래스 정보가 없어 업로드할 수 없습니다'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
     try {
       // 파일 선택 (PDF만)
       final file = await _fileService.pickFile();
       if (file == null) return;
+
+      debugPrint(
+        '📄 PDF import requested: '
+        'apiBaseUrl=${AppConfig.apiBaseUrl}, '
+        'loopbackBlocked=${AppConfig.shouldAvoidLoopbackServerOnDevice}, '
+        'remoteEnabled=$_canUseRemoteMaterials',
+      );
 
       // 파일 크기 검증
       final fileSize = await file.length();
@@ -129,62 +157,24 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
       setState(() => _isUploading = true);
 
-      final fileName = file.path.split('/').last;
+      final material = await _createMaterialForTesting(filePath: file.path);
+      if (!mounted) return;
 
-      const bool useOfflineDummy = bool.fromEnvironment( //필요시 env로 더미 모드 유지
-        'PENTALK_USE_OFFLINE_DUMMY',
-        defaultValue: false,
+      context.read<MaterialProvider>().addMaterial(material);
+      await _navigateToDrawing(
+        context,
+        material: material,
+        connectRealtime: _shouldConnectRealtimeForMaterial(material),
       );
-
-      if (!useOfflineDummy) {
-        // 실제 API 업로드 (서버 연결 시 사용)
-        final uploaded = await ApiService.uploadMaterial(
-          classId: classId,
-          filePath: file.path,
-          fileName: fileName,
-        );
-        if (!mounted) return;
-
-        // 👉 수정: 생성된 자료를 newMaterial 변수에 먼저 담습니다.
-        final newMaterial = MaterialModel(
-          id: uploaded.id,
-          title: uploaded.name,
-          fileName: uploaded.name,
-          url: uploaded.url,
-          sizeInBytes: fileSize,
-          uploadedAt: DateTime.tryParse(uploaded.createdAt) ?? DateTime.now(),
-          type: FileMaterialType.pdf,
-        );
-
-        context.read<MaterialProvider>().addMaterial(newMaterial);
-
-        // ⭐ 핵심 추가: Provider에 저장 후, 이 자료를 들고 판서 화면으로 바로 이동!
-        await _navigateToDrawing(context, material: newMaterial);
-
-      } else {
-        // 오프라인 더미: 로컬에만 추가
-        if (!mounted) return;
-
-        // 👉 수정: 생성된 더미 자료를 newMaterial 변수에 먼저 담습니다.
-        final newMaterial = MaterialModel(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: fileName,
-          fileName: fileName,
-          url: file.path,
-          sizeInBytes: fileSize,
-          uploadedAt: DateTime.now(),
-          type: FileMaterialType.pdf,
-        );
-
-        context.read<MaterialProvider>().addMaterial(newMaterial);
-
-        // ⭐ 핵심 추가: Provider에 저장 후, 이 자료를 들고 판서 화면으로 바로 이동!
-        await _navigateToDrawing(context, material: newMaterial);
-      }
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('자료가 업로드됐습니다'),
+        SnackBar(
+          content: Text(
+            _shouldConnectRealtimeForMaterial(material)
+                ? '자료가 업로드됐습니다'
+                : '서버 연결 없이 로컬 PDF 작업공간이 열렸습니다',
+          ),
           backgroundColor: Colors.green,
         ),
       );
@@ -204,6 +194,60 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
+  }
+
+  Future<MaterialModel> _uploadMaterialToServer({
+    required String filePath,
+  }) async {
+    final classId = widget.classId;
+    if (classId == null || classId.isEmpty) {
+      throw Exception('클래스 정보가 없어 서버 업로드를 진행할 수 없습니다.');
+    }
+
+    final file = await _localMaterialService.importPdf(File(filePath));
+    final uploaded = await ApiService.uploadMaterial(
+      classId: classId,
+      filePath: file.url,
+      fileName: file.fileName,
+    );
+
+    return MaterialModel(
+      id: uploaded.id,
+      title: uploaded.name,
+      fileName: uploaded.name,
+      url: uploaded.url,
+      sizeInBytes: file.sizeInBytes,
+      uploadedAt: DateTime.tryParse(uploaded.createdAt) ?? DateTime.now(),
+      type: FileMaterialType.pdf,
+    );
+  }
+
+  Future<MaterialModel> _createMaterialForTesting({
+    required String filePath,
+  }) async {
+    if (!_canUseRemoteMaterials) {
+      return _importMaterialLocally(filePath: filePath);
+    }
+
+    try {
+      return await _uploadMaterialToServer(filePath: filePath);
+    } catch (e) {
+      debugPrint(
+        '⚠️ Remote upload unavailable, falling back to local import. '
+        'baseUrl=${AppConfig.apiBaseUrl}, error=$e',
+      );
+      return _importMaterialLocally(filePath: filePath);
+    }
+  }
+
+  bool _shouldConnectRealtimeForMaterial(MaterialModel material) {
+    return _canUseRemoteMaterials && !material.id.startsWith('local_');
+  }
+
+  Future<MaterialModel> _importMaterialLocally({
+    required String filePath,
+  }) async {
+    return _localMaterialService.importPdf(File(filePath));
   }
 
   Future<void> _handleFileDelete(String fileId) async {
@@ -231,7 +275,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         title: Consumer<SessionProvider>(
           builder: (context, provider, child) {
             final session = provider.getSessionById(widget.sessionId);
-            return Text(session?.title ?? '세션');
+            return Text(session?.title ?? _screenTitle);
           },
         ),
         actions: [
@@ -254,14 +298,16 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         builder: (context, sessionProvider, materialProvider, child) {
           final session = sessionProvider.getSessionById(widget.sessionId);
 
-          if (session == null) {
+          if (session == null && !widget.localOnly) {
             return const Center(child: Text('세션을 찾을 수 없습니다'));
           }
+
+          final sessionTitle = session?.title ?? _screenTitle;
 
           return Column(
             children: [
               BreadcrumbNavigation(
-                paths: ['서예영 님의 공간', session.title],
+                paths: ['서예영 님의 공간', sessionTitle],
                 onTap: (index) {
                   if (index == 0) Navigator.pop(context);
                 },
@@ -279,8 +325,24 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                       Text('아직 업로드된 자료가 없습니다',
                           style: TextStyle(fontSize: 18, color: Colors.grey[600])),
                       const SizedBox(height: 8),
-                      Text('하단의 + 버튼을 눌러 자료를 업로드하세요',
+                      Text(_canUseRemoteMaterials
+                          ? '하단의 + 버튼을 눌러 자료를 업로드하세요'
+                          : '하단의 + 버튼을 눌러 로컬 PDF를 열어보세요',
                           style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+                      if (AppConfig.shouldAvoidLoopbackServerOnDevice) ...[
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            '현재 서버 주소가 localhost/127.0.0.1 계열이라 실기기에서는 서버 업로드를 건너뛰고 로컬 PDF 테스트 모드로 동작합니다.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange[800],
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 )
@@ -291,6 +353,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     final material = materialProvider.materials[index];
                     return _MaterialListItem(
                       material: material,
+                      onOpen: () => _navigateToDrawing(
+                        context,
+                        material: material,
+                        connectRealtime: _canUseRemoteMaterials,
+                      ),
                       onDelete: () => _handleFileDelete(material.id),
                     );
                   },
@@ -302,8 +369,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isUploading ? null : _handleFileUpload,
-        icon: const Icon(Icons.upload_file),
-        label: const Text('자료 업로드'),
+        icon: Icon(_canUseRemoteMaterials ? Icons.upload_file : Icons.picture_as_pdf),
+        label: Text(_canUseRemoteMaterials ? '자료 업로드' : '로컬 PDF 열기'),
       ),
     );
   }
@@ -314,10 +381,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 /// ===============================
 class _MaterialListItem extends StatelessWidget {
   final MaterialModel material;
+  final VoidCallback onOpen;
   final VoidCallback onDelete;
 
   const _MaterialListItem({
     required this.material,
+    required this.onOpen,
     required this.onDelete,
   });
 
@@ -326,10 +395,11 @@ class _MaterialListItem extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
+        onTap: onOpen,
         leading: Container(
           width: 48, height: 48,
           decoration: BoxDecoration(
-            color: Colors.red.withOpacity(0.1),
+            color: Colors.red.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 28),
@@ -358,7 +428,7 @@ class _MaterialListItem extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('자료 삭제'),
-        content: Text('"\${material.title}" 자료를 삭제하시겠습니까?'),
+        content: Text('"${material.title}" 자료를 삭제하시겠습니까?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),

@@ -1,5 +1,5 @@
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import '../models/document_source.dart';
 import '../models/student_session_model.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../services/api_service.dart';
@@ -45,17 +45,21 @@ class PdfExportService {
     required String sessionId,
     required List<MaterialModel> materials,
     required PersonalDrawingProvider personalProvider,
+    DocumentSource? documentSource,
   }) async {
     debugPrint('🚀 PdfExportService.export() started');
     debugPrint('   sessionId: $sessionId');
     debugPrint('   materials: ${materials.length}개');
 
-    // 1. 페이지 순서 목록 (materialTitle 기준)
-    final pageIdOrder = materials.map((m) => m.title).toList();
+    final pageMapping = documentSource != null
+        ? documentSource.createPageNumberMap()
+        : <String, int>{
+            for (int i = 0; i < materials.length; i++) materials[i].title: i + 1,
+          };
 
     // 2. 개인 필기 전체 취합
     final strokes = await personalProvider.getAllPersonalStrokesForExport(
-      pageIdOrder: pageIdOrder,
+      pageMapping: pageMapping,
     );
 
     debugPrint('📦 Total personal strokes for export: ${strokes.length}');

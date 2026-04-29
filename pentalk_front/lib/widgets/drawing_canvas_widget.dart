@@ -1,8 +1,11 @@
 import 'dart:async';
-import 'dart:ui' as ui;
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../models/drawing_models.dart';
@@ -82,6 +85,15 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
           builder: (context, provider, child) {
             // 그리기 모드일 때는 InteractiveViewer 비활성화
             final isDrawingMode = provider.isDrawingMode && widget.isTeacher;
+            final useNativeTeacherInput = !kIsWeb &&
+                defaultTargetPlatform == TargetPlatform.iOS &&
+                widget.isTeacher;
+            final backgroundScaler = CoordinateScaler(
+              canvasSize: canvasSize,
+              contentSize: _backgroundImageSize,
+              fit: BoxFit.contain,
+            );
+            final contentRect = backgroundScaler.contentRect;
 
             return Stack(
               children: [
@@ -128,7 +140,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                         // ====================================
                         // 레이어 3: 내 판서 (검은색) - 교사 공용 판서
                         // ====================================
-                        if (widget.isTeacher)
+                        if (widget.isTeacher && !useNativeTeacherInput)
                           RepaintBoundary(
                             child: _MyDrawingLayer(
                               canvasSize: canvasSize,
@@ -152,8 +164,23 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                         // ====================================
                         // 레이어 4: 터치 입력
                         // ====================================
+                        if (useNativeTeacherInput)
+                          Positioned(
+                            left: contentRect.left,
+                            top: contentRect.top,
+                            width: contentRect.width,
+                            height: contentRect.height,
+                            child: _NativeTeacherInputLayer(
+                              isDrawingEnabled: isDrawingMode,
+                              renderSize: contentRect.size,
+                              contentSize: _backgroundImageSize,
+                            ),
+                          ),
+
                         // 교사: 공용 판서용
-                        if (widget.isTeacher && isDrawingMode)
+                        if (widget.isTeacher &&
+                            isDrawingMode &&
+                            !useNativeTeacherInput)
                           _TouchInputLayer(
                             canvasSize: canvasSize,
                             backgroundImageSize: _backgroundImageSize,
@@ -387,8 +414,11 @@ class _BackgroundLayer extends StatelessWidget {
       selector: (context, provider) => provider.backgroundUrl,
       builder: (context, backgroundUrl, child) {
         if (backgroundUrl != null && backgroundUrl.isNotEmpty) {
+          final isRemote = backgroundUrl.startsWith('http://') ||
+              backgroundUrl.startsWith('https://');
           return SizedBox.expand(
-            child: Image.network(
+            child: isRemote || kIsWeb
+                ? Image.network(
               backgroundUrl,
               fit: BoxFit.contain,
               frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
@@ -421,6 +451,30 @@ class _BackgroundLayer extends StatelessWidget {
                   ),
                 );
               },
+            )
+                : Image.file(
+              File(backgroundUrl),
+              fit: BoxFit.contain,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                if (frame != null) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _getImageSize(backgroundUrl).then((size) {
+                      if (size != null) {
+                        onImageLoaded(size);
+                      }
+                    });
+                  });
+                }
+                return child;
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.white,
+                  child: const Center(
+                    child: Icon(Icons.error, color: Colors.red, size: 48),
+                  ),
+                );
+              },
             ),
           );
         }
@@ -434,7 +488,14 @@ class _BackgroundLayer extends StatelessWidget {
 
   Future<Size?> _getImageSize(String url) async {
     try {
-      final imageProvider = NetworkImage(url);
+      final ImageProvider imageProvider;
+      if (!kIsWeb &&
+          !url.startsWith('http://') &&
+          !url.startsWith('https://')) {
+        imageProvider = FileImage(File(url));
+      } else {
+        imageProvider = NetworkImage(url);
+      }
       final imageStream = imageProvider.resolve(const ImageConfiguration());
       final completer = Completer<Size?>();
 
@@ -568,6 +629,95 @@ class _MyDrawingLayer extends StatelessWidget {
       if (a[i].width != b[i].width) return false;
     }
     return true;
+  }
+}
+
+/// ===============================
+/// iOS 네이티브 입력 레이어 (교사용)
+/// ===============================
+class _NativeTeacherInputLayer extends StatefulWidget {
+  final bool isDrawingEnabled;
+  final Size renderSize;
+  final Size? contentSize;
+
+  const _NativeTeacherInputLayer({
+    required this.isDrawingEnabled,
+    required this.renderSize,
+    required this.contentSize,
+  });
+
+  @override
+  State<_NativeTeacherInputLayer> createState() => _NativeTeacherInputLayerState();
+}
+
+class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncNativeBrushAndMetrics();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _NativeTeacherInputLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncNativeBrushAndMetrics();
+    });
+  }
+
+  Future<void> _syncNativeBrushAndMetrics() async {
+    final provider = context.read<DrawingProvider>();
+    final contentSize = widget.contentSize ?? widget.renderSize;
+
+    try {
+      await NativeDrawingBridge.setBrush(
+        BrushConfig(
+          tool: 'pen',
+          color: provider.currentColor.toARGB32(),
+          size: provider.currentWidth,
+          eraserSize: 24,
+        ),
+      );
+      await NativeDrawingBridge.setDrawingMetrics(
+        renderWidth: widget.renderSize.width,
+        renderHeight: widget.renderSize.height,
+        pdfWidth: contentSize.width,
+        pdfHeight: contentSize.height,
+      );
+    } catch (e) {
+      debugPrint('Failed to sync native drawing config: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<DrawingProvider, ({Color color, double width})>(
+      selector: (context, provider) => (
+        color: provider.currentColor,
+        width: provider.currentWidth,
+      ),
+      builder: (context, brush, child) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _syncNativeBrushAndMetrics();
+        });
+
+        return IgnorePointer(
+          ignoring: !widget.isDrawingEnabled,
+          child: UiKitView(
+            viewType: 'pentalk/drawing_view',
+            creationParams: {
+              'tool': 'pen',
+              'color': brush.color.toARGB32(),
+              'size': brush.width,
+              'eraserSize': 24.0,
+            },
+            creationParamsCodec: const StandardMessageCodec(),
+          ),
+        );
+      },
+    );
   }
 }
 

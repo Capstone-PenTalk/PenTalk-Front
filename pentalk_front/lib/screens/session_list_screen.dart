@@ -26,11 +26,10 @@ class _SessionListScreenState extends State<SessionListScreen> {
       context: context,
       builder: (context) {
         return CreateSessionDialog(
-          onCreateSession: (title, maxParticipants, password) async {
+          onCreateSession: (classId, materialId) async {
             await context.read<SessionProvider>().createSession(
-              title: title,
-              maxParticipants: maxParticipants,
-              password: password,
+              classId: classId,
+              materialId: materialId,
             );
           },
         );

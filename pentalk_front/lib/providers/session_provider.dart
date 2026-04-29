@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/session_model.dart';
+import '../services/api_service.dart';
 
 class SessionProvider extends ChangeNotifier {
   List<SessionModel> _sessions = [];
@@ -17,6 +18,29 @@ class SessionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      if (kIsWeb) {
+        final q = Uri.base.queryParameters;
+        final roomId = q['roomId']?.trim();
+        final classId = q['classId']?.trim();
+        if (roomId != null &&
+            roomId.isNotEmpty &&
+            classId != null &&
+            classId.isNotEmpty) {
+          _sessions = [
+            SessionModel(
+              id: roomId,
+              title: '실시간 세션',
+              classId: classId,
+              maxParticipants: 0,
+              createdAt: DateTime.now(),
+            ),
+          ];
+          _isLoading = false;
+          notifyListeners();
+          return;
+        }
+      }
+
       // TODO: 실제 API 호출로 대체
       await Future.delayed(const Duration(seconds: 1));
 
@@ -58,29 +82,36 @@ class SessionProvider extends ChangeNotifier {
     }
   }
 
-  // 세션 생성
+  // 세션 생성 (/session/create)
   Future<void> createSession({
-    required String title,
-    required int maxParticipants,
-    String? password,
+    required String classId,
+    String? materialId,
   }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      // TODO: 실제 API 호출로 대체
-      await Future.delayed(const Duration(seconds: 1));
+      final response = await ApiService.createSession(
+        classId: classId,
+        materialId: materialId,
+      );
+
+      if (!response.success || response.data == null) {
+        throw Exception(response.message ?? '세션 생성 실패');
+      }
+
+      final created = response.data!;
 
       final newSession = SessionModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: title,
-        maxParticipants: maxParticipants,
-        password: password,
+        id: created.sessionId,
+        title: classId,
+        classId: classId,
+        maxParticipants: 0,
         createdAt: DateTime.now(),
       );
 
-      _sessions.add(newSession);
+      _sessions = [newSession, ..._sessions];
       _isLoading = false;
       notifyListeners();
     } catch (e) {

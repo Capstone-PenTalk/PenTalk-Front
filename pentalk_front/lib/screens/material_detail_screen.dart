@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -14,6 +15,7 @@ class MaterialDetailScreen extends StatefulWidget {
   final String teacherName;
   final String? sessionId;
   final bool isTeacher;
+  final String? classId;
 
   static const String _demoClassId = String.fromEnvironment(
     'PENTALK_DEMO_CLASS_ID',
@@ -43,6 +45,7 @@ class MaterialDetailScreen extends StatefulWidget {
     required this.teacherName,
     this.sessionId,
     this.isTeacher = false,
+    this.classId,
   }) : super(key: key);
 
   @override
@@ -159,8 +162,13 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
 
           materialTitle: widget.material.title,
           backgroundUrl: widget.material.url,
-          materialId: MaterialDetailScreen._demoMaterialId,
-          classId: MaterialDetailScreen._demoClassId,
+          isPdfDocument: widget.material.type == FileMaterialType.pdf,
+          materialId: widget.material.id.isNotEmpty
+              ? widget.material.id
+              : MaterialDetailScreen._demoMaterialId,
+          classId: widget.classId ??
+              (kIsWeb ? Uri.base.queryParameters['classId'] : null) ??
+              MaterialDetailScreen._demoClassId,
           isTeacher: isTeacher,
           serverUrl: serverUrl,
           roomId: roomId,

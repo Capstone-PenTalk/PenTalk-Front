@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/material_provider.dart';
+import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../widgets/session_card.dart';
 import '../widgets/create_session_dialog.dart';
@@ -42,13 +43,26 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     showDialog(
       context: context,
       builder: (context) => CreateSessionDialog(
-        onCreateSession: (title, maxParticipants, password) async {
+        onCreateSession: (classId, materialId) async {
           await context.read<SessionProvider>().createSession(
-            title: title,
-            maxParticipants: maxParticipants,
-            password: password,
+            classId: classId,
+            materialId: materialId,
           );
         },
+      ),
+    );
+  }
+
+  void _openLocalPdfWorkspace() {
+    context.read<MaterialProvider>().clear();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SessionDetailScreen(
+          sessionId: 'local-pdf-workspace',
+          localOnly: true,
+          titleOverride: '로컬 PDF 테스트',
+        ),
       ),
     );
   }
@@ -75,6 +89,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
     if (confirmed == true && mounted) {
       await AuthService.logout();
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -91,6 +106,12 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          if (AppConfig.allowLocalPdfWorkspace)
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              onPressed: _openLocalPdfWorkspace,
+              tooltip: '로컬 PDF 테스트',
+            ),
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             onPressed: _showCreateSessionDialog,

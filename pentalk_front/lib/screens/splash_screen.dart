@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../services/session_storage.dart';
 import '../services/api_service.dart';
@@ -29,6 +32,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initialize() async {
     try {
+      final handledByLink = await _tryHandleUrlSessionJoin();
+      if (handledByLink) return;
+
       setState(() => _statusMessage = '로그인 확인 중...');
       await Future.delayed(const Duration(milliseconds: 500));
 
@@ -80,6 +86,90 @@ class _SplashScreenState extends State<SplashScreen> {
       await SessionStorage.clearSession();
       if (mounted) _navigateToLogin();
     }
+  }
+
+  Future<bool> _tryHandleUrlSessionJoin() async {
+    final uri = Uri.base;
+    final roomId = uri.queryParameters['roomId']?.trim();
+    final token = uri.queryParameters['token']?.trim();
+    if (roomId == null || roomId.isEmpty || token == null || token.isEmpty) {
+      return false;
+    }
+
+    final classId = uri.queryParameters['classId']?.trim();
+    final materialId = uri.queryParameters['materialId']?.trim();
+    final materialTitle =
+        uri.queryParameters['materialTitle']?.trim().isNotEmpty == true
+            ? uri.queryParameters['materialTitle']!.trim()
+            : '실시간 수업';
+    final backgroundUrl = uri.queryParameters['backgroundUrl']?.trim();
+    final claims = _decodeJwtClaims(token);
+    final userId = (claims?['userId']?.toString().trim().isNotEmpty == true)
+        ? claims!['userId'].toString().trim()
+        : 'guest';
+    final role = (claims?['role']?.toString().trim().toLowerCase() == 'teacher')
+        ? 'teacher'
+        : 'student';
+    final isTeacher = role == 'teacher';
+
+    await AuthService.saveUserInfo(userId: userId, role: role, token: token);
+
+    final queryServerUrl = uri.queryParameters['serverUrl']?.trim();
+    final baseServerUrl = (queryServerUrl != null && queryServerUrl.isNotEmpty)
+        ? queryServerUrl
+        : _resolveJoinServerUrl(isTeacher: isTeacher, pageUri: uri);
+    final serverUrlWithToken = '$baseServerUrl?token=$token';
+
+    if (!mounted) return true;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DrawingScreen(
+          materialTitle: materialTitle,
+          backgroundUrl: (backgroundUrl != null && backgroundUrl.isNotEmpty)
+              ? backgroundUrl
+              : null,
+          isTeacher: isTeacher,
+          serverUrl: serverUrlWithToken,
+          roomId: roomId,
+          userId: userId,
+          classId: (classId != null && classId.isNotEmpty) ? classId : null,
+          materialId:
+              (materialId != null && materialId.isNotEmpty) ? materialId : null,
+          sessionId: roomId,
+        ),
+      ),
+    );
+    return true;
+  }
+
+  String _resolveJoinServerUrl({
+    required bool isTeacher,
+    required Uri pageUri,
+  }) {
+    final configured = AppConfig.resolveSocketUrl(isTeacher: isTeacher);
+    final host = pageUri.host.toLowerCase();
+    final isLocalHost = host == 'localhost' || host == '127.0.0.1';
+    final usingDefaultRailway = configured.contains('up.railway.app');
+    if (isLocalHost && usingDefaultRailway) {
+      return 'http://localhost:3000';
+    }
+    return configured;
+  }
+
+  Map<String, dynamic>? _decodeJwtClaims(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      final normalized = base64Url.normalize(parts[1]);
+      final payload = utf8.decode(base64Url.decode(normalized));
+      final decoded = jsonDecode(payload);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v));
+      }
+    } catch (_) {}
+    return null;
   }
 
   void _navigateToLogin() {

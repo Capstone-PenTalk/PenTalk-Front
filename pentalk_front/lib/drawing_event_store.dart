@@ -10,6 +10,7 @@ class DrawingEventStore {
   static const _dbName = 'drawing_events.db';
   static const _table = 'drawing_events';
   static const _draftTable = 'drawing_drafts';
+  static const _dbVersion = 2;
 
   Database? _db;
 
@@ -19,26 +20,39 @@ class DrawingEventStore {
     final dbPath = '${baseDir.path}/$_dbName';
     _db = await openDatabase(
       dbPath,
-      version: 1,
+      version: _dbVersion,
       onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_table (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            direction TEXT NOT NULL,
-            event TEXT,
-            payload TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_draftTable (
-            draft_key TEXT PRIMARY KEY,
-            payload TEXT NOT NULL,
-            updated_at INTEGER NOT NULL
-          )
-        ''');
+        await _createEventTable(db);
+        await _createDraftTable(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createDraftTable(db);
+        }
       },
     );
+  }
+
+  Future<void> _createEventTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_table (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        direction TEXT NOT NULL,
+        event TEXT,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createDraftTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_draftTable (
+        draft_key TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> saveEvent({
