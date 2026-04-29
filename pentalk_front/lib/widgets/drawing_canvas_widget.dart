@@ -1,8 +1,12 @@
 import 'dart:async';
-import 'dart:ui' as ui;
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../config/app_config.dart';
+import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../models/drawing_models.dart';
@@ -28,6 +32,10 @@ class DrawingCanvasWidget extends StatefulWidget {
 }
 
 class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
+  static const double _minZoomScale = 0.8;
+  static const double _maxZoomScale = 1.6;
+  static const double _panEnabledScaleThreshold = 1.0;
+
   int? _currentStrokeId;
   final List<DrawPoint> _currentPoints = [];
 
@@ -69,6 +77,17 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     }
   }
 
+  void _centerViewportAtCurrentScale(Size canvasSize) {
+    final clampedScale = _currentScale.clamp(_minZoomScale, _maxZoomScale);
+    final dx = (canvasSize.width - (canvasSize.width * clampedScale)) / 2;
+    final dy = (canvasSize.height - (canvasSize.height * clampedScale)) / 2;
+    _transformationController.value = Matrix4.diagonal3Values(
+      clampedScale,
+      clampedScale,
+      1.0,
+    )..setTranslationRaw(dx, dy, 0.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -78,23 +97,36 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
           widget.onCanvasSize?.call(canvasSize);
         });
 
-        return Consumer<DrawingProvider>(
-          builder: (context, provider, child) {
-            // 그리기 모드일 때는 InteractiveViewer 비활성화
-            final isDrawingMode = provider.isDrawingMode && widget.isTeacher;
+        final isDrawingMode = context.select<DrawingProvider, bool>(
+          (provider) => provider.isDrawingMode && widget.isTeacher,
+        );
+        final useNativeTeacherInput = AppConfig.enableNativeTeacherDrawing &&
+            !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.iOS &&
+            widget.isTeacher;
+        final backgroundScaler = CoordinateScaler(
+          canvasSize: canvasSize,
+          contentSize: _backgroundImageSize,
+          fit: BoxFit.contain,
+        );
+        final contentRect = backgroundScaler.contentRect;
 
-            return Stack(
-              children: [
+        return Stack(
+          children: [
                 // ====================================
                 // InteractiveViewer로 전체 감싸기
                 // ====================================
                 InteractiveViewer(
                   transformationController: _transformationController,
-                  panEnabled: !isDrawingMode, // 그리기 모드에서는 팬 비활성화
+                  panEnabled: !isDrawingMode &&
+                      _currentScale > _panEnabledScaleThreshold,
                   scaleEnabled: !isDrawingMode, // 그리기 모드에서는 줌 비활성화
-                  minScale: 0.5,
-                  maxScale: 4.0,
-                  boundaryMargin: const EdgeInsets.all(double.infinity),
+                  minScale: _minZoomScale,
+                  maxScale: _maxZoomScale,
+                  boundaryMargin: EdgeInsets.zero,
+                  onInteractionEnd: (_) {
+                    _centerViewportAtCurrentScale(canvasSize);
+                  },
                   child: SizedBox(
                     width: canvasSize.width,
                     height: canvasSize.height,
@@ -152,8 +184,23 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                         // ====================================
                         // 레이어 4: 터치 입력
                         // ====================================
+                        if (useNativeTeacherInput)
+                          Positioned(
+                            left: contentRect.left,
+                            top: contentRect.top,
+                            width: contentRect.width,
+                            height: contentRect.height,
+                            child: _NativeTeacherInputLayer(
+                              isDrawingEnabled: isDrawingMode,
+                              renderSize: contentRect.size,
+                              contentSize: _backgroundImageSize,
+                            ),
+                          ),
+
                         // 교사: 공용 판서용
-                        if (widget.isTeacher && isDrawingMode)
+                        if (widget.isTeacher &&
+                            isDrawingMode &&
+                            !useNativeTeacherInput)
                           _TouchInputLayer(
                             canvasSize: canvasSize,
                             backgroundImageSize: _backgroundImageSize,
@@ -255,9 +302,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                       ),
                     ),
                   ),
-              ],
-            );
-          },
+          ],
         );
       },
     );
@@ -387,8 +432,11 @@ class _BackgroundLayer extends StatelessWidget {
       selector: (context, provider) => provider.backgroundUrl,
       builder: (context, backgroundUrl, child) {
         if (backgroundUrl != null && backgroundUrl.isNotEmpty) {
+          final isRemote = backgroundUrl.startsWith('http://') ||
+              backgroundUrl.startsWith('https://');
           return SizedBox.expand(
-            child: Image.network(
+            child: isRemote || kIsWeb
+                ? Image.network(
               backgroundUrl,
               fit: BoxFit.contain,
               frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
@@ -421,6 +469,30 @@ class _BackgroundLayer extends StatelessWidget {
                   ),
                 );
               },
+            )
+                : Image.file(
+              File(backgroundUrl),
+              fit: BoxFit.contain,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                if (frame != null) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _getImageSize(backgroundUrl).then((size) {
+                      if (size != null) {
+                        onImageLoaded(size);
+                      }
+                    });
+                  });
+                }
+                return child;
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.white,
+                  child: const Center(
+                    child: Icon(Icons.error, color: Colors.red, size: 48),
+                  ),
+                );
+              },
             ),
           );
         }
@@ -434,7 +506,14 @@ class _BackgroundLayer extends StatelessWidget {
 
   Future<Size?> _getImageSize(String url) async {
     try {
-      final imageProvider = NetworkImage(url);
+      final ImageProvider imageProvider;
+      if (!kIsWeb &&
+          !url.startsWith('http://') &&
+          !url.startsWith('https://')) {
+        imageProvider = FileImage(File(url));
+      } else {
+        imageProvider = NetworkImage(url);
+      }
       final imageStream = imageProvider.resolve(const ImageConfiguration());
       final completer = Completer<Size?>();
 
@@ -572,9 +651,123 @@ class _MyDrawingLayer extends StatelessWidget {
 }
 
 /// ===============================
+/// iOS 네이티브 입력 레이어 (교사용)
+/// ===============================
+class _NativeTeacherInputLayer extends StatefulWidget {
+  final bool isDrawingEnabled;
+  final Size renderSize;
+  final Size? contentSize;
+
+  const _NativeTeacherInputLayer({
+    required this.isDrawingEnabled,
+    required this.renderSize,
+    required this.contentSize,
+  });
+
+  @override
+  State<_NativeTeacherInputLayer> createState() => _NativeTeacherInputLayerState();
+}
+
+class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
+  int? _lastColorValue;
+  double? _lastWidth;
+  Size? _lastRenderSize;
+  Size? _lastContentSize;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncNativeBrushAndMetrics();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _NativeTeacherInputLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.renderSize != widget.renderSize ||
+        oldWidget.contentSize != widget.contentSize) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncNativeBrushAndMetrics();
+      });
+    }
+  }
+
+  Future<void> _syncNativeBrushAndMetrics({
+    int? colorValue,
+    double? width,
+  }) async {
+    final provider = context.read<DrawingProvider>();
+    final contentSize = widget.contentSize ?? widget.renderSize;
+    final resolvedColorValue = colorValue ?? provider.currentColor.toARGB32();
+    final resolvedWidth = width ?? provider.currentWidth;
+    final shouldUpdateBrush =
+        _lastColorValue != resolvedColorValue || _lastWidth != resolvedWidth;
+    final shouldUpdateMetrics =
+        _lastRenderSize != widget.renderSize || _lastContentSize != contentSize;
+
+    try {
+      if (shouldUpdateBrush) {
+        await NativeDrawingBridge.setBrush(
+          BrushConfig(
+            tool: 'pen',
+            color: resolvedColorValue,
+            size: resolvedWidth,
+            eraserSize: 24,
+          ),
+        );
+        _lastColorValue = resolvedColorValue;
+        _lastWidth = resolvedWidth;
+      }
+      if (shouldUpdateMetrics) {
+        await NativeDrawingBridge.setDrawingMetrics(
+          renderWidth: widget.renderSize.width,
+          renderHeight: widget.renderSize.height,
+          pdfWidth: contentSize.width,
+          pdfHeight: contentSize.height,
+        );
+        _lastRenderSize = widget.renderSize;
+        _lastContentSize = contentSize;
+      }
+    } catch (e) {
+      debugPrint('Failed to sync native drawing config: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brush = context.select<DrawingProvider, ({int colorValue, double width})>(
+      (provider) => (
+        colorValue: provider.currentColor.toARGB32(),
+        width: provider.currentWidth,
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncNativeBrushAndMetrics(
+        colorValue: brush.colorValue,
+        width: brush.width,
+      );
+    });
+    return IgnorePointer(
+      ignoring: !widget.isDrawingEnabled,
+      child: UiKitView(
+        viewType: 'pentalk/drawing_view',
+        creationParams: {
+          'tool': 'pen',
+          'color': brush.colorValue,
+          'size': brush.width,
+          'eraserSize': 24.0,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+      ),
+    );
+  }
+}
+
+/// ===============================
 /// 터치 입력 레이어
 /// ===============================
-class _TouchInputLayer extends StatelessWidget {
+class _TouchInputLayer extends StatefulWidget {
   final Size canvasSize;
   final Size? backgroundImageSize;
   final int? currentStrokeId;
@@ -596,28 +789,64 @@ class _TouchInputLayer extends StatelessWidget {
   });
 
   @override
+  State<_TouchInputLayer> createState() => _TouchInputLayerState();
+}
+
+class _TouchInputLayerState extends State<_TouchInputLayer> {
+  final Set<int> _activePointers = <int>{};
+  bool _gestureBlocked = false;
+
+  void _handlePointerDown(PointerDownEvent event, CoordinateScaler scaler) {
+    _activePointers.add(event.pointer);
+    if (_activePointers.length > 1) {
+      _gestureBlocked = true;
+      if (widget.currentStrokeId != null) {
+        final provider = context.read<DrawingProvider>();
+        widget.onPanEnd(scaler, provider);
+      }
+    }
+  }
+
+  void _handlePointerUp(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+    if (_activePointers.length <= 1) {
+      _gestureBlocked = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scaler = CoordinateScaler(
-      canvasSize: canvasSize,
-      contentSize: backgroundImageSize,
+      canvasSize: widget.canvasSize,
+      contentSize: widget.backgroundImageSize,
       fit: BoxFit.contain,
     );
 
     return Positioned.fill(
-      child: GestureDetector(
-        onPanStart: (details) {
-          final provider = context.read<DrawingProvider>();
-          onPanStart(details, scaler, provider);
-        },
-        onPanUpdate: (details) {
-          final provider = context.read<DrawingProvider>();
-          onPanUpdate(details, scaler, provider);
-        },
-        onPanEnd: (details) {
-          final provider = context.read<DrawingProvider>();
-          onPanEnd(scaler, provider);
-        },
-        child: Container(color: Colors.transparent),
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (event) => _handlePointerDown(event, scaler),
+        onPointerUp: _handlePointerUp,
+        onPointerCancel: _handlePointerUp,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (details) {
+            if (_gestureBlocked || _activePointers.length != 1) return;
+            final provider = context.read<DrawingProvider>();
+            widget.onPanStart(details, scaler, provider);
+          },
+          onPanUpdate: (details) {
+            if (_gestureBlocked || _activePointers.length != 1) return;
+            final provider = context.read<DrawingProvider>();
+            widget.onPanUpdate(details, scaler, provider);
+          },
+          onPanEnd: (details) {
+            if (widget.currentStrokeId == null) return;
+            final provider = context.read<DrawingProvider>();
+            widget.onPanEnd(scaler, provider);
+          },
+          child: Container(color: Colors.transparent),
+        ),
       ),
     );
   }
@@ -774,7 +1003,7 @@ class _PersonalDrawingLayer extends StatelessWidget {
 /// ===============================
 /// 개인 필기 터치 입력 레이어 (학생용)
 /// ===============================
-class _PersonalTouchInputLayer extends StatelessWidget {
+class _PersonalTouchInputLayer extends StatefulWidget {
   final Size canvasSize;
   final Size? backgroundImageSize;
   final int? currentStrokeId;
@@ -796,10 +1025,37 @@ class _PersonalTouchInputLayer extends StatelessWidget {
   });
 
   @override
+  State<_PersonalTouchInputLayer> createState() =>
+      _PersonalTouchInputLayerState();
+}
+
+class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
+  final Set<int> _activePointers = <int>{};
+  bool _gestureBlocked = false;
+
+  void _handlePointerDown(PointerDownEvent event, CoordinateScaler scaler) {
+    _activePointers.add(event.pointer);
+    if (_activePointers.length > 1) {
+      _gestureBlocked = true;
+      if (widget.currentStrokeId != null) {
+        final provider = context.read<PersonalDrawingProvider>();
+        widget.onPanEnd(scaler, provider);
+      }
+    }
+  }
+
+  void _handlePointerUp(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+    if (_activePointers.length <= 1) {
+      _gestureBlocked = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scaler = CoordinateScaler(
-      canvasSize: canvasSize,
-      contentSize: backgroundImageSize,
+      canvasSize: widget.canvasSize,
+      contentSize: widget.backgroundImageSize,
       fit: BoxFit.contain,
     );
 
@@ -808,23 +1064,33 @@ class _PersonalTouchInputLayer extends StatelessWidget {
         builder: (context, personalProvider, child) {
           final drawingProvider = context.read<DrawingProvider>();
 
-          return GestureDetector(
-            onPanStart: (details) {
-              onPanStart(
-                details,
-                scaler,
-                personalProvider,
-                drawingProvider.currentColor,
-                drawingProvider.currentWidth,
-              );
-            },
-            onPanUpdate: (details) {
-              onPanUpdate(details, scaler, personalProvider);
-            },
-            onPanEnd: (details) {
-              onPanEnd(scaler, personalProvider);
-            },
-            child: Container(color: Colors.transparent),
+          return Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (event) => _handlePointerDown(event, scaler),
+            onPointerUp: _handlePointerUp,
+            onPointerCancel: _handlePointerUp,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: (details) {
+                if (_gestureBlocked || _activePointers.length != 1) return;
+                widget.onPanStart(
+                  details,
+                  scaler,
+                  personalProvider,
+                  drawingProvider.currentColor,
+                  drawingProvider.currentWidth,
+                );
+              },
+              onPanUpdate: (details) {
+                if (_gestureBlocked || _activePointers.length != 1) return;
+                widget.onPanUpdate(details, scaler, personalProvider);
+              },
+              onPanEnd: (details) {
+                if (widget.currentStrokeId == null) return;
+                widget.onPanEnd(scaler, personalProvider);
+              },
+              child: Container(color: Colors.transparent),
+            ),
           );
         },
       ),

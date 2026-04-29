@@ -1,16 +1,34 @@
 # pentalk_front
 
-A new Flutter project.
+PenTalk Flutter client.
 
-## Getting Started
+## Server configuration
 
-This project is a starting point for a Flutter application.
+The app can use one shared backend URL for both REST API and Socket.IO.
 
-A few resources to get you started if this is your first Flutter project:
+Example:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```bash
+flutter run \
+  --dart-define=PENTALK_SERVER_URL=http://54.180.142.244:3000
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+If you need to separate API and socket endpoints, these are also supported:
+
+```bash
+flutter run \
+  --dart-define=PENTALK_API_URL=http://54.180.142.244:3000 \
+  --dart-define=PENTALK_SOCKET_URL_TEACHER=http://54.180.142.244:3000 \
+  --dart-define=PENTALK_SOCKET_URL_STUDENT=http://54.180.142.244:3000
+```
+
+## Login mode
+
+By default, the login screen calls `POST /auth/dev-login` on the configured
+server and stores the returned token.
+
+For local UI-only testing without server auth:
+
+```bash
+flutter run --dart-define=PENTALK_USE_SERVER_LOGIN=false
+```

@@ -198,20 +198,13 @@ class PersonalDrawingProvider extends ChangeNotifier {
   /// PDF export용 전체 stroke 취합
   ///
   /// [pageIdOrder]: 세션의 materialTitle 순서대로 전달
-  ///   예) ['1단원: 물질의 규칙성', '2단원: 자연의 구성 물질']
-  ///   → 각각 page: 1, page: 2 로 매핑
+  /// 또는 문서 페이지 키(materialId:pageNumber) 기반 매핑 전달
   ///
   /// 반환: POST /export/pdf 의 strokes 배열 형식
   /// ===============================
   Future<List<Map<String, dynamic>>> getAllPersonalStrokesForExport({
-    required List<String> pageIdOrder,
+    required Map<String, int> pageMapping,
   }) async {
-    // pageId(materialTitle) → pageNumber(1부터 시작) 매핑 생성
-    final pageMapping = <String, int>{};
-    for (int i = 0; i < pageIdOrder.length; i++) {
-      pageMapping[pageIdOrder[i]] = i + 1;
-    }
-
     debugPrint('📋 Page mapping: $pageMapping');
 
     // DB에 저장된 모든 페이지 ID 조회

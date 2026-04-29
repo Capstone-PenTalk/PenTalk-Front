@@ -13,6 +13,7 @@ class SocketService {
   String? _currentRoomId;
   String? _currentUserId;
   String? _currentMaterialId;
+  int? _currentPageNumber;
   String? _currentClassId;
   bool _currentIsTeacher = false;
   bool _isRoomJoined = false;
@@ -30,6 +31,13 @@ class SocketService {
   Function(Map<String, dynamic>)? onPollStart;
   Function(Map<String, dynamic>)? onPollResult;
   Function(Map<String, dynamic>)? onPollEnd;
+  Function(Map<String, dynamic>)? onSyncStateRaw;
+  Function(Map<String, dynamic>)? onChatMessage;
+  Function(Map<String, dynamic>)? onDirectMessage;
+  Function(Map<String, dynamic>)? onQuestionAck;
+  Function(Map<String, dynamic>)? onQuestionNew;
+  Function(List<dynamic>)? onQuestionListResult;
+  Function(Map<String, dynamic>)? onQuestionAnswered;
   // 자료 업로드 실시간 알림 (수업 중)
   Function(Map<String, dynamic>)? onMaterialUploaded;
   Function(List<Participant>)? onPresenceState;
@@ -47,17 +55,19 @@ class SocketService {
     bool isTeacher = false,
     String? classId,
     String? materialId,
-  }) async {
+    int? pageNumber,
+    }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
       _currentMaterialId = materialId;
+      _currentPageNumber = pageNumber;
       _currentClassId = classId;
       _currentIsTeacher = isTeacher;
       _isRoomJoined = false;
       _pendingEmits.clear();
 
-      final normalizedUrl = serverUrl.replaceFirst(RegExp(r'^hhttps'), 'https');
+      final normalizedUrl = _normalizeServerUrl(serverUrl);
       debugPrint('[socket] Connecting to $normalizedUrl');
 
       final uri = Uri.parse(normalizedUrl);
@@ -72,13 +82,14 @@ class SocketService {
       final effectivePort = (uri.hasPort && uri.port > 0)
           ? uri.port
           : (uri.scheme == 'https' ? 443 : 80);
+      // Socket.IO는 기본 네임스페이스('/')로만 연결한다.
+      // 잘못된 API 경로(/materials/pdf 등)가 들어오면 namespace 에러가 나므로 path는 버린다.
       final baseUrl = StringBuffer()
         ..write(uri.scheme)
         ..write('://')
         ..write(uri.host)
         ..write(':')
         ..write(effectivePort);
-      if (uri.path.isNotEmpty && uri.path != '/') baseUrl.write(uri.path);
 
       final options = IO.OptionBuilder()
           .setTransports(['websocket'])
@@ -98,6 +109,17 @@ class SocketService {
       debugPrint('[socket][error] connect threw: $e');
       onError?.call(e);
     }
+  }
+
+  String _normalizeServerUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    final typoFixed = trimmed
+        .replaceFirst(RegExp(r'^hhttps://'), 'https://')
+        .replaceFirst(RegExp(r'^hhttp://'), 'http://');
+    if (typoFixed.startsWith('http://') || typoFixed.startsWith('https://')) {
+      return typoFixed;
+    }
+    return 'https://$typoFixed';
   }
 
   Future<String> _getOrCreateDevToken({
@@ -170,11 +192,16 @@ class SocketService {
     });
 
     _socket!.on('draw:clear', (data) {
-      try {
-        onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
-      } catch (e) {
-        debugPrint('[socket][error] draw:clear: $e');
-      }
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      onDrawEventReceived?.call(
+        DrawEvent.fromJson({
+          'e': 'cl',
+          'sId': 0,
+          ...payload,
+        }),
+      );
     });
 
     _socket!.on('user_joined', (data) => onUserJoined?.call(data['userId'] as String));
@@ -188,6 +215,19 @@ class SocketService {
       onRoomJoined?.call(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('sync:state', (data) {
+      if (data is Map) {
+        onSyncStateRaw?.call(Map<String, dynamic>.from(data));
+      }
+      if (data is Map) {
+        final strokes = data['strokes'] as List?;
+        if (strokes != null) onSyncState?.call(strokes);
+      } else if (data is List) {
+        onSyncState?.call(data);
+      }
+    });
+
+    // 하위 호환: 구 이벤트명
     _socket!.on('sync_state', (data) {
       if (data is Map) {
         final strokes = data['strokes'] as List?;
@@ -233,6 +273,32 @@ class SocketService {
       if (data is Map) onMaterialUploaded?.call(Map<String, dynamic>.from(data));
     });
 
+    // Chat / DM
+    _socket!.on('receive_message', (data) {
+      if (data is Map) onChatMessage?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('receive_dm', (data) {
+      if (data is Map) onDirectMessage?.call(Map<String, dynamic>.from(data));
+    });
+
+    // Q&A
+    _socket!.on('question:ack', (data) {
+      if (data is Map) onQuestionAck?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('question:new', (data) {
+      if (data is Map) onQuestionNew?.call(Map<String, dynamic>.from(data));
+    });
+    _socket!.on('question:list:result', (data) {
+      if (data is! Map) return;
+      final questions = data['questions'] as List?;
+      if (questions != null) onQuestionListResult?.call(questions);
+    });
+    _socket!.on('question:answered', (data) {
+      if (data is Map) {
+        onQuestionAnswered?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
     // Presence 이벤트
     _socket!.on('presence:state', (data) {
       if (data is! Map) return;
@@ -272,68 +338,126 @@ class SocketService {
   void _joinRoom(String roomId, String userId, bool isTeacher,
       {String? classId, String? materialId}) {
     if (_socket == null || !_socket!.connected) return;
-    _socket!.emit('join_room', {
+    final payload = {
       'roomId': roomId,
-      'userId': userId,
-      'isTeacher': isTeacher,
-      if (classId != null && classId.isNotEmpty) 'classId': classId,
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-    debugPrint('[socket][send] join_room roomId=$roomId userId=$userId');
+    };
+    _socket!.emit('join_room', payload);
+    debugPrint('[socket][send] join_room payload=${jsonEncode(payload)} '
+        'userId=$userId role=${isTeacher ? 'teacher' : 'student'} '
+        'classId=$classId');
   }
 
-  void sendDrawEvent(DrawEvent event, String senderId) {
-    _emitOrQueue('draw:append', {
+  void sendDrawEvent(DrawEvent event) {
+    _currentMaterialId = event.materialId ?? _currentMaterialId;
+    _currentPageNumber = event.pageNumber ?? _currentPageNumber;
+    final payload = {
       ...event.toJson(),
-      'roomId': _currentRoomId,
-      'senderId': senderId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    }, summary: 'draw:append e=${event.eventType.code}',
-        suppressLog: event.eventType == DrawEventType.drawMove && !kDebugMode);
+    };
+    _emitOrQueue(
+      'draw:append',
+      payload,
+      summary: _drawAppendSummary(payload),
+    );
   }
 
-  void sendUndo(int strokeId, String senderId) {
-    _emitOrQueue('draw:clear', {
-      'e': 'un', 'sId': strokeId, 'roomId': _currentRoomId,
-      'senderId': senderId, 'timestamp': DateTime.now().millisecondsSinceEpoch,
-    }, summary: 'draw:clear e=un sId=$strokeId');
+  void sendUndo(int strokeId) {
+    // 서버 스펙에는 undo 이벤트가 없어 네트워크 송신하지 않음.
+    debugPrint('[socket][send] skipped undo(not in server spec) sId=$strokeId');
   }
 
-  void sendClearAll(String senderId) {
-    _emitOrQueue('draw:clear', {
-      'e': 'cl', 'roomId': _currentRoomId,
-      'senderId': senderId, 'timestamp': DateTime.now().millisecondsSinceEpoch,
-    }, summary: 'draw:clear e=cl');
+  void sendClearAll({
+    required String? materialId,
+    required int? pageNumber,
+    required String scope,
+  }) {
+    final payload = {
+      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      if (pageNumber != null) 'pageNumber': pageNumber,
+      'scope': scope,
+    };
+    _emitOrQueue(
+      'draw:clear',
+      payload,
+      summary: 'draw:clear payload=${jsonEncode(payload)}',
+    );
   }
 
   void sendPollAnswer({required String pollId, required dynamic optionId}) {
     _emitOrQueue('poll:answer', {
-      'pollId': pollId, 'optionId': optionId, 'roomId': _currentRoomId,
+      'pollId': pollId,
+      'optionId': optionId,
     }, summary: 'poll:answer pollId=$pollId');
   }
 
   void sendPollStart({required String question,
     required List<Map<String, dynamic>> options, int? duration}) {
+    final optionTexts = options
+        .map((option) => option['text']?.toString() ?? '')
+        .where((text) => text.isNotEmpty)
+        .toList();
     _emitOrQueue('poll:start', {
-      'roomId': _currentRoomId, 'question': question, 'options': options,
+      'question': question,
+      'options': optionTexts,
       if (duration != null) 'duration': duration,
     }, summary: 'poll:start');
   }
 
   void sendPollEnd(String pollId) {
     _emitOrQueue('poll:end', {
-      'pollId': pollId, 'roomId': _currentRoomId,
+      'pollId': pollId,
     }, summary: 'poll:end pollId=$pollId');
   }
 
-  void requestSync({int? lastTick}) {
+  void requestSync({int? lastTick, String? materialId, int? pageNumber}) {
     if (_socket == null || !_socket!.connected) return;
-    _socket!.emit('sync:request', {
-      'roomId': _currentRoomId,
+    final payload = {
       if (lastTick != null) 'lastTick': lastTick,
-    });
-    debugPrint('[socket][send] sync:request lastTick=$lastTick');
+      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      if (pageNumber != null) 'pageNumber': pageNumber,
+    };
+    _socket!.emit('sync:request', payload);
+    debugPrint('[socket][send] sync:request payload=${jsonEncode(payload)}');
+  }
+
+  void sendMessage(String content) {
+    _emitOrQueue(
+      'send_message',
+      {'content': content},
+      summary: 'send_message',
+    );
+  }
+
+  void sendTeacherDm(String message) {
+    _emitOrQueue(
+      'teacher_send_dm',
+      {'message': message},
+      summary: 'teacher_send_dm',
+    );
+  }
+
+  void askQuestion({required String content, bool isAnonymous = false}) {
+    _emitOrQueue(
+      'question:ask',
+      {'content': content, 'isAnonymous': isAnonymous},
+      summary: 'question:ask',
+    );
+  }
+
+  void requestQuestionList() {
+    _emitOrQueue(
+      'question:list',
+      const {},
+      summary: 'question:list',
+    );
+  }
+
+  void answerQuestion({required String questionId, required String answer}) {
+    _emitOrQueue(
+      'question:answer',
+      {'questionId': questionId, 'answer': answer},
+      summary: 'question:answer',
+    );
   }
 
   void leaveRoom() {
@@ -366,7 +490,7 @@ class SocketService {
   }
 
   void _emitOrQueue(String eventName, Map<String, dynamic> payload,
-      {required String summary, bool suppressLog = false}) {
+      {required String summary}) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('[socket][send] skipped(not connected) $summary');
       return;
@@ -377,7 +501,7 @@ class SocketService {
       return;
     }
     _socket!.emit(eventName, payload);
-    if (!suppressLog) debugPrint('[socket][send] $summary');
+    debugPrint('[socket][send] $summary');
   }
 
   void _flushPendingEmits() {
@@ -387,8 +511,18 @@ class SocketService {
     for (final q in _pendingEmits) {
       final event = q['event'] as String?;
       final payload = q['payload'] as Map<String, dynamic>?;
-      if (event != null && payload != null) _socket!.emit(event, payload);
+      final summary = q['summary'] as String?;
+      if (event != null && payload != null) {
+        _socket!.emit(event, payload);
+        if (summary != null) {
+          debugPrint('[socket][send] flushed $summary');
+        }
+      }
     }
     _pendingEmits.clear();
+  }
+
+  String _drawAppendSummary(Map<String, dynamic> payload) {
+    return 'draw:append payload=${jsonEncode(payload)}';
   }
 }

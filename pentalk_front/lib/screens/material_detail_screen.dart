@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/student_session_model.dart';
+import '../config/app_config.dart';
 import '../services/deep_link_service.dart';
+import '../services/api_service.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
 
@@ -14,30 +16,8 @@ class MaterialDetailScreen extends StatefulWidget {
   final String teacherName;
   final String? sessionId;
   final bool isTeacher;
+  final String? classId;
 
-  // ===============================
-  // 팀원 추가: 환경변수 기반 서버/데모 설정
-  // ===============================
-  static const String _socketHostOverride = String.fromEnvironment(
-    'PENTALK_SOCKET_HOST',
-    defaultValue: 'pentalk-server-production.up.railway.app',
-  );
-  static const String _socketPortOverride = String.fromEnvironment(
-    'PENTALK_SOCKET_PORT',
-    defaultValue: '',
-  );
-  static const String _socketSchemeOverride = String.fromEnvironment(
-    'PENTALK_SOCKET_SCHEME',
-    defaultValue: 'https',
-  );
-  static const String _teacherServerUrlOverride = String.fromEnvironment(
-    'PENTALK_SOCKET_URL_TEACHER',
-    defaultValue: '',
-  );
-  static const String _studentServerUrlOverride = String.fromEnvironment(
-    'PENTALK_SOCKET_URL_STUDENT',
-    defaultValue: '',
-  );
   static const String _demoClassId = String.fromEnvironment(
     'PENTALK_DEMO_CLASS_ID',
     defaultValue: 'seed-class-01',
@@ -59,29 +39,6 @@ class MaterialDetailScreen extends StatefulWidget {
     defaultValue: '6af5c577-2874-4096-8e07-4d6b0fc3035b',
   );
 
-  static String get _socketHost {
-    if (_socketHostOverride.isNotEmpty) return _socketHostOverride;
-    if (kIsWeb) return 'localhost';
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.android: return '10.0.2.2';
-      case TargetPlatform.iOS: return '127.0.0.1';
-      default: return 'localhost';
-    }
-  }
-
-  static String get _socketAuthority {
-    final port = _socketPortOverride.trim();
-    return port.isEmpty ? _socketHost : '$_socketHost:$port';
-  }
-
-  static String get _teacherServerUrl => _teacherServerUrlOverride.isNotEmpty
-      ? _teacherServerUrlOverride
-      : '$_socketSchemeOverride://$_socketAuthority';
-
-  static String get _studentServerUrl => _studentServerUrlOverride.isNotEmpty
-      ? _studentServerUrlOverride
-      : '$_socketSchemeOverride://$_socketAuthority';
-
   const MaterialDetailScreen({
     Key? key,
     required this.material,
@@ -89,6 +46,7 @@ class MaterialDetailScreen extends StatefulWidget {
     required this.teacherName,
     this.sessionId,
     this.isTeacher = false,
+    this.classId,
   }) : super(key: key);
 
   @override
@@ -196,16 +154,24 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       return;
     }
 
+    final backgroundUrl = await _resolveMaterialBackgroundUrl(widget.material);
+
     if (!context.mounted) return;
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
+
           materialTitle: widget.material.title,
-          backgroundUrl: widget.material.url,
-          materialId: MaterialDetailScreen._demoMaterialId,
-          classId: MaterialDetailScreen._demoClassId,
+          backgroundUrl: backgroundUrl,
+          isPdfDocument: widget.material.type == FileMaterialType.pdf,
+          materialId: widget.material.id.isNotEmpty
+              ? widget.material.id
+              : MaterialDetailScreen._demoMaterialId,
+          classId: widget.classId ??
+              (kIsWeb ? Uri.base.queryParameters['classId'] : null) ??
+              MaterialDetailScreen._demoClassId,
           isTeacher: isTeacher,
           serverUrl: serverUrl,
           roomId: roomId,
@@ -216,10 +182,19 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     );
   }
 
+  Future<String> _resolveMaterialBackgroundUrl(MaterialModel material) async {
+    final isRemotePdf =
+        material.type == FileMaterialType.pdf &&
+        material.id.isNotEmpty &&
+        !material.id.startsWith('local_');
+
+    if (!isRemotePdf) return material.url;
+
+    return ApiService.getMaterialDownloadUrl(materialId: material.id);
+  }
+
   String? _resolveServerUrl(bool isTeacher) {
-    final url = isTeacher
-        ? MaterialDetailScreen._teacherServerUrl
-        : MaterialDetailScreen._studentServerUrl;
+    final url = AppConfig.resolveSocketUrl(isTeacher: isTeacher);
     return url.isEmpty ? null : url;
   }
 

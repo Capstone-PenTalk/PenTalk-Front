@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'student_home_screen.dart';
@@ -15,7 +16,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _userIdController = TextEditingController();
+  final _userIdController = TextEditingController(text: 'student1');
   String _selectedRole = 'student'; // 기본값: 학생
   bool _isLoading = false;
 
@@ -25,51 +26,65 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
-    final userId = _userIdController.text.trim();
-
-    if (userId.isEmpty) {
-      _showError('사용자 ID를 입력해주세요');
-      return;
+  void _applySuggestedUserIdForRole() {
+    final trimmed = _userIdController.text.trim();
+    if (trimmed.isEmpty ||
+        trimmed == 'student1' ||
+        trimmed == 'teacher1' ||
+        trimmed == 'student_local' ||
+        trimmed == 'teacher_local') {
+      _userIdController.text =
+          _selectedRole == 'teacher' ? 'teacher1' : 'student1';
     }
+  }
 
+  Future<void> _handleLogin() async {
+    final rawUserId = _userIdController.text.trim();
+    final userId = rawUserId.isNotEmpty
+        ? rawUserId
+        : (_selectedRole == 'teacher' ? 'teacher1' : 'student1');
     setState(() => _isLoading = true);
 
     try {
-      // 로그인 API 호출
-      final response = await ApiService.login(
-        userId: userId,
-        role: _selectedRole,
-      );
-
-      if (!mounted) return;
-
-      if (response.success && response.data != null) {
-        // 토큰 저장
-        await AuthService.saveUserInfo(
-          userId: response.data!.userId,
-          role: response.data!.role,
-          token: response.data!.token,
+      if (AppConfig.shouldUseServerLogin) {
+        final response = await ApiService.login(
+          userId: userId,
+          role: _selectedRole,
         );
 
-        // 역할에 따라 홈 화면 분기
-        if (response.data!.role == 'teacher') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeacherHomeScreen()),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const StudentHomeScreen()),
-          );
+        if (!response.success || response.data == null) {
+          throw Exception(response.message ?? '로그인에 실패했습니다.');
         }
+
+        final login = response.data!;
+        await AuthService.saveUserInfo(
+          userId: login.userId,
+          role: login.role,
+          token: login.token,
+        );
       } else {
-        _showError(response.message ?? '로그인 실패');
+        await AuthService.saveUserInfo(
+          userId: userId,
+          role: _selectedRole,
+          token: 'local-dev-bypass-token',
+        );
+      }
+
+      if (!mounted) return;
+      if (_selectedRole == 'teacher') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherHomeScreen()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentHomeScreen()),
+        );
       }
     } catch (e) {
       if (!mounted) return;
-      _showError('네트워크 오류: $e');
+      _showError('시작 실패: $e');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -158,7 +173,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         onChanged: _isLoading
                             ? null
                             : (value) {
-                          setState(() => _selectedRole = value!);
+                          setState(() {
+                            _selectedRole = value!;
+                            _applySuggestedUserIdForRole();
+                          });
                         },
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -179,7 +197,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         onChanged: _isLoading
                             ? null
                             : (value) {
-                          setState(() => _selectedRole = value!);
+                          setState(() {
+                            _selectedRole = value!;
+                            _applySuggestedUserIdForRole();
+                          });
                         },
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -214,7 +235,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   )
                       : const Text(
-                    '로그인',
+                    '시작하기',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -225,7 +246,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // 안내 문구
                 Text(
-                  '개발 모드: 비밀번호 없이 로그인',
+                  AppConfig.shouldUseServerLogin
+                      ? '서버 로그인 사용 중'
+                      : '개발 모드: 서버 로그인 생략 (역할만 선택)',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 12,

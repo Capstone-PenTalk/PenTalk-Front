@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,8 +10,6 @@ import 'providers/personal_drawing_provider.dart';
 import 'providers/participants_provider.dart';
 import 'providers/material_provider.dart';
 import 'screens/splash_screen.dart';
-import 'screens/student_home_screen.dart';
-import 'screens/teacher_home_screen.dart'; //
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +53,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
-        home: const TeacherHomeScreen(),
+        home: const SplashScreen(),
       ),
     );
   }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../native_drawing.dart';
 import '../providers/student_session_provider.dart';
 import '../widgets/student_session_card.dart';
+import 'drawing_screen.dart';
 import 'material_list_screen.dart';
 
 class StudentHomeScreen extends StatefulWidget {
@@ -54,8 +54,14 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
           IconButton(
             icon: const Icon(Icons.edit_note),
             onPressed: () {
-              NativeDrawingBridge.open(
-                NativeDrawingBridge.currentBrush.value,
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const DrawingScreen(
+                    materialTitle: '필기 테스트',
+                    isTeacher: false,
+                  ),
+                ),
               );
             },
           ),

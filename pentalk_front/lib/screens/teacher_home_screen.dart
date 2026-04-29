@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/material_provider.dart';
+import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../widgets/session_card.dart';
 import '../widgets/create_session_dialog.dart';
 import 'session_detail_screen.dart';
 import 'login_screen.dart';
-import 'drawing_screen.dart'; // 👈 추가
 
 /// ===============================
 /// 교사 홈 화면
@@ -32,24 +32,6 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     });
   }
 
-  //⭐추가
-  void _navigateToDrawing(BuildContext context, {required dynamic material}) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DrawingScreen(
-          materialTitle: material.title ?? '수업 자료',
-          backgroundUrl: material.url, // 서버에서 받아온 PDF 이미지 주소
-          isTeacher: true,             // 선생님 권한으로 실행
-          sessionId: material.sessionId,
-          roomId: material.roomId ?? 'default_room',
-          userId: _userName,           // 현재 로그인한 선생님 이름
-          serverUrl: 'pentalk-server-production.up.railway.app', // 서버 주소
-        ),
-      ),
-    );
-  }
-
   Future<void> _loadUserName() async {
     final userId = await AuthService.getUserId();
     if (mounted && userId != null) {
@@ -61,13 +43,26 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     showDialog(
       context: context,
       builder: (context) => CreateSessionDialog(
-        onCreateSession: (title, maxParticipants, password) async {
+        onCreateSession: (classId, materialId) async {
           await context.read<SessionProvider>().createSession(
-            title: title,
-            maxParticipants: maxParticipants,
-            password: password,
+            classId: classId,
+            materialId: materialId,
           );
         },
+      ),
+    );
+  }
+
+  void _openLocalPdfWorkspace() {
+    context.read<MaterialProvider>().clear();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SessionDetailScreen(
+          sessionId: 'local-pdf-workspace',
+          localOnly: true,
+          titleOverride: '로컬 PDF 테스트',
+        ),
       ),
     );
   }
@@ -94,6 +89,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
     if (confirmed == true && mounted) {
       await AuthService.logout();
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -110,6 +106,12 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          if (AppConfig.allowLocalPdfWorkspace)
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              onPressed: _openLocalPdfWorkspace,
+              tooltip: '로컬 PDF 테스트',
+            ),
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             onPressed: _showCreateSessionDialog,

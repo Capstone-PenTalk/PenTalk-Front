@@ -127,6 +127,9 @@ class Stroke {
 class DrawEvent {
   final DrawEventType eventType;
   final int strokeId;
+  final String? materialId;
+  final int? pageNumber;
+  final String? scope;
   final DrawPoint? point;
   final Color? color;
   final double? width;
@@ -136,6 +139,9 @@ class DrawEvent {
   DrawEvent({
     required this.eventType,
     required this.strokeId,
+    this.materialId,
+    this.pageNumber,
+    this.scope,
     this.point,
     this.color,
     this.width,
@@ -158,6 +164,9 @@ class DrawEvent {
       return DrawEvent(
         eventType: eventType,
         strokeId: strokeId,
+        materialId: json['materialId'] as String?,
+        pageNumber: (json['pageNumber'] as num?)?.toInt(),
+        scope: json['scope'] as String?,
         point: DrawPoint.fromJson(json),
         color: _parseColor(json['c'] as String?),
         width: json['w'] != null ? (json['w'] as num).toDouble() : 2.5,
@@ -169,6 +178,9 @@ class DrawEvent {
       return DrawEvent(
         eventType: eventType,
         strokeId: strokeId,
+        materialId: json['materialId'] as String?,
+        pageNumber: (json['pageNumber'] as num?)?.toInt(),
+        scope: json['scope'] as String?,
         point: DrawPoint.fromJson(json),
         tick: json['t'] as int?,
       );
@@ -181,6 +193,9 @@ class DrawEvent {
       return DrawEvent(
         eventType: eventType,
         strokeId: strokeId,
+        materialId: json['materialId'] as String?,
+        pageNumber: (json['pageNumber'] as num?)?.toInt(),
+        scope: json['scope'] as String?,
         points: ptsList
             ?.map((pt) => DrawPoint.fromJson(_stringKeyed(pt as Map)))
             .toList(),
@@ -194,6 +209,35 @@ class DrawEvent {
     return DrawEvent(
       eventType: eventType,
       strokeId: strokeId,
+      materialId: json['materialId'] as String?,
+      pageNumber: (json['pageNumber'] as num?)?.toInt(),
+      scope: json['scope'] as String?,
+    );
+  }
+
+  DrawEvent copyWith({
+    DrawEventType? eventType,
+    int? strokeId,
+    String? materialId,
+    int? pageNumber,
+    String? scope,
+    DrawPoint? point,
+    Color? color,
+    double? width,
+    List<DrawPoint>? points,
+    int? tick,
+  }) {
+    return DrawEvent(
+      eventType: eventType ?? this.eventType,
+      strokeId: strokeId ?? this.strokeId,
+      materialId: materialId ?? this.materialId,
+      pageNumber: pageNumber ?? this.pageNumber,
+      scope: scope ?? this.scope,
+      point: point ?? this.point,
+      color: color ?? this.color,
+      width: width ?? this.width,
+      points: points ?? this.points,
+      tick: tick ?? this.tick,
     );
   }
 
@@ -203,6 +247,18 @@ class DrawEvent {
       'e': eventType.code,
       'sId': strokeId,
     };
+
+    if (materialId != null && materialId!.isNotEmpty) {
+      json['materialId'] = materialId;
+    }
+
+    if (pageNumber != null) {
+      json['pageNumber'] = pageNumber;
+    }
+
+    if (scope != null && scope!.isNotEmpty) {
+      json['scope'] = scope;
+    }
 
     if (point != null) {
       json['x'] = point!.x;

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
 import '../models/drawing_models.dart';
 import 'auth_service.dart';
 
@@ -10,7 +12,7 @@ import 'auth_service.dart';
 /// REST API 클라이언트 서비스
 /// ===============================
 class ApiService {
-  static const String baseUrl = 'http://localhost:3000';
+  static String get baseUrl => AppConfig.apiBaseUrl;
 
   /// ===============================
   /// 판서 데이터 저장 (POST /strokes)
@@ -42,7 +44,7 @@ class ApiService {
         'strokes': strokesJson,
       };
 
-      debugPrint('📤 POST /strokes: ${strokes.length} strokes');
+      debugPrint('POST /strokes: ${strokes.length} strokes');
 
       final response = await http
           .post(
@@ -107,26 +109,42 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final strokesJson = data['strokes'] as List;
+        final strokesJson = (data['strokes'] as List?) ?? const [];
 
         final strokes = strokesJson.map((json) {
-          final points = (json['pts'] as List)
-              .map((p) => DrawPoint(
-            x: (p['x'] as num).toDouble(),
-            y: (p['y'] as num).toDouble(),
-          ))
-              .toList();
+          final item = Map<String, dynamic>.from(json as Map);
+          final points = ((item['pts'] as List?) ?? const [])
+              .whereType<Map>()
+              .map((p) {
+            final pointMap = Map<String, dynamic>.from(p);
+            return DrawPoint(
+              x: (pointMap['x'] as num?)?.toDouble() ?? 0.0,
+              y: (pointMap['y'] as num?)?.toDouble() ?? 0.0,
+            );
+          }).toList();
 
-          final colorString = json['c'] as String;
-          final colorInt =
-          int.parse(colorString.replaceFirst('#', ''), radix: 16);
+          final colorString = (item['c'] as String?) ?? '#000000';
+          final colorInt = int.tryParse(
+                colorString.replaceFirst('#', ''),
+                radix: 16,
+              ) ??
+              0;
           final color = Color(0xFF000000 | colorInt);
 
+          final rawStrokeId = item['sId'];
+          final strokeId = rawStrokeId is num
+              ? rawStrokeId.toInt()
+              : int.tryParse(rawStrokeId?.toString() ?? '') ?? 0;
+          final rawWidth = item['w'];
+          final width = rawWidth is num
+              ? rawWidth.toDouble()
+              : double.tryParse(rawWidth?.toString() ?? '') ?? 2.5;
+
           return Stroke(
-            strokeId: json['sId'] as int,
+            strokeId: strokeId,
             points: points,
             color: color,
-            width: (json['w'] as num).toDouble(),
+            width: width,
           );
         }).toList();
 
@@ -163,18 +181,19 @@ class ApiService {
   /// ===============================
   static Future<Uint8List> exportPdf({
     required String sessionId,
-    required List<Map<String, dynamic>> strokes,
+    List<Map<String, dynamic>>? strokes,
   }) async {
     final token = await AuthService.getToken();
 
     final body = {
       'sessionId': sessionId,
-      'strokes': strokes,
     };
 
-    debugPrint('📤 POST /export/pdf');
+    debugPrint('POST /export/pdf');
     debugPrint('   sessionId: $sessionId');
-    debugPrint('   strokes: ${strokes.length}개');
+    if (strokes != null) {
+      debugPrint('   client strokes prepared: ${strokes.length}개');
+    }
 
     final response = await http
         .post(
@@ -238,6 +257,71 @@ class ApiService {
   }
 
   /// ===============================
+  /// 세션 생성 (POST /session/create)
+  /// ===============================
+  static Future<ApiResponse<SessionCreateResponse>> createSession({
+    required String classId,
+    String? materialId,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+
+      final body = {
+        'classId': classId,
+        if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      };
+
+      debugPrint('POST /session/create');
+      debugPrint('   classId: $classId');
+      if (materialId != null && materialId.isNotEmpty) {
+        debugPrint('   materialId: $materialId');
+      }
+
+      final response = await http
+          .post(
+        Uri.parse('$baseUrl/session/create'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      )
+          .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutException('Request timeout'),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return ApiResponse<SessionCreateResponse>(
+          success: true,
+          data: SessionCreateResponse.fromJson(data),
+        );
+      }
+
+      String message = '세션 생성에 실패했습니다';
+      String code = 'CREATE_SESSION_FAILED';
+      try {
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        message = error['message'] as String? ?? message;
+        code = error['code'] as String? ?? code;
+      } catch (_) {}
+
+      return ApiResponse<SessionCreateResponse>(
+        success: false,
+        error: code,
+        message: message,
+      );
+    } catch (e) {
+      return ApiResponse<SessionCreateResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  /// ===============================
   /// 로그인 (POST /auth/dev-login)
   /// ===============================
   static Future<ApiResponse<LoginResponse>> login({
@@ -245,7 +329,7 @@ class ApiService {
     required String role,
   }) async {
     try {
-      debugPrint('📤 POST /auth/dev-login: userId=$userId, role=$role');
+      debugPrint('POST /auth/dev-login: userId=$userId, role=$role');
 
       final body = {'userId': userId, 'role': role};
 
@@ -261,24 +345,35 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugPrint('✅ Login success: ${data['user']['userId']}');
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final user = (data['user'] is Map)
+            ? Map<String, dynamic>.from(data['user'] as Map)
+            : <String, dynamic>{};
+        final token = data['token']?.toString() ?? '';
+        final parsedUserId =
+            user['userId']?.toString() ?? data['userId']?.toString() ?? '';
+        final parsedRole =
+            user['role']?.toString() ?? data['role']?.toString() ?? role;
+
+        debugPrint('✅ Login success: $parsedUserId');
 
         return ApiResponse<LoginResponse>(
           success: true,
           data: LoginResponse(
-            token: data['token'],
-            userId: data['user']['userId'],
-            role: data['user']['role'],
+            token: token,
+            userId: parsedUserId,
+            role: parsedRole,
           ),
         );
       } else {
-        final error = jsonDecode(response.body);
-        debugPrint('❌ Login failed: ${error['message']}');
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        final message = error['message']?.toString() ?? 'Login failed';
+        final code = error['code']?.toString() ?? 'LOGIN_FAILED';
+        debugPrint('❌ Login failed: $message');
         return ApiResponse<LoginResponse>(
           success: false,
-          error: error['code'] ?? 'LOGIN_FAILED',
-          message: error['message'] ?? 'Login failed',
+          error: code,
+          message: message,
         );
       }
     } catch (e) {
@@ -300,7 +395,7 @@ class ApiService {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('📤 POST /sessions/$sessionId/end');
+      debugPrint('POST /sessions/$sessionId/end');
 
       final response = await http
           .post(
@@ -357,7 +452,7 @@ class ApiService {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('📤 GET /sessions/$sessionId/whiteboard');
+      debugPrint('GET /sessions/$sessionId/whiteboard');
 
       final response = await http
           .get(
@@ -416,7 +511,7 @@ class ApiService {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('📤 GET /sessions/$sessionId/status');
+      debugPrint('GET /sessions/$sessionId/status');
 
       final response = await http
           .get(
@@ -480,7 +575,7 @@ class ApiService {
   }) async {
     final token = await AuthService.getToken();
 
-    debugPrint('📤 POST /materials/pdf: $fileName (classId: $classId)');
+    debugPrint('POST /materials/pdf: $fileName (classId: $classId)');
 
     final request = http.MultipartRequest(
       'POST',
@@ -496,6 +591,7 @@ class ApiService {
       'file',
       filePath,
       filename: fileName,
+      contentType: MediaType('application', 'pdf'),
     ));
 
     final streamedResponse = await request.send().timeout(
@@ -558,12 +654,70 @@ class ApiService {
       final items = data['items'] as List<dynamic>? ?? [];
       debugPrint('✅ Materials loaded: ${items.length}개');
       return items
-          .map((e) => MaterialUploadResponse.fromJson(e as Map<String, dynamic>))
+          .whereType<Map>()
+          .map((e) => MaterialUploadResponse.fromJson(Map<String, dynamic>.from(e)))
           .toList();
     }
 
-    debugPrint('❌ Get materials failed [${response.statusCode}]');
-    return [];
+    String errorMessage = '자료 목록을 불러오지 못했습니다';
+    try {
+      final error = jsonDecode(response.body) as Map<String, dynamic>;
+      errorMessage = error['message'] as String? ?? errorMessage;
+    } catch (_) {}
+
+    debugPrint('❌ Get materials failed [${response.statusCode}]: $errorMessage');
+    throw MaterialUploadException(errorMessage, code: 'GET_MATERIALS_FAILED');
+  }
+
+  /// ===============================
+  /// 자료 다운로드 URL 조회 (GET /materials/:materialId/download-url)
+  /// presigned URL 반환
+  /// ===============================
+  static Future<String> getMaterialDownloadUrl({
+    required String materialId,
+  }) async {
+    final token = await AuthService.getToken();
+
+    debugPrint('📥 GET /materials/$materialId/download-url');
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/materials/$materialId/download-url'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+    ).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Request timeout'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final url = data['url']?.toString().trim() ?? '';
+      if (url.isEmpty) {
+        throw const MaterialUploadException(
+          '다운로드 URL이 비어 있습니다',
+          code: 'EMPTY_DOWNLOAD_URL',
+        );
+      }
+      debugPrint('✅ Material download URL loaded: $materialId');
+      return url;
+    }
+
+    String errorMessage = '자료 다운로드 URL을 불러오지 못했습니다';
+    try {
+      final error = jsonDecode(response.body) as Map<String, dynamic>;
+      errorMessage = error['message'] as String? ?? errorMessage;
+    } catch (_) {}
+
+    debugPrint(
+      '❌ Get material download URL failed [${response.statusCode}]: '
+      '$errorMessage',
+    );
+    throw MaterialUploadException(
+      errorMessage,
+      code: 'GET_DOWNLOAD_URL_FAILED',
+    );
   }
 }
 
@@ -621,6 +775,33 @@ class SessionStatus {
   bool get isArchived => status == 'ARCHIVED';
 }
 
+class SessionCreateResponse {
+  final String sessionId;
+  final String? materialId;
+  final String? joinUrlTeacher;
+  final String? joinUrlStudent;
+  final int? ttlSeconds;
+
+  SessionCreateResponse({
+    required this.sessionId,
+    this.materialId,
+    this.joinUrlTeacher,
+    this.joinUrlStudent,
+    this.ttlSeconds,
+  });
+
+  factory SessionCreateResponse.fromJson(Map<String, dynamic> json) {
+    final ttlRaw = json['ttlSeconds'];
+    return SessionCreateResponse(
+      sessionId: json['sessionId']?.toString() ?? '',
+      materialId: json['materialId']?.toString(),
+      joinUrlTeacher: json['joinUrlTeacher']?.toString(),
+      joinUrlStudent: json['joinUrlStudent']?.toString(),
+      ttlSeconds: ttlRaw is num ? ttlRaw.toInt() : int.tryParse(ttlRaw?.toString() ?? ''),
+    );
+  }
+}
+
 class ApiResponse<T> {
   final bool success;
   final T? data;
@@ -656,13 +837,22 @@ class MaterialUploadResponse {
   });
 
   factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
+    String _toStringValue(dynamic value, {required String fallback}) {
+      if (value == null) return fallback;
+      final result = value.toString().trim();
+      return result.isEmpty ? fallback : result;
+    }
+
     return MaterialUploadResponse(
-      id: json['id'] as String,
-      type: json['type'] as String? ?? 'pdf',
-      url: json['url'] as String,
-      name: json['name'] as String,
-      classId: json['classId'] as String,
-      createdAt: json['createdAt'] as String,
+      id: _toStringValue(json['id'], fallback: ''),
+      type: _toStringValue(json['type'], fallback: 'pdf'),
+      url: _toStringValue(json['url'], fallback: ''),
+      name: _toStringValue(json['name'], fallback: 'untitled'),
+      classId: _toStringValue(json['classId'], fallback: ''),
+      createdAt: _toStringValue(
+        json['createdAt'],
+        fallback: DateTime.now().toIso8601String(),
+      ),
     );
   }
 }

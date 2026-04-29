@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../config/app_config.dart';
 import '../models/drawing_models.dart';
+import '../drawing_event_store.dart';
 import '../native_drawing.dart';
 import '../services/socket_service.dart';
 import '../services/session_storage.dart';
@@ -13,6 +15,7 @@ import '../services/session_storage.dart';
 /// ===============================
 class DrawingProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
+  final DrawingEventStore _eventStore = DrawingEventStore.instance;
   StreamSubscription<Map<String, dynamic>>? _nativeDrawEventSubscription;
 
   SocketService get socketService => _socketService;
@@ -45,10 +48,14 @@ class DrawingProvider extends ChangeNotifier {
   String? _userId;
   String? _roomId;
   bool _isTeacher = false;
+  String? _activeMaterialId;
+  int? _activePageNumber;
 
   // 소켓 상태
   bool _isSocketConnected = false;
   int _strokeIdSeed = DateTime.now().microsecondsSinceEpoch;
+  String? _localDraftKey;
+  bool _isHydratingLocalDraft = false;
 
   // lastTick (자동 재join용)
   int? _lastTick;
@@ -72,6 +79,9 @@ class DrawingProvider extends ChangeNotifier {
   bool get isSocketConnected => _isSocketConnected;
   String? get userId => _userId;
   String? get roomId => _roomId;
+  String? get localDraftKey => _localDraftKey;
+  String? get activeMaterialId => _activeMaterialId;
+  int? get activePageNumber => _activePageNumber;
 
   List<Stroke> get myAllStrokes =>
       [..._myStrokes.values, ..._myActiveStrokes.values];
@@ -80,8 +90,141 @@ class DrawingProvider extends ChangeNotifier {
   List<Stroke> get allStrokes => [...myAllStrokes, ...othersAllStrokes];
 
   DrawingProvider() {
-    _setupNativeDrawingListener();
+    if (AppConfig.enableNativeTeacherDrawing) {
+      _setupNativeDrawingListener();
+    }
     _setupSocketListeners();
+  }
+
+  Future<void> openDocument({required String draftKey}) async {
+    _localDraftKey = draftKey;
+    _clearAllInMemory(notify: false);
+    await _restoreFromLocalDraft();
+    notifyListeners();
+  }
+
+  Future<void> switchLocalDraft({required String draftKey}) async {
+    if (_localDraftKey == draftKey) return;
+    await _persistLocalDraft();
+    _localDraftKey = draftKey;
+    _myStrokes.clear();
+    _myActiveStrokes.clear();
+    _studentPrivateStrokes.clear();
+    _studentPrivateActiveStrokes.clear();
+    await _restoreFromLocalDraft();
+    notifyListeners();
+  }
+
+  Future<void> _restoreFromLocalDraft() async {
+    final draftKey = _localDraftKey;
+    if (draftKey == null || draftKey.isEmpty) return;
+    final payload = await _eventStore.loadDraft(draftKey);
+    if (payload == null) return;
+
+    _isHydratingLocalDraft = true;
+    try {
+      _myStrokes
+        ..clear()
+        ..addAll(_deserializeStrokeMap(payload['myStrokes']));
+      _studentPrivateStrokes
+        ..clear()
+        ..addAll(_deserializeStrokeMap(payload['studentPrivateStrokes']));
+      _myActiveStrokes.clear();
+      _studentPrivateActiveStrokes.clear();
+    } finally {
+      _isHydratingLocalDraft = false;
+    }
+  }
+
+  Future<void> _persistLocalDraft() async {
+    final draftKey = _localDraftKey;
+    if (draftKey == null || draftKey.isEmpty) return;
+    await _eventStore.saveDraft(
+      draftKey: draftKey,
+      payload: {
+        'myStrokes': _serializeStrokeMap(_myStrokes),
+        'studentPrivateStrokes': _serializeStrokeMap(_studentPrivateStrokes),
+      },
+    );
+  }
+
+  void _persistLocalDraftSoon() {
+    if (_isHydratingLocalDraft || _localDraftKey == null) return;
+    unawaited(_persistLocalDraft());
+  }
+
+  Future<void> persistCurrentDraft() async {
+    if (_isHydratingLocalDraft || _localDraftKey == null) return;
+    await _persistLocalDraft();
+  }
+
+  Future<void> clearLocalDraft() async {
+    final draftKey = _localDraftKey;
+    if (draftKey == null || draftKey.isEmpty) return;
+    await _eventStore.deleteDraft(draftKey);
+    _clearAllInMemory();
+  }
+
+  void _clearAllInMemory({bool notify = true}) {
+    _myStrokes.clear();
+    _myActiveStrokes.clear();
+    _othersStrokes.clear();
+    _othersActiveStrokes.clear();
+    _studentPrivateStrokes.clear();
+    _studentPrivateActiveStrokes.clear();
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> _serializeStrokeMap(Map<int, Stroke> source) {
+    return source.map((strokeId, stroke) {
+      return MapEntry(
+        '$strokeId',
+        {
+          'strokeId': stroke.strokeId,
+          'color': '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+          'width': stroke.width,
+          'points': stroke.points.map((point) => point.toJson()).toList(),
+          'refinedPoints': stroke.refinedPoints?.map((point) => point.toJson()).toList(),
+        },
+      );
+    });
+  }
+
+  Map<int, Stroke> _deserializeStrokeMap(dynamic raw) {
+    if (raw is! Map) return {};
+    final result = <int, Stroke>{};
+    for (final entry in raw.entries) {
+      final value = entry.value;
+      if (value is! Map) continue;
+      final json = Map<String, dynamic>.from(value);
+      final strokeId = (json['strokeId'] as num?)?.toInt();
+      final width = (json['width'] as num?)?.toDouble();
+      final pointsRaw = json['points'] as List<dynamic>?;
+      if (strokeId == null || width == null || pointsRaw == null || pointsRaw.isEmpty) {
+        continue;
+      }
+      final points = pointsRaw
+          .whereType<Map>()
+          .map((point) => DrawPoint.fromJson(Map<String, dynamic>.from(point)))
+          .toList();
+      if (points.isEmpty) continue;
+      final refinedRaw = json['refinedPoints'] as List<dynamic>?;
+      final refinedPoints = refinedRaw
+          ?.whereType<Map>()
+          .map((point) => DrawPoint.fromJson(Map<String, dynamic>.from(point)))
+          .toList();
+
+      result[strokeId] = Stroke(
+        strokeId: strokeId,
+        color: _parseSnapshotColor(json['color'] as String?),
+        width: width,
+        points: points,
+        refinedPoints: refinedPoints == null || refinedPoints.isEmpty ? null : refinedPoints,
+      );
+    }
+    return result;
   }
 
   /// ===============================
@@ -100,6 +243,8 @@ class DrawingProvider extends ChangeNotifier {
     _userId = userId;
     _roomId = roomId;
     _isTeacher = isTeacher;
+    _activeMaterialId = materialId;
+    _activePageNumber ??= 1;
 
     // 저장된 lastTick 로드 (자동 재join용)
     final session = await SessionStorage.getLastSession();
@@ -116,6 +261,7 @@ class DrawingProvider extends ChangeNotifier {
         isTeacher: isTeacher,
         classId: classId,
         materialId: materialId,
+        pageNumber: _activePageNumber,
       );
 
       _isSocketConnected = _socketService.isConnected;
@@ -172,9 +318,27 @@ class DrawingProvider extends ChangeNotifier {
     _socketService.onRoomJoined = (data) {
       debugPrint('✅ Room joined, scheduling sync:request...');
       Future.delayed(const Duration(milliseconds: 300), () {
-        _socketService.requestSync(lastTick: _lastTick);
+        _socketService.requestSync(
+          lastTick: _lastTick,
+          materialId: _activeMaterialId,
+          pageNumber: _activePageNumber,
+        );
         debugPrint('📤 sync:request sent (lastTick: $_lastTick)');
       });
+    };
+
+    _socketService.onSyncStateRaw = (data) {
+      final tick = (data['tick'] as num?)?.toInt();
+      if (tick != null) _lastTick = tick;
+    };
+
+    _socketService.onSyncState = (strokes) {
+      final normalized = strokes
+          .whereType<Map>()
+          .map((s) => Map<String, dynamic>.from(s))
+          .toList();
+      loadSavedStrokes(normalized);
+      debugPrint('📥 sync:state applied strokes=${normalized.length}');
     };
 
     _socketService.onDisconnected = () {
@@ -217,6 +381,7 @@ class DrawingProvider extends ChangeNotifier {
   /// 수신된 이벤트 처리 (다른 사람)
   /// ===============================
   void _handleReceivedDrawEvent(DrawEvent event) {
+    if (!_matchesActivePage(event)) return;
     switch (event.eventType) {
       case DrawEventType.drawStart: _handleOthersDrawStart(event); break;
       case DrawEventType.drawMove: _handleOthersDrawMove(event); break;
@@ -231,36 +396,73 @@ class DrawingProvider extends ChangeNotifier {
     if (event.eventType == DrawEventType.drawEnd &&
         (event.points == null || event.points!.isEmpty)) return;
 
-    switch (event.eventType) {
-      case DrawEventType.drawStart: _handleMyDrawStart(event); break;
-      case DrawEventType.drawMove: _handleMyDrawMove(event); break;
-      case DrawEventType.drawEnd: _handleMyDrawEnd(event); break;
-      case DrawEventType.undo: _handleMyUndo(event); break;
+    final scopedEvent = _decorateEventForActivePage(event);
+
+    switch (scopedEvent.eventType) {
+      case DrawEventType.drawStart: _handleMyDrawStart(scopedEvent); break;
+      case DrawEventType.drawMove: _handleMyDrawMove(scopedEvent); break;
+      case DrawEventType.drawEnd: _handleMyDrawEnd(scopedEvent); break;
+      case DrawEventType.undo: _handleMyUndo(scopedEvent); break;
       case DrawEventType.eraser:
-        if (event.strokeId == 0) { clear(); return; }
-        _handleMyUndo(event);
+        if (scopedEvent.strokeId == 0) { clear(); return; }
+        _handleMyUndo(scopedEvent);
         break;
       case DrawEventType.clearAll: clear(); return;
     }
 
     if (_socketService.isConnected && _userId != null) {
-      switch (event.eventType) {
+      switch (scopedEvent.eventType) {
         case DrawEventType.drawStart:
         case DrawEventType.drawMove:
         case DrawEventType.drawEnd:
-          _socketService.sendDrawEvent(event, _userId!);
+          _socketService.sendDrawEvent(scopedEvent);
           break;
         case DrawEventType.undo:
-          _socketService.sendUndo(event.strokeId, _userId!);
+          _socketService.sendUndo(scopedEvent.strokeId);
           break;
         case DrawEventType.eraser:
-          _socketService.sendClearAll(_userId!);
+          _socketService.sendClearAll(
+            materialId: _activeMaterialId,
+            pageNumber: _activePageNumber,
+            scope: 'page',
+          );
           break;
         case DrawEventType.clearAll:
-          _socketService.sendClearAll(_userId!);
+          _socketService.sendClearAll(
+            materialId: _activeMaterialId,
+            pageNumber: _activePageNumber,
+            scope: 'page',
+          );
           break;
       }
     }
+  }
+
+  void updatePageContext({
+    required String materialId,
+    required int pageNumber,
+  }) {
+    _activeMaterialId = materialId;
+    _activePageNumber = pageNumber;
+  }
+
+  DrawEvent _decorateEventForActivePage(DrawEvent event) {
+    return event.copyWith(
+      materialId: event.materialId ?? _activeMaterialId,
+      pageNumber: event.pageNumber ?? _activePageNumber,
+      scope: event.scope ?? (event.eventType == DrawEventType.clearAll ? 'page' : null),
+    );
+  }
+
+  bool _matchesActivePage(DrawEvent event) {
+    if (event.materialId == null || event.pageNumber == null) {
+      return true;
+    }
+    if (_activeMaterialId == null || _activePageNumber == null) {
+      return true;
+    }
+    return event.materialId == _activeMaterialId &&
+        event.pageNumber == _activePageNumber;
   }
 
   void debugInjectDrawEvent(Map<String, dynamic> payload) {
@@ -337,6 +539,7 @@ class DrawingProvider extends ChangeNotifier {
     _myActiveStrokes.clear();
     _othersStrokes.clear();
     _othersActiveStrokes.clear();
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
@@ -384,6 +587,7 @@ class DrawingProvider extends ChangeNotifier {
         width: _lastNativeWidth ?? _currentWidth,
         points: event.points!,
       );
+      _persistLocalDraftSoon();
       notifyListeners();
       return;
     }
@@ -397,12 +601,23 @@ class DrawingProvider extends ChangeNotifier {
     if (event.width != null) final_ = final_.copyWith(width: event.width);
 
     _myStrokes[event.strokeId] = final_;
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
   void _handleMyUndo(DrawEvent event) {
     final removed = _myStrokes.remove(event.strokeId) != null ||
         _myActiveStrokes.remove(event.strokeId) != null;
+
+    if (!removed) {
+      debugPrint(
+        '[draw][warn] my undo/eraser target not found sId=${event.strokeId} '
+        'myCompleted=${_myStrokes.length} myActive=${_myActiveStrokes.length}',
+      );
+      return;
+    }
+    _persistLocalDraftSoon();
+    notifyListeners();
     if (removed) notifyListeners();
   }
 
@@ -475,13 +690,34 @@ class DrawingProvider extends ChangeNotifier {
       restoredLastWidth = width;
     }
 
-    if (restored.isEmpty) return;
+    if (restored.isEmpty) {
+      _myStrokes.clear();
+      _myActiveStrokes.clear();
+      await _persistLocalDraft();
+      notifyListeners();
+      return;
+    }
 
-    _myStrokes.addAll(restored);
-    _myActiveStrokes.removeWhere((id, _) => restored.containsKey(id));
+    _myStrokes
+      ..clear()
+      ..addAll(restored);
+    _myActiveStrokes.clear();
     _lastNativeColor = restoredLastColor ?? _lastNativeColor;
     _lastNativeWidth = restoredLastWidth ?? _lastNativeWidth;
+    await _persistLocalDraft();
     notifyListeners();
+  }
+
+  List<Map<String, dynamic>> buildNativeSnapshotPayload() {
+    return myAllStrokes.map((stroke) {
+      return {
+        'sId': stroke.strokeId,
+        'c':
+            '#${stroke.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+        'w': stroke.width,
+        'pts': stroke.displayPoints.map((point) => point.toJson()).toList(),
+      };
+    }).toList();
   }
 
   /// ===============================
@@ -495,6 +731,8 @@ class DrawingProvider extends ChangeNotifier {
     final event = DrawEvent(
       eventType: DrawEventType.drawStart,
       strokeId: strokeId,
+      materialId: _activeMaterialId,
+      pageNumber: _activePageNumber,
       point: point,
       color: _currentColor,
       width: _currentWidth,
@@ -503,28 +741,31 @@ class DrawingProvider extends ChangeNotifier {
     _handleMyDrawStart(event);
 
     if (_isSocketConnected && _userId != null) {
-      _socketService.sendDrawEvent(event, _userId!);
+      _socketService.sendDrawEvent(event);
     }
-
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
 
     return strokeId;
   }
 
   void sendDrawMove(int strokeId, DrawPoint point) {
+    final activeStroke = _myActiveStrokes[strokeId];
+
     final event = DrawEvent(
       eventType: DrawEventType.drawMove,
       strokeId: strokeId,
+      materialId: _activeMaterialId,
+      pageNumber: _activePageNumber,
       point: point,
+      color: activeStroke?.color ?? _currentColor,
+      width: activeStroke?.width ?? _currentWidth,
     );
 
     _handleMyDrawMove(event);
 
     if (_isSocketConnected && _userId != null) {
-      _socketService.sendDrawEvent(event, _userId!);
+      _socketService.sendDrawEvent(event);
     }
 
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   void sendDrawEnd(int strokeId, List<DrawPoint> points) {
@@ -533,6 +774,8 @@ class DrawingProvider extends ChangeNotifier {
     final event = DrawEvent(
       eventType: DrawEventType.drawEnd,
       strokeId: strokeId,
+      materialId: _activeMaterialId,
+      pageNumber: _activePageNumber,
       points: List<DrawPoint>.from(points),
       color: activeStroke?.color ?? _currentColor,  // 서버 전송에 필요
       width: activeStroke?.width ?? _currentWidth,  // 서버 전송에 필요
@@ -541,10 +784,9 @@ class DrawingProvider extends ChangeNotifier {
     _handleMyDrawEnd(event);
 
     if (_isSocketConnected && _userId != null) {
-      _socketService.sendDrawEvent(event, _userId!);
+      _socketService.sendDrawEvent(event);
     }
 
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   void sendUndo(int strokeId) {
@@ -553,10 +795,8 @@ class DrawingProvider extends ChangeNotifier {
     _handleMyUndo(event);
 
     if (_isSocketConnected && _userId != null) {
-      _socketService.sendUndo(strokeId, _userId!);
+      _socketService.sendUndo(strokeId);
     }
-
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   /// ===============================
@@ -594,6 +834,7 @@ class DrawingProvider extends ChangeNotifier {
   void clearStudentPrivateStrokes() {
     _studentPrivateStrokes.clear();
     _studentPrivateActiveStrokes.clear();
+    _persistLocalDraftSoon();
     notifyListeners();
   }
 
@@ -608,7 +849,11 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_isTeacher && _isSocketConnected && _userId != null) {
-      _socketService.sendClearAll(_userId!);
+      _socketService.sendClearAll(
+        materialId: _activeMaterialId,
+        pageNumber: _activePageNumber,
+        scope: 'page',
+      );
     }
   }
 

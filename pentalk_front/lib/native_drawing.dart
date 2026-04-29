@@ -90,6 +90,16 @@ class NativeDrawingBridge {
     });
   }
 
+  static Future<void> setPageContext({
+    required String materialId,
+    required int pageNumber,
+  }) async {
+    await _channel.invokeMethod('setPageContext', {
+      'materialId': materialId,
+      'pageNumber': pageNumber,
+    });
+  }
+
   static Future<List<Map<String, dynamic>>> exportDrawingSnapshot() async {
     final result = await _channel.invokeMethod<List<dynamic>>('exportDrawing');
     if (result == null) {
@@ -101,10 +111,26 @@ class NativeDrawingBridge {
         .toList();
   }
 
+  static Future<void> replaceDrawingSnapshot(
+    List<Map<String, dynamic>> snapshot,
+  ) async {
+    await _channel.invokeMethod('replaceDrawing', {
+      'strokes': snapshot,
+    });
+  }
+
   static Future<void> sendDrawEvent(Map<String, dynamic> payload) async {
     debugPrint('[draw][send] $payload');
     await _eventStore.saveEvent(direction: 'outbound', payload: payload);
     await _channel.invokeMethod('sendDrawEvent', payload);
+  }
+
+  static Future<void> undoLastStroke() async {
+    await _channel.invokeMethod('undoLastStroke');
+  }
+
+  static Future<void> clearDrawing() async {
+    await _channel.invokeMethod('clearDrawing');
   }
 
   static Future<void> _handleMethodCall(MethodCall call) async {

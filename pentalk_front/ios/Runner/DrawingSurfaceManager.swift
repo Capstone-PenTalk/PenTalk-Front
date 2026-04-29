@@ -9,4 +9,20 @@ final class DrawingSurfaceManager {
     func exportDrawingSnapshot() -> [[String: Any]] {
         surface?.exportDrawingSnapshot() ?? []
     }
+
+    func undoLastStroke() {
+        surface?.undoLastStroke()
+    }
+
+    func clearDrawing() {
+        surface?.clearDrawing()
+    }
+
+    func replaceDrawingSnapshot(_ snapshot: [[String: Any]]) {
+        surface?.replaceDrawingSnapshot(snapshot)
+    }
+
+    func updatePageContext(materialId: String, pageNumber: Int) {
+        surface?.updatePageContext(materialId: materialId, pageNumber: pageNumber)
+    }
 }
