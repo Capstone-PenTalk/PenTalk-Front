@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../config/app_config.dart';
 import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
@@ -81,22 +82,22 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
           widget.onCanvasSize?.call(canvasSize);
         });
 
-        return Consumer<DrawingProvider>(
-          builder: (context, provider, child) {
-            // 그리기 모드일 때는 InteractiveViewer 비활성화
-            final isDrawingMode = provider.isDrawingMode && widget.isTeacher;
-            final useNativeTeacherInput = !kIsWeb &&
-                defaultTargetPlatform == TargetPlatform.iOS &&
-                widget.isTeacher;
-            final backgroundScaler = CoordinateScaler(
-              canvasSize: canvasSize,
-              contentSize: _backgroundImageSize,
-              fit: BoxFit.contain,
-            );
-            final contentRect = backgroundScaler.contentRect;
+        final isDrawingMode = context.select<DrawingProvider, bool>(
+          (provider) => provider.isDrawingMode && widget.isTeacher,
+        );
+        final useNativeTeacherInput = AppConfig.enableNativeTeacherDrawing &&
+            !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.iOS &&
+            widget.isTeacher;
+        final backgroundScaler = CoordinateScaler(
+          canvasSize: canvasSize,
+          contentSize: _backgroundImageSize,
+          fit: BoxFit.contain,
+        );
+        final contentRect = backgroundScaler.contentRect;
 
-            return Stack(
-              children: [
+        return Stack(
+          children: [
                 // ====================================
                 // InteractiveViewer로 전체 감싸기
                 // ====================================
@@ -140,7 +141,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                         // ====================================
                         // 레이어 3: 내 판서 (검은색) - 교사 공용 판서
                         // ====================================
-                        if (widget.isTeacher && !useNativeTeacherInput)
+                        if (widget.isTeacher)
                           RepaintBoundary(
                             child: _MyDrawingLayer(
                               canvasSize: canvasSize,
@@ -282,9 +283,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                       ),
                     ),
                   ),
-              ],
-            );
-          },
+          ],
         );
       },
     );
@@ -651,6 +650,11 @@ class _NativeTeacherInputLayer extends StatefulWidget {
 }
 
 class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
+  int? _lastColorValue;
+  double? _lastWidth;
+  Size? _lastRenderSize;
+  Size? _lastContentSize;
+
   @override
   void initState() {
     super.initState();
@@ -662,30 +666,50 @@ class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
   @override
   void didUpdateWidget(covariant _NativeTeacherInputLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncNativeBrushAndMetrics();
-    });
+    if (oldWidget.renderSize != widget.renderSize ||
+        oldWidget.contentSize != widget.contentSize) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncNativeBrushAndMetrics();
+      });
+    }
   }
 
-  Future<void> _syncNativeBrushAndMetrics() async {
+  Future<void> _syncNativeBrushAndMetrics({
+    int? colorValue,
+    double? width,
+  }) async {
     final provider = context.read<DrawingProvider>();
     final contentSize = widget.contentSize ?? widget.renderSize;
+    final resolvedColorValue = colorValue ?? provider.currentColor.toARGB32();
+    final resolvedWidth = width ?? provider.currentWidth;
+    final shouldUpdateBrush =
+        _lastColorValue != resolvedColorValue || _lastWidth != resolvedWidth;
+    final shouldUpdateMetrics =
+        _lastRenderSize != widget.renderSize || _lastContentSize != contentSize;
 
     try {
-      await NativeDrawingBridge.setBrush(
-        BrushConfig(
-          tool: 'pen',
-          color: provider.currentColor.toARGB32(),
-          size: provider.currentWidth,
-          eraserSize: 24,
-        ),
-      );
-      await NativeDrawingBridge.setDrawingMetrics(
-        renderWidth: widget.renderSize.width,
-        renderHeight: widget.renderSize.height,
-        pdfWidth: contentSize.width,
-        pdfHeight: contentSize.height,
-      );
+      if (shouldUpdateBrush) {
+        await NativeDrawingBridge.setBrush(
+          BrushConfig(
+            tool: 'pen',
+            color: resolvedColorValue,
+            size: resolvedWidth,
+            eraserSize: 24,
+          ),
+        );
+        _lastColorValue = resolvedColorValue;
+        _lastWidth = resolvedWidth;
+      }
+      if (shouldUpdateMetrics) {
+        await NativeDrawingBridge.setDrawingMetrics(
+          renderWidth: widget.renderSize.width,
+          renderHeight: widget.renderSize.height,
+          pdfWidth: contentSize.width,
+          pdfHeight: contentSize.height,
+        );
+        _lastRenderSize = widget.renderSize;
+        _lastContentSize = contentSize;
+      }
     } catch (e) {
       debugPrint('Failed to sync native drawing config: $e');
     }
@@ -693,30 +717,30 @@ class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<DrawingProvider, ({Color color, double width})>(
-      selector: (context, provider) => (
-        color: provider.currentColor,
+    final brush = context.select<DrawingProvider, ({int colorValue, double width})>(
+      (provider) => (
+        colorValue: provider.currentColor.toARGB32(),
         width: provider.currentWidth,
       ),
-      builder: (context, brush, child) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _syncNativeBrushAndMetrics();
-        });
-
-        return IgnorePointer(
-          ignoring: !widget.isDrawingEnabled,
-          child: UiKitView(
-            viewType: 'pentalk/drawing_view',
-            creationParams: {
-              'tool': 'pen',
-              'color': brush.color.toARGB32(),
-              'size': brush.width,
-              'eraserSize': 24.0,
-            },
-            creationParamsCodec: const StandardMessageCodec(),
-          ),
-        );
-      },
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncNativeBrushAndMetrics(
+        colorValue: brush.colorValue,
+        width: brush.width,
+      );
+    });
+    return IgnorePointer(
+      ignoring: !widget.isDrawingEnabled,
+      child: UiKitView(
+        viewType: 'pentalk/drawing_view',
+        creationParams: {
+          'tool': 'pen',
+          'color': brush.colorValue,
+          'size': brush.width,
+          'eraserSize': 24.0,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+      ),
     );
   }
 }

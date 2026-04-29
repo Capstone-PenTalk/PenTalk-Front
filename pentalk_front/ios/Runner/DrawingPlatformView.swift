@@ -79,6 +79,8 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
     private var syntheticStrokeIdSeed: Int = Int(Date().timeIntervalSince1970 * 1000)
     private var hasSentLiveDrawStart: Bool = false
     private var lastLiveMoveSentAt: TimeInterval = 0
+    private var currentMaterialId: String?
+    private var currentPageNumber: Int?
 
     init(frame: CGRect, viewId: Int64, arguments: Any?) {
         self.currentConfig = BrushConfigParser.parse(arguments)
@@ -207,6 +209,11 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
         isDrawing = false
         hasSentLiveDrawStart = false
         lastLiveMoveSentAt = 0
+    }
+
+    func updatePageContext(materialId: String, pageNumber: Int) {
+        currentMaterialId = materialId
+        currentPageNumber = pageNumber
     }
 
     func replaceDrawingSnapshot(_ snapshot: [[String: Any]]) {
@@ -430,11 +437,12 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             lastLiveMoveSentAt = 0
             return
         }
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "e": "de",
             "sId": strokeId,
             "pts": activePoints,
         ]
+        appendPageContext(to: &payload)
         DrawingChannel.notifyDrawEvent(payload)
         if #available(iOS 14.0, *) {
             if let stroke = canvasView.drawing.strokes.last {
@@ -457,10 +465,12 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
                 for signature in removed {
                     if let strokeId = strokeIdBySignature[signature] {
                         mappedCount += 1
-                        DrawingChannel.notifyDrawEvent([
+                        var payload: [String: Any] = [
                             "e": "er",
                             "sId": strokeId,
-                        ])
+                        ]
+                        appendPageContext(to: &payload)
+                        DrawingChannel.notifyDrawEvent(payload)
                     } else {
                         NSLog("[draw][ios][warn] eraser removed stroke without mapped sId signature=%@", signature)
                     }
@@ -534,7 +544,7 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             "p": Double(pressure),
         ]
         activePoints.append(pointPayload)
-        DrawingChannel.notifyDrawEvent([
+        var payload: [String: Any] = [
             "e": "ds",
             "sId": strokeId,
             "x": normalized.x,
@@ -542,7 +552,9 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             "p": pressure,
             "c": currentConfig.color.hexRGB(),
             "w": currentConfig.size,
-        ])
+        ]
+        appendPageContext(to: &payload)
+        DrawingChannel.notifyDrawEvent(payload)
         hasSentLiveDrawStart = true
     }
 
@@ -570,13 +582,15 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
             "y": Double(normalized.y),
             "p": Double(pressure),
         ])
-        DrawingChannel.notifyDrawEvent([
+        var payload: [String: Any] = [
             "e": "dm",
             "sId": strokeId,
             "x": normalized.x,
             "y": normalized.y,
             "p": pressure,
-        ])
+        ]
+        appendPageContext(to: &payload)
+        DrawingChannel.notifyDrawEvent(payload)
     }
 
     @available(iOS 14.0, *)
@@ -615,5 +629,14 @@ final class DrawingPlatformView: NSObject, FlutterPlatformView, PKCanvasViewDele
         let hex = hexColor.replacingOccurrences(of: "#", with: "")
         guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
         return UIColor(argb: 0xFF000000 | value)
+    }
+
+    private func appendPageContext(to payload: inout [String: Any]) {
+        if let materialId = currentMaterialId, !materialId.isEmpty {
+            payload["materialId"] = materialId
+        }
+        if let pageNumber = currentPageNumber {
+            payload["pageNumber"] = pageNumber
+        }
     }
 }

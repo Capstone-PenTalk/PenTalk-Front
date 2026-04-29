@@ -54,10 +54,16 @@ class AppConfig {
     'PENTALK_PREFER_LOCAL_PDF_IMPORT',
     defaultValue: false,
   );
+  static const bool _enableNativeTeacherDrawingOverride = bool.fromEnvironment(
+    'PENTALK_ENABLE_NATIVE_TEACHER_DRAWING',
+    defaultValue: false,
+  );
 
   static bool get shouldUseServerLogin => _useServerLoginOverride;
   static bool get allowLocalPdfWorkspace => _allowLocalPdfWorkspaceOverride;
   static bool get preferLocalPdfImport => _preferLocalPdfImportOverride;
+  static bool get enableNativeTeacherDrawing =>
+      _enableNativeTeacherDrawingOverride;
   static bool get hasExplicitServerUrlConfig =>
       _serverUrlOverride.trim().isNotEmpty ||
       _apiUrlOverride.trim().isNotEmpty ||

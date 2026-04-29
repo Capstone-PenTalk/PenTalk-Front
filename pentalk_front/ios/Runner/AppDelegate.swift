@@ -57,6 +57,16 @@ import UIKit
             )
           }
           result(nil)
+        case "setPageContext":
+          if let args = call.arguments as? [String: Any],
+             let materialId = args["materialId"] as? String,
+             let pageNumber = (args["pageNumber"] as? NSNumber)?.intValue {
+            DrawingSurfaceManager.shared.updatePageContext(
+              materialId: materialId,
+              pageNumber: pageNumber
+            )
+          }
+          result(nil)
         case "exportDrawing":
           result(DrawingSurfaceManager.shared.exportDrawingSnapshot())
         case "undoLastStroke":

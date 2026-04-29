@@ -90,6 +90,16 @@ class NativeDrawingBridge {
     });
   }
 
+  static Future<void> setPageContext({
+    required String materialId,
+    required int pageNumber,
+  }) async {
+    await _channel.invokeMethod('setPageContext', {
+      'materialId': materialId,
+      'pageNumber': pageNumber,
+    });
+  }
+
   static Future<List<Map<String, dynamic>>> exportDrawingSnapshot() async {
     final result = await _channel.invokeMethod<List<dynamic>>('exportDrawing');
     if (result == null) {

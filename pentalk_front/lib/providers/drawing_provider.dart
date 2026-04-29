@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../config/app_config.dart';
 import '../models/drawing_models.dart';
 import '../drawing_event_store.dart';
 import '../native_drawing.dart';
@@ -89,7 +90,9 @@ class DrawingProvider extends ChangeNotifier {
   List<Stroke> get allStrokes => [...myAllStrokes, ...othersAllStrokes];
 
   DrawingProvider() {
-    _setupNativeDrawingListener();
+    if (AppConfig.enableNativeTeacherDrawing) {
+      _setupNativeDrawingListener();
+    }
     _setupSocketListeners();
   }
 
@@ -148,6 +151,11 @@ class DrawingProvider extends ChangeNotifier {
   void _persistLocalDraftSoon() {
     if (_isHydratingLocalDraft || _localDraftKey == null) return;
     unawaited(_persistLocalDraft());
+  }
+
+  Future<void> persistCurrentDraft() async {
+    if (_isHydratingLocalDraft || _localDraftKey == null) return;
+    await _persistLocalDraft();
   }
 
   Future<void> clearLocalDraft() async {
@@ -736,8 +744,6 @@ class DrawingProvider extends ChangeNotifier {
       _socketService.sendDrawEvent(event);
     }
 
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
-
     return strokeId;
   }
 
@@ -756,7 +762,6 @@ class DrawingProvider extends ChangeNotifier {
       _socketService.sendDrawEvent(event);
     }
 
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   void sendDrawEnd(int strokeId, List<DrawPoint> points) {
@@ -778,7 +783,6 @@ class DrawingProvider extends ChangeNotifier {
       _socketService.sendDrawEvent(event);
     }
 
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   void sendUndo(int strokeId) {
@@ -789,9 +793,6 @@ class DrawingProvider extends ChangeNotifier {
     if (_isSocketConnected && _userId != null) {
       _socketService.sendUndo(strokeId);
     }
-
-
-    try { NativeDrawingBridge.sendDrawEvent(event.toJson()); } catch (_) {}
   }
 
   /// ===============================

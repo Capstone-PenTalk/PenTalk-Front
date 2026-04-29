@@ -21,4 +21,8 @@ final class DrawingSurfaceManager {
     func replaceDrawingSnapshot(_ snapshot: [[String: Any]]) {
         surface?.replaceDrawingSnapshot(snapshot)
     }
+
+    func updatePageContext(materialId: String, pageNumber: Int) {
+        surface?.updatePageContext(materialId: materialId, pageNumber: pageNumber)
+    }
 }

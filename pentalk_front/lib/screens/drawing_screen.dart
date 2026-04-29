@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/document_source.dart';
 import '../models/student_session_model.dart';
 import '../models/poll_model.dart';
+import '../config/app_config.dart';
 import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
@@ -73,6 +74,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
   bool _isExporting = false;
 
   bool get _usesNativeTeacherDrawing =>
+      AppConfig.enableNativeTeacherDrawing &&
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.iOS &&
       widget.isTeacher;
@@ -102,6 +104,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
       provider.setBackgroundUrl(widget.backgroundUrl);
       if (widget.materialId != null && widget.materialId!.isNotEmpty) {
         provider.updatePageContext(
+          materialId: widget.materialId!,
+          pageNumber: 1,
+        );
+        await _syncNativePageContext(
           materialId: widget.materialId!,
           pageNumber: 1,
         );
@@ -147,6 +153,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
         materialId: materialId,
         pageNumber: firstPage.pageNumber,
       );
+      await _syncNativePageContext(
+        materialId: materialId,
+        pageNumber: firstPage.pageNumber,
+      );
       await _switchTeacherPageDraft(
         hydratedDocument.pageKeyFor(firstPage.pageNumber),
       );
@@ -183,17 +193,31 @@ class _DrawingScreenState extends State<DrawingScreen> {
     await context.read<PersonalDrawingProvider>().loadPage(pageKey);
   }
 
+  Future<void> _syncNativePageContext({
+    required String materialId,
+    required int pageNumber,
+  }) async {
+    if (!_usesNativeTeacherDrawing) return;
+    try {
+      await NativeDrawingBridge.setPageContext(
+        materialId: materialId,
+        pageNumber: pageNumber,
+      );
+    } catch (e) {
+      debugPrint('Failed to sync native page context: $e');
+    }
+  }
+
   Future<void> _switchTeacherPageDraft(String draftKey) async {
     if (!widget.isTeacher) return;
     await _drawingProvider.switchLocalDraft(draftKey: draftKey);
   }
 
   Future<void> _captureCurrentTeacherPage() async {
-    if (!_usesNativeTeacherDrawing) return;
     try {
-      await _drawingProvider.syncMyStrokesFromNativeSnapshot();
+      await _drawingProvider.persistCurrentDraft();
     } catch (e) {
-      debugPrint('Failed to capture native drawing snapshot: $e');
+      debugPrint('Failed to persist current page draft: $e');
     }
   }
 
@@ -250,6 +274,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
       _documentSource = updatedDocument;
       _drawingProvider.updatePageContext(
+        materialId: updatedDocument.materialId,
+        pageNumber: pageNumber,
+      );
+      await _syncNativePageContext(
         materialId: updatedDocument.materialId,
         pageNumber: pageNumber,
       );
