@@ -16,7 +16,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _userIdController = TextEditingController();
+  final _userIdController = TextEditingController(text: 'student1');
   String _selectedRole = 'student'; // 기본값: 학생
   bool _isLoading = false;
 
@@ -26,11 +26,23 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _applySuggestedUserIdForRole() {
+    final trimmed = _userIdController.text.trim();
+    if (trimmed.isEmpty ||
+        trimmed == 'student1' ||
+        trimmed == 'teacher1' ||
+        trimmed == 'student_local' ||
+        trimmed == 'teacher_local') {
+      _userIdController.text =
+          _selectedRole == 'teacher' ? 'teacher1' : 'student1';
+    }
+  }
+
   Future<void> _handleLogin() async {
     final rawUserId = _userIdController.text.trim();
     final userId = rawUserId.isNotEmpty
         ? rawUserId
-        : (_selectedRole == 'teacher' ? 'teacher_local' : 'student_local');
+        : (_selectedRole == 'teacher' ? 'teacher1' : 'student1');
     setState(() => _isLoading = true);
 
     try {
@@ -161,7 +173,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         onChanged: _isLoading
                             ? null
                             : (value) {
-                          setState(() => _selectedRole = value!);
+                          setState(() {
+                            _selectedRole = value!;
+                            _applySuggestedUserIdForRole();
+                          });
                         },
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -182,7 +197,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         onChanged: _isLoading
                             ? null
                             : (value) {
-                          setState(() => _selectedRole = value!);
+                          setState(() {
+                            _selectedRole = value!;
+                            _applySuggestedUserIdForRole();
+                          });
                         },
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),

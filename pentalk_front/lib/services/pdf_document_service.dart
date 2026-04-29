@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../config/app_config.dart';
 import '../models/document_source.dart';
 
 class PdfDocumentService {
@@ -72,7 +73,9 @@ class PdfDocumentService {
     required String materialId,
     required String pdfUrl,
   }) async {
-    if (_isRemoteUrl(pdfUrl)) {
+    final resolvedPdfUrl = _resolvePdfUrl(pdfUrl);
+
+    if (_isRemoteUrl(resolvedPdfUrl)) {
       final directory = await _cacheDirectory();
       final filePath = p.join(directory.path, '$materialId.pdf');
       final file = File(filePath);
@@ -80,7 +83,7 @@ class PdfDocumentService {
         return file.path;
       }
 
-      final response = await http.get(Uri.parse(pdfUrl));
+      final response = await http.get(Uri.parse(resolvedPdfUrl));
       if (response.statusCode != 200) {
         throw Exception('PDF 다운로드 실패 [${response.statusCode}]');
       }
@@ -88,15 +91,27 @@ class PdfDocumentService {
       return file.path;
     }
 
-    final file = File(pdfUrl);
+    final file = File(resolvedPdfUrl);
     if (await file.exists()) {
       return file.path;
     }
-    throw Exception('PDF 파일을 찾을 수 없습니다: $pdfUrl');
+    throw Exception('PDF 파일을 찾을 수 없습니다: $resolvedPdfUrl');
   }
 
   static bool _isRemoteUrl(String value) {
     return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  static String _resolvePdfUrl(String pdfUrl) {
+    final trimmed = pdfUrl.trim();
+    if (trimmed.isEmpty) return trimmed;
+    if (_isRemoteUrl(trimmed) || trimmed.startsWith('file://')) {
+      return trimmed;
+    }
+    if (p.isAbsolute(trimmed)) {
+      return trimmed;
+    }
+    return Uri.parse('${AppConfig.apiBaseUrl}/').resolve(trimmed).toString();
   }
 
   static Future<Directory> _cacheDirectory() async {

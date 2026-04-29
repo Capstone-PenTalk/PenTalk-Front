@@ -748,12 +748,16 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void sendDrawMove(int strokeId, DrawPoint point) {
+    final activeStroke = _myActiveStrokes[strokeId];
+
     final event = DrawEvent(
       eventType: DrawEventType.drawMove,
       strokeId: strokeId,
       materialId: _activeMaterialId,
       pageNumber: _activePageNumber,
       point: point,
+      color: activeStroke?.color ?? _currentColor,
+      width: activeStroke?.width ?? _currentWidth,
     );
 
     _handleMyDrawMove(event);

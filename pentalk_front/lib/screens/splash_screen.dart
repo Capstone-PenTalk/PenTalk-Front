@@ -45,7 +45,38 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       // 역할 확인
+      final storedUserId = await AuthService.getUserId();
       final role = await AuthService.getRole();
+      if (AppConfig.shouldUseServerLogin) {
+        final normalizedUserId = _normalizeDevLoginUserId(
+          userId: storedUserId,
+          role: role,
+        );
+        if (normalizedUserId == null ||
+            normalizedUserId.isEmpty ||
+            role == null ||
+            role.isEmpty) {
+          await AuthService.logout();
+          _navigateToLogin();
+          return;
+        }
+        setState(() => _statusMessage = '로그인 갱신 중...');
+        final loginResponse = await ApiService.login(
+          userId: normalizedUserId,
+          role: role,
+        );
+        if (!loginResponse.success || loginResponse.data == null) {
+          await AuthService.logout();
+          _navigateToLogin();
+          return;
+        }
+        final login = loginResponse.data!;
+        await AuthService.saveUserInfo(
+          userId: login.userId,
+          role: login.role,
+          token: login.token,
+        );
+      }
 
       // 저장된 세션 확인 (자동 재join)
       setState(() => _statusMessage = '이전 세션 확인 중...');
@@ -86,6 +117,35 @@ class _SplashScreenState extends State<SplashScreen> {
       await SessionStorage.clearSession();
       if (mounted) _navigateToLogin();
     }
+  }
+
+  String? _normalizeDevLoginUserId({
+    required String? userId,
+    required String? role,
+  }) {
+    final normalizedRole = role?.trim().toLowerCase();
+    final trimmedUserId = userId?.trim();
+    if (normalizedRole == null || normalizedRole.isEmpty) return trimmedUserId;
+
+    if (normalizedRole == 'teacher') {
+      if (trimmedUserId == null ||
+          trimmedUserId.isEmpty ||
+          trimmedUserId == 'teacher_local') {
+        return 'teacher1';
+      }
+      return trimmedUserId;
+    }
+
+    if (normalizedRole == 'student') {
+      if (trimmedUserId == null ||
+          trimmedUserId.isEmpty ||
+          trimmedUserId == 'student_local') {
+        return 'student1';
+      }
+      return trimmedUserId;
+    }
+
+    return trimmedUserId;
   }
 
   Future<bool> _tryHandleUrlSessionJoin() async {

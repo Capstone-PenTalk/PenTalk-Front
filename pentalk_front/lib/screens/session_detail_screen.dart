@@ -36,6 +36,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   final FileService _fileService = FileService();
   final LocalMaterialService _localMaterialService = LocalMaterialService();
   bool _isUploading = false;
+  String? _realtimeSessionId;
 
   bool get _canUseRemoteMaterials =>
       !widget.localOnly &&
@@ -44,12 +45,18 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       widget.classId != null &&
       widget.classId!.isNotEmpty;
 
+  String? get _effectiveSessionId =>
+      _realtimeSessionId ?? (_looksLikeRealtimeSessionId(widget.sessionId)
+          ? widget.sessionId.trim()
+          : null);
+
   String get _screenTitle => widget.titleOverride ?? '세션';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bootstrapRealtimeSessionIfNeeded();
       _loadMaterials();
     });
   }
@@ -60,26 +67,85 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     required bool connectRealtime,
   }) async {
     final userId = await AuthService.getUserId() ?? 'teacher';
+    final resolvedBackgroundUrl = await _resolveMaterialBackgroundUrl(material);
+    final realtimeSessionId = connectRealtime ? _effectiveSessionId : null;
     if (!context.mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
           materialTitle: material.title,
-          backgroundUrl: material.url, // PDF 경로
+          backgroundUrl: resolvedBackgroundUrl,
           isPdfDocument: material.type == FileMaterialType.pdf,
           isTeacher: true,             // 교사 모드 켜기
-          sessionId: connectRealtime ? widget.sessionId : null,
-          roomId: connectRealtime ? widget.sessionId : null,
-          userId: connectRealtime ? userId : null,
-          serverUrl: connectRealtime
+          sessionId: realtimeSessionId,
+          roomId: realtimeSessionId,
+          userId: realtimeSessionId != null ? userId : null,
+          serverUrl: realtimeSessionId != null
               ? AppConfig.resolveSocketUrl(isTeacher: true)
               : null,
-          classId: connectRealtime ? widget.classId : null,
+          classId: realtimeSessionId != null ? widget.classId : null,
           materialId: material.id,
         ),
       ),
     );
+  }
+
+  Future<String> _resolveMaterialBackgroundUrl(MaterialModel material) async {
+    final isRemotePdf =
+        _canUseRemoteMaterials &&
+        material.type == FileMaterialType.pdf &&
+        !material.id.startsWith('local_');
+
+    if (!isRemotePdf) return material.url;
+
+    return ApiService.getMaterialDownloadUrl(materialId: material.id);
+  }
+
+  Future<void> _bootstrapRealtimeSessionIfNeeded() async {
+    if (!_canUseRemoteMaterials) return;
+    if (_effectiveSessionId != null) return;
+
+    final classId = widget.classId;
+    if (classId == null || classId.isEmpty) return;
+
+    try {
+      final response = await ApiService.createSession(classId: classId);
+      if (!response.success || response.data == null) {
+        throw Exception(response.message ?? '실시간 세션 생성에 실패했습니다.');
+      }
+
+      final createdSessionId = response.data!.sessionId.trim();
+      if (createdSessionId.isEmpty) {
+        throw Exception('서버가 비어 있는 sessionId를 반환했습니다.');
+      }
+
+      debugPrint(
+        '✅ Realtime session bootstrapped on enter: '
+        'localSessionId=${widget.sessionId} -> serverSessionId=$createdSessionId',
+      );
+      if (mounted) {
+        setState(() {
+          _realtimeSessionId = createdSessionId;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to bootstrap realtime session: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('실시간 세션 준비 실패: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  bool _looksLikeRealtimeSessionId(String value) {
+    if (value.isEmpty) return false;
+    if (value == 'local-pdf-workspace') return false;
+    if (RegExp(r'^\d+$').hasMatch(value)) return false;
+    return true;
   }
 
   /// ===============================

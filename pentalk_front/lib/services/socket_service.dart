@@ -338,20 +338,27 @@ class SocketService {
   void _joinRoom(String roomId, String userId, bool isTeacher,
       {String? classId, String? materialId}) {
     if (_socket == null || !_socket!.connected) return;
-    _socket!.emit('join_room', {
+    final payload = {
       'roomId': roomId,
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
-    });
-    debugPrint('[socket][send] join_room roomId=$roomId userId=$userId');
+    };
+    _socket!.emit('join_room', payload);
+    debugPrint('[socket][send] join_room payload=${jsonEncode(payload)} '
+        'userId=$userId role=${isTeacher ? 'teacher' : 'student'} '
+        'classId=$classId');
   }
 
   void sendDrawEvent(DrawEvent event) {
     _currentMaterialId = event.materialId ?? _currentMaterialId;
     _currentPageNumber = event.pageNumber ?? _currentPageNumber;
-    _emitOrQueue('draw:append', {
+    final payload = {
       ...event.toJson(),
-    }, summary: 'draw:append e=${event.eventType.code}',
-        suppressLog: event.eventType == DrawEventType.drawMove && !kDebugMode);
+    };
+    _emitOrQueue(
+      'draw:append',
+      payload,
+      summary: _drawAppendSummary(payload),
+    );
   }
 
   void sendUndo(int strokeId) {
@@ -364,11 +371,16 @@ class SocketService {
     required int? pageNumber,
     required String scope,
   }) {
-    _emitOrQueue('draw:clear', {
+    final payload = {
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
       if (pageNumber != null) 'pageNumber': pageNumber,
       'scope': scope,
-    }, summary: 'draw:clear');
+    };
+    _emitOrQueue(
+      'draw:clear',
+      payload,
+      summary: 'draw:clear payload=${jsonEncode(payload)}',
+    );
   }
 
   void sendPollAnswer({required String pollId, required dynamic optionId}) {
@@ -399,12 +411,13 @@ class SocketService {
 
   void requestSync({int? lastTick, String? materialId, int? pageNumber}) {
     if (_socket == null || !_socket!.connected) return;
-    _socket!.emit('sync:request', {
+    final payload = {
       if (lastTick != null) 'lastTick': lastTick,
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
       if (pageNumber != null) 'pageNumber': pageNumber,
-    });
-    debugPrint('[socket][send] sync:request lastTick=$lastTick materialId=$materialId pageNumber=$pageNumber');
+    };
+    _socket!.emit('sync:request', payload);
+    debugPrint('[socket][send] sync:request payload=${jsonEncode(payload)}');
   }
 
   void sendMessage(String content) {
@@ -477,7 +490,7 @@ class SocketService {
   }
 
   void _emitOrQueue(String eventName, Map<String, dynamic> payload,
-      {required String summary, bool suppressLog = false}) {
+      {required String summary}) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('[socket][send] skipped(not connected) $summary');
       return;
@@ -488,7 +501,7 @@ class SocketService {
       return;
     }
     _socket!.emit(eventName, payload);
-    if (!suppressLog) debugPrint('[socket][send] $summary');
+    debugPrint('[socket][send] $summary');
   }
 
   void _flushPendingEmits() {
@@ -498,8 +511,18 @@ class SocketService {
     for (final q in _pendingEmits) {
       final event = q['event'] as String?;
       final payload = q['payload'] as Map<String, dynamic>?;
-      if (event != null && payload != null) _socket!.emit(event, payload);
+      final summary = q['summary'] as String?;
+      if (event != null && payload != null) {
+        _socket!.emit(event, payload);
+        if (summary != null) {
+          debugPrint('[socket][send] flushed $summary');
+        }
+      }
     }
     _pendingEmits.clear();
+  }
+
+  String _drawAppendSummary(Map<String, dynamic> payload) {
+    return 'draw:append payload=${jsonEncode(payload)}';
   }
 }

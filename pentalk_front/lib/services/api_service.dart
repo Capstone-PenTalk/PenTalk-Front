@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
@@ -590,6 +591,7 @@ class ApiService {
       'file',
       filePath,
       filename: fileName,
+      contentType: MediaType('application', 'pdf'),
     ));
 
     final streamedResponse = await request.send().timeout(
@@ -665,6 +667,57 @@ class ApiService {
 
     debugPrint('❌ Get materials failed [${response.statusCode}]: $errorMessage');
     throw MaterialUploadException(errorMessage, code: 'GET_MATERIALS_FAILED');
+  }
+
+  /// ===============================
+  /// 자료 다운로드 URL 조회 (GET /materials/:materialId/download-url)
+  /// presigned URL 반환
+  /// ===============================
+  static Future<String> getMaterialDownloadUrl({
+    required String materialId,
+  }) async {
+    final token = await AuthService.getToken();
+
+    debugPrint('📥 GET /materials/$materialId/download-url');
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/materials/$materialId/download-url'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+    ).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Request timeout'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final url = data['url']?.toString().trim() ?? '';
+      if (url.isEmpty) {
+        throw const MaterialUploadException(
+          '다운로드 URL이 비어 있습니다',
+          code: 'EMPTY_DOWNLOAD_URL',
+        );
+      }
+      debugPrint('✅ Material download URL loaded: $materialId');
+      return url;
+    }
+
+    String errorMessage = '자료 다운로드 URL을 불러오지 못했습니다';
+    try {
+      final error = jsonDecode(response.body) as Map<String, dynamic>;
+      errorMessage = error['message'] as String? ?? errorMessage;
+    } catch (_) {}
+
+    debugPrint(
+      '❌ Get material download URL failed [${response.statusCode}]: '
+      '$errorMessage',
+    );
+    throw MaterialUploadException(
+      errorMessage,
+      code: 'GET_DOWNLOAD_URL_FAILED',
+    );
   }
 }
 

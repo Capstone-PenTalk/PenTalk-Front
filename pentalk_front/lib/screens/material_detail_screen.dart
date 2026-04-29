@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/student_session_model.dart';
 import '../config/app_config.dart';
 import '../services/deep_link_service.dart';
+import '../services/api_service.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
 
@@ -153,6 +154,8 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       return;
     }
 
+    final backgroundUrl = await _resolveMaterialBackgroundUrl(widget.material);
+
     if (!context.mounted) return;
 
     Navigator.push(
@@ -161,7 +164,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
         builder: (context) => DrawingScreen(
 
           materialTitle: widget.material.title,
-          backgroundUrl: widget.material.url,
+          backgroundUrl: backgroundUrl,
           isPdfDocument: widget.material.type == FileMaterialType.pdf,
           materialId: widget.material.id.isNotEmpty
               ? widget.material.id
@@ -177,6 +180,17 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<String> _resolveMaterialBackgroundUrl(MaterialModel material) async {
+    final isRemotePdf =
+        material.type == FileMaterialType.pdf &&
+        material.id.isNotEmpty &&
+        !material.id.startsWith('local_');
+
+    if (!isRemotePdf) return material.url;
+
+    return ApiService.getMaterialDownloadUrl(materialId: material.id);
   }
 
   String? _resolveServerUrl(bool isTeacher) {
