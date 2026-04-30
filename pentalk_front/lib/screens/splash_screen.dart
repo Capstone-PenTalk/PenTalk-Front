@@ -35,6 +35,11 @@ class _SplashScreenState extends State<SplashScreen> {
       final handledByLink = await _tryHandleUrlSessionJoin();
       if (handledByLink) return;
 
+      if (!AppConfig.enableAutoLogin) {
+        _navigateToLogin();
+        return;
+      }
+
       setState(() => _statusMessage = '로그인 확인 중...');
       await Future.delayed(const Duration(milliseconds: 500));
 

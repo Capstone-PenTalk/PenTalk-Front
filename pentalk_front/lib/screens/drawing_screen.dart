@@ -115,11 +115,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
       await _loadPersonalPageIfNeeded(widget.materialTitle);
     }
 
-    // 그리기 모드 (교사는 기본 활성화)
-    if (widget.isTeacher) {
-      provider.setDrawingMode(true);
-      debugPrint('Drawing mode enabled for teacher');
-    }
+    // 그리기 모드 기본 활성화
+    provider.setDrawingMode(true);
+    debugPrint(
+      widget.isTeacher
+          ? 'Drawing mode enabled for teacher'
+          : 'Drawing mode enabled for student personal drawing',
+    );
 
     if (widget.serverUrl != null &&
         widget.roomId != null &&
@@ -695,14 +697,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
                 ),
               ],
 
+              if (!_usesNativeTeacherDrawing) ...[
+                const ColorPaletteBar(),
+                const SizedBox(width: 8),
+                const WidthSelectorBar(),
+                const SizedBox(width: 8),
+              ],
+
               // 교사용 컨트롤
               if (widget.isTeacher) ...[
-                if (!_usesNativeTeacherDrawing) ...[
-                  const ColorPaletteBar(),
-                  const SizedBox(width: 8),
-                  const WidthSelectorBar(),
-                  const SizedBox(width: 8),
-                ],
                 IconButton(
                   icon: const Icon(Icons.undo),
                   onPressed: _handleUndo,
@@ -727,6 +730,19 @@ class _DrawingScreenState extends State<DrawingScreen> {
                       tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
                     );
                   },
+                ),
+              ],
+
+              if (!widget.isTeacher) ...[
+                IconButton(
+                  icon: const Icon(Icons.undo),
+                  onPressed: _handleStudentUndo,
+                  tooltip: '내 필기 실행 취소',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: _handleStudentClear,
+                  tooltip: '내 필기 전체 지우기',
                 ),
               ],
 
@@ -1018,5 +1034,40 @@ class _DrawingScreenState extends State<DrawingScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleStudentUndo() async {
+    final personalProvider = context.read<PersonalDrawingProvider>();
+    if (personalProvider.personalStrokes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('실행 취소할 내 필기가 없습니다')),
+      );
+      return;
+    }
+    await personalProvider.undoLastStroke();
+  }
+
+  Future<void> _handleStudentClear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('내 필기 지우기'),
+        content: const Text('현재 페이지의 내 필기를 모두 지우시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('지우기'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await context.read<PersonalDrawingProvider>().clearCurrentPage();
   }
 }

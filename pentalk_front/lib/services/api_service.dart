@@ -185,12 +185,15 @@ class ApiService {
   }) async {
     final token = await AuthService.getToken();
 
-    final body = {
+    final body = <String, dynamic>{
       'sessionId': sessionId,
     };
 
     debugPrint('POST /export/pdf');
+    debugPrint('   baseUrl: $baseUrl');
     debugPrint('   sessionId: $sessionId');
+    debugPrint('   auth token present: ${token != null && token.isNotEmpty}');
+    debugPrint('   body: ${jsonEncode(body)}');
     if (strokes != null) {
       debugPrint('   client strokes prepared: ${strokes.length}개');
     }
@@ -837,22 +840,49 @@ class MaterialUploadResponse {
   });
 
   factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
-    String _toStringValue(dynamic value, {required String fallback}) {
+    String toStringValue(dynamic value, {required String fallback}) {
       if (value == null) return fallback;
       final result = value.toString().trim();
       return result.isEmpty ? fallback : result;
     }
 
+    final resolvedName = [
+      json['name'],
+      json['title'],
+      json['fileName'],
+      json['filename'],
+    ]
+        .map((value) => value?.toString().trim() ?? '')
+        .firstWhere((value) => value.isNotEmpty, orElse: () => 'untitled');
+
+    final resolvedUrl = [
+      json['url'],
+      json['downloadUrl'],
+      json['fileUrl'],
+      json['s3Key'],
+      json['key'],
+    ]
+        .map((value) => value?.toString().trim() ?? '')
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+
+    final resolvedCreatedAt = [
+      json['createdAt'],
+      json['uploadedAt'],
+      json['updatedAt'],
+    ]
+        .map((value) => value?.toString().trim() ?? '')
+        .firstWhere(
+          (value) => value.isNotEmpty,
+          orElse: () => DateTime.now().toIso8601String(),
+        );
+
     return MaterialUploadResponse(
-      id: _toStringValue(json['id'], fallback: ''),
-      type: _toStringValue(json['type'], fallback: 'pdf'),
-      url: _toStringValue(json['url'], fallback: ''),
-      name: _toStringValue(json['name'], fallback: 'untitled'),
-      classId: _toStringValue(json['classId'], fallback: ''),
-      createdAt: _toStringValue(
-        json['createdAt'],
-        fallback: DateTime.now().toIso8601String(),
-      ),
+      id: toStringValue(json['id'], fallback: ''),
+      type: toStringValue(json['type'], fallback: 'pdf'),
+      url: resolvedUrl,
+      name: resolvedName,
+      classId: toStringValue(json['classId'], fallback: ''),
+      createdAt: resolvedCreatedAt,
     );
   }
 }

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/student_session_provider.dart';
+import '../services/auth_service.dart';
 import '../widgets/student_session_card.dart';
-import 'drawing_screen.dart';
 import 'material_list_screen.dart';
+import 'login_screen.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({Key? key}) : super(key: key);
@@ -30,6 +31,15 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
     super.dispose();
   }
 
+  Future<void> _handleSwitchRole() async {
+    await AuthService.logout();
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+  }
+
   void _initializeTabController(List<String> subjects) {
     if (_tabController == null || _tabController!.length != subjects.length) {
       _tabController?.dispose();
@@ -52,24 +62,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit_note),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const DrawingScreen(
-                    materialTitle: '필기 테스트',
-                    isTeacher: false,
-                  ),
-                ),
-              );
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.account_circle),
-            onPressed: () {
-              // TODO: 프로필 화면으로 이동
-            },
+            onPressed: _handleSwitchRole,
+            tooltip: '역할 변경',
           ),
         ],
       ),
