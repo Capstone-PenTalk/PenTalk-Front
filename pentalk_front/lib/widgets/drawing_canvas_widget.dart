@@ -98,7 +98,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
         });
 
         final isDrawingMode = context.select<DrawingProvider, bool>(
-          (provider) => provider.isDrawingMode && widget.isTeacher,
+          (provider) => provider.isDrawingMode,
         );
         final useNativeTeacherInput = AppConfig.enableNativeTeacherDrawing &&
             !kIsWeb &&
@@ -292,7 +292,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
-                          '✏️ 그리기 모드 (줌/이동 비활성화)',
+                          '그리기 모드 (줌/이동 비활성화)',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -407,7 +407,8 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
   void _onPersonalPanEnd(CoordinateScaler scaler, PersonalDrawingProvider provider) {
     if (_currentStrokeId == null) return;
 
-    provider.endDrawing(_currentStrokeId!, _currentPoints);
+    final points = List<DrawPoint>.from(_currentPoints);
+    provider.endDrawing(_currentStrokeId!, points);
 
     _currentStrokeId = null;
     _currentPoints.clear();
@@ -587,7 +588,7 @@ class _OthersDrawingLayer extends StatelessWidget {
     for (int i = 0; i < a.length; i++) {
       if (a[i].strokeId != b[i].strokeId) return false;
       if (a[i].points.length != b[i].points.length) return false;
-      // ✅ color와 width 비교 추가!
+      // color와 width 비교 추가
       if (a[i].color != b[i].color) return false;
       if (a[i].width != b[i].width) return false;
     }
@@ -642,7 +643,7 @@ class _MyDrawingLayer extends StatelessWidget {
     for (int i = 0; i < a.length; i++) {
       if (a[i].strokeId != b[i].strokeId) return false;
       if (a[i].points.length != b[i].points.length) return false;
-      // ✅ color와 width 비교 추가!
+      // color와 width 비교 추가
       if (a[i].color != b[i].color) return false;
       if (a[i].width != b[i].width) return false;
     }
@@ -958,11 +959,9 @@ class _PersonalDrawingLayer extends StatelessWidget {
       show: provider.showPersonalLayer,
       strokes: provider.allPersonalStrokes,
       ),
-      shouldRebuild: (previous, next) {
-        return previous.show != next.show ||
-            previous.strokes.length != next.strokes.length ||
-            !_strokesEqual(previous.strokes, next.strokes);
-      },
+      shouldRebuild: (previous, next) =>
+          previous.show != next.show ||
+          !listEquals(previous.strokes, next.strokes),
       builder: (context, data, child) {
         if (!data.show) {
           return const SizedBox.shrink();
@@ -987,17 +986,6 @@ class _PersonalDrawingLayer extends StatelessWidget {
     );
   }
 
-  bool _strokesEqual(List<Stroke> a, List<Stroke> b) {
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i].strokeId != b[i].strokeId) return false;
-      if (a[i].points.length != b[i].points.length) return false;
-      // ✅ color와 width 비교 추가!
-      if (a[i].color != b[i].color) return false;
-      if (a[i].width != b[i].width) return false;
-    }
-    return true;
-  }
 }
 
 /// ===============================

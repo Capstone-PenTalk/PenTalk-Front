@@ -23,6 +23,7 @@ import '../widgets/poll_start_dialog.dart';
 import '../services/api_service.dart';
 import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
+import '../services/pdf_file_service.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
@@ -172,7 +173,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       );
       await _restoreCurrentTeacherPage();
     } catch (e) {
-      debugPrint('❌ Failed to prepare PDF document: $e');
+      debugPrint('Failed to prepare PDF document: $e');
       _drawingProvider.setBackgroundUrl(backgroundUrl);
       await _loadPersonalPageIfNeeded(widget.materialTitle);
       if (mounted) {
@@ -296,7 +297,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       );
       await _restoreCurrentTeacherPage();
     } catch (e) {
-      debugPrint('❌ Failed to change PDF page: $e');
+      debugPrint('Failed to change PDF page: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -326,7 +327,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     socketService.onPollStart = (data) {
       final pollData = PollStartData.fromJson(data);
       pollProvider.onPollStart(pollData);
-      debugPrint('📊 Poll started, showing overlay');
+      debugPrint('Poll started, showing overlay');
     };
 
     // poll:result → 교사 실시간 집계 업데이트
@@ -341,7 +342,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       pollProvider.onPollEnd(resultData);
     };
 
-    debugPrint('📊 Poll callbacks setup completed');
+    debugPrint('Poll callbacks setup completed');
   }
 
   /// ===============================
@@ -399,7 +400,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     socketService.onPresenceJoin = participantsProvider.addParticipant;
     socketService.onPresenceLeave = participantsProvider.removeParticipant;
 
-    debugPrint('🔔 Presence callbacks setup completed');
+    debugPrint('Presence callbacks setup completed');
   }
 
   void _handleSessionEnded(Map<String, dynamic> data) {
@@ -436,9 +437,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
         classId: widget.classId,
         materialId: widget.materialId,
       );
-      debugPrint('✅ Socket.IO connection initiated');
+      debugPrint('Socket.IO connection initiated');
     } catch (e) {
-      debugPrint('❌ Socket.IO connection failed: $e');
+      debugPrint('Socket.IO connection failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -497,11 +498,20 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// PDF 내보내기 (학생 전용)
   /// ===============================
   Future<void> _handleExportPdf() async {
-    final sessionId = widget.roomId ?? widget.sessionId;
+    final sessionId =
+        _drawingProvider.roomId ?? widget.roomId ?? widget.sessionId;
     if (sessionId == null) {
       _showExportError(message: '세션 정보가 없습니다.', canRetry: false);
       return;
     }
+
+    debugPrint(
+      'Export requested: '
+      'providerRoomId=${_drawingProvider.roomId} '
+      'widgetRoomId=${widget.roomId} '
+      'widgetSessionId=${widget.sessionId} '
+      'resolvedSessionId=$sessionId',
+    );
 
     setState(() => _isExporting = true);
     PdfExportLoadingDialog.show(context);
@@ -518,7 +528,25 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
       if (!mounted) return;
       PdfExportLoadingDialog.dismiss(context);
-      await PdfSaveCompleteDialog.show(context, saveResult: saveResult);
+      final savedLocation = await PdfFileService.saveWithPicker(
+        bytes: saveResult.bytes,
+        fileName: saveResult.fileName,
+        dialogTitle: '합성된 PDF 저장 위치를 선택하세요',
+      );
+      if (!mounted) return;
+
+      if (savedLocation == null || savedLocation.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF 저장이 취소되었습니다.')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${saveResult.fileName} 저장 완료'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
 
       // ① 클라이언트 사이드 에러 (stroke 수 초과 등) → 재시도 불가
     } on PdfExportException catch (e) {
@@ -898,7 +926,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    provider.isDrawingMode ? '✏️ 그리기' : '👆 이동/줌',
+                    provider.isDrawingMode ? '그리기' : '이동/줌',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -967,8 +995,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   ),
                   child: Text(
                     drawingProvider.isDrawingMode
-                        ? '✏️ 내 필기'
-                        : '👆 이동/줌',
+                        ? '내 필기'
+                        : '이동/줌',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,

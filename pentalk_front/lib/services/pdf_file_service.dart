@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -11,6 +13,25 @@ import 'package:share_plus/share_plus.dart';
 /// 저장 / 열기 / 공유
 /// ===============================
 class PdfFileService {
+  /// ===============================
+  /// 바이트 데이터를 사용자가 선택한 위치에 저장
+  /// iOS/Android: 시스템 문서 피커(save dialog)
+  /// ===============================
+  static Future<String?> saveWithPicker({
+    required Uint8List bytes,
+    required String fileName,
+    String dialogTitle = '저장 위치를 선택하세요',
+  }) async {
+    final extension = _normalizedExtension(fileName);
+    return FilePicker.platform.saveFile(
+      dialogTitle: dialogTitle,
+      fileName: fileName,
+      type: extension != null ? FileType.custom : FileType.any,
+      allowedExtensions: extension != null ? [extension] : null,
+      bytes: bytes,
+    );
+  }
+
   /// ===============================
   /// PDF 바이너리 → 로컬 파일 저장
   ///
@@ -145,6 +166,12 @@ class PdfFileService {
   }
 
   static String _pad(int n) => n.toString().padLeft(2, '0');
+
+  static String? _normalizedExtension(String fileName) {
+    final extension = p.extension(fileName).trim().toLowerCase();
+    if (extension.isEmpty) return null;
+    return extension.startsWith('.') ? extension.substring(1) : extension;
+  }
 }
 
 /// ===============================

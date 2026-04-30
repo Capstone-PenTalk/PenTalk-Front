@@ -144,8 +144,13 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   bool _looksLikeRealtimeSessionId(String value) {
     if (value.isEmpty) return false;
     if (value == 'local-pdf-workspace') return false;
-    if (RegExp(r'^\d+$').hasMatch(value)) return false;
-    return true;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{12}$',
+    ).hasMatch(value);
   }
 
   /// ===============================

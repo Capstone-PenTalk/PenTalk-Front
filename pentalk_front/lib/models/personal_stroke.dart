@@ -43,12 +43,16 @@ class PersonalStroke {
   }
 
   Stroke toStroke() {
+    final safeRefinedPoints =
+        refinedPoints != null && refinedPoints!.isNotEmpty
+            ? refinedPoints
+            : null;
     return Stroke(
       strokeId: strokeId,
       color: color,
       width: width,
       points: points,
-      refinedPoints: refinedPoints,
+      refinedPoints: safeRefinedPoints,
     );
   }
 
@@ -58,7 +62,10 @@ class PersonalStroke {
   /// ===============================
   Map<String, dynamic> toServerJson(int pageNumber) {
     // refinedPoints 우선 사용 (정확도 높음)
-    final exportPoints = refinedPoints ?? points;
+    final exportPoints =
+        refinedPoints != null && refinedPoints!.isNotEmpty
+            ? refinedPoints!
+            : points;
 
     return {
       'sId': strokeId,

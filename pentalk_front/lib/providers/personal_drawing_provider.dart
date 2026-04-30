@@ -30,7 +30,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   /// ===============================
   Future<void> loadPage(String pageId) async {
     if (_currentPageId == pageId) {
-      debugPrint('📄 Already loaded page: $pageId');
+      debugPrint('Already loaded page: $pageId');
       return;
     }
 
@@ -41,7 +41,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      debugPrint('📖 Loading personal strokes for page: $pageId');
+      debugPrint('Loading personal strokes for page: $pageId');
 
       final personalStrokesList = await _dbService.getStrokesByPageId(pageId);
 
@@ -49,9 +49,9 @@ class PersonalDrawingProvider extends ChangeNotifier {
         _personalStrokes[ps.strokeId] = ps.toStroke();
       }
 
-      debugPrint('✅ Loaded ${_personalStrokes.length} personal strokes');
+      debugPrint('Loaded ${_personalStrokes.length} personal strokes');
     } catch (e) {
-      debugPrint('❌ Failed to load page: $e');
+      debugPrint('Failed to load page: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -63,7 +63,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   /// ===============================
   void startDrawing(int strokeId, DrawPoint point, Color color, double width) {
     if (_currentPageId == null) {
-      debugPrint('⚠️ Cannot draw: No page loaded');
+      debugPrint('Cannot draw: No page loaded');
       return;
     }
 
@@ -84,7 +84,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   void updateDrawing(int strokeId, DrawPoint point) {
     final stroke = _personalActiveStrokes[strokeId];
     if (stroke == null) {
-      debugPrint('⚠️ Cannot update: Stroke $strokeId not found');
+      debugPrint('Cannot update: Stroke $strokeId not found');
       return;
     }
 
@@ -101,21 +101,31 @@ class PersonalDrawingProvider extends ChangeNotifier {
   /// ===============================
   Future<void> endDrawing(int strokeId, List<DrawPoint>? refinedPoints) async {
     if (_currentPageId == null) {
-      debugPrint('⚠️ Cannot end draw: No page loaded');
+      debugPrint('Cannot end draw: No page loaded');
       return;
     }
 
     final stroke = _personalActiveStrokes.remove(strokeId);
     if (stroke == null) {
-      debugPrint('⚠️ Cannot end: Stroke $strokeId not found');
+      debugPrint('Cannot end: Stroke $strokeId not found');
       return;
     }
 
-    final finalStroke = refinedPoints != null && refinedPoints.isNotEmpty
-        ? stroke.withRefinedPoints(refinedPoints)
+    final copiedRefinedPoints = refinedPoints != null
+        ? List<DrawPoint>.from(refinedPoints)
+        : null;
+
+    final finalStroke = copiedRefinedPoints != null && copiedRefinedPoints.isNotEmpty
+        ? stroke.withRefinedPoints(copiedRefinedPoints)
         : stroke;
 
     _personalStrokes[strokeId] = finalStroke;
+    debugPrint(
+      'Personal stroke committed: #$strokeId '
+      'basePoints=${stroke.points.length} '
+      'refinedPoints=${finalStroke.refinedPoints?.length ?? 0} '
+      'page=$_currentPageId',
+    );
     notifyListeners();
 
     try {
@@ -124,9 +134,9 @@ class PersonalDrawingProvider extends ChangeNotifier {
         _currentPageId!,
       );
       await _dbService.insertStroke(personalStroke);
-      debugPrint('💾 Saved personal stroke #$strokeId to DB');
+      debugPrint('Saved personal stroke #$strokeId to DB');
     } catch (e) {
-      debugPrint('❌ Failed to save stroke: $e');
+      debugPrint('Failed to save stroke: $e');
     }
   }
 
@@ -135,7 +145,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   /// ===============================
   Future<void> undoLastStroke() async {
     if (_personalStrokes.isEmpty) {
-      debugPrint('⚠️ No strokes to undo');
+      debugPrint('No strokes to undo');
       return;
     }
 
@@ -150,9 +160,9 @@ class PersonalDrawingProvider extends ChangeNotifier {
 
     try {
       await _dbService.deleteStroke(_currentPageId!, lastStrokeId);
-      debugPrint('🗑️ Undo: Removed stroke #$lastStrokeId');
+      debugPrint('Undo: Removed stroke #$lastStrokeId');
     } catch (e) {
-      debugPrint('❌ Failed to delete stroke from DB: $e');
+      debugPrint('Failed to delete stroke from DB: $e');
     }
   }
 
@@ -169,9 +179,9 @@ class PersonalDrawingProvider extends ChangeNotifier {
       notifyListeners();
       try {
         await _dbService.deleteStroke(_currentPageId!, strokeId);
-        debugPrint('🗑️ Deleted stroke #$strokeId');
+        debugPrint('Deleted stroke #$strokeId');
       } catch (e) {
-        debugPrint('❌ Failed to delete stroke: $e');
+        debugPrint('Failed to delete stroke: $e');
       }
     }
   }
@@ -188,9 +198,9 @@ class PersonalDrawingProvider extends ChangeNotifier {
 
     try {
       await _dbService.deleteAllStrokesInPage(_currentPageId!);
-      debugPrint('🗑️ Cleared all personal strokes in page: $_currentPageId');
+      debugPrint('Cleared all personal strokes in page: $_currentPageId');
     } catch (e) {
-      debugPrint('❌ Failed to clear page: $e');
+      debugPrint('Failed to clear page: $e');
     }
   }
 
@@ -205,7 +215,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getAllPersonalStrokesForExport({
     required Map<String, int> pageMapping,
   }) async {
-    debugPrint('📋 Page mapping: $pageMapping');
+    debugPrint('Page mapping: $pageMapping');
 
     // DB에 저장된 모든 페이지 ID 조회
     final allPageIds = await _dbService.getAllPageIds();
@@ -217,7 +227,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
       final pageNumber = pageMapping[pageId] ?? 1;
 
       if (!pageMapping.containsKey(pageId)) {
-        debugPrint('⚠️ Unknown pageId "$pageId" → fallback to page 1');
+        debugPrint('Unknown pageId "$pageId" -> fallback to page 1');
       }
 
       final strokes = await _dbService.getStrokesByPageId(pageId);
@@ -227,11 +237,11 @@ class PersonalDrawingProvider extends ChangeNotifier {
       }
 
       debugPrint(
-          '📄 Page "$pageId" (page: $pageNumber): ${strokes.length} strokes');
+          'Page "$pageId" (page: $pageNumber): ${strokes.length} strokes');
     }
 
     debugPrint(
-        '✅ Total export strokes: ${result.length} across ${allPageIds.length} pages');
+        'Total export strokes: ${result.length} across ${allPageIds.length} pages');
 
     return result;
   }
@@ -242,7 +252,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
   void togglePersonalLayer() {
     _showPersonalLayer = !_showPersonalLayer;
     notifyListeners();
-    debugPrint('👁️ Personal layer: ${_showPersonalLayer ? 'ON' : 'OFF'}');
+    debugPrint('Personal layer: ${_showPersonalLayer ? 'ON' : 'OFF'}');
   }
 
   void setPersonalLayerVisible(bool visible) {
@@ -279,7 +289,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
     notifyListeners();
 
     await _dbService.deleteAllStrokes();
-    debugPrint('💥 Deleted all personal strokes');
+    debugPrint('Deleted all personal strokes');
   }
 
   @override

@@ -118,7 +118,10 @@ class Stroke {
   }
 
   /// 실제 렌더링용 좌표
-  List<DrawPoint> get displayPoints => refinedPoints ?? points;
+  List<DrawPoint> get displayPoints =>
+      refinedPoints != null && refinedPoints!.isNotEmpty
+          ? refinedPoints!
+          : points;
 }
 
 /// ===============================

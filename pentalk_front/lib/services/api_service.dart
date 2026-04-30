@@ -187,6 +187,7 @@ class ApiService {
 
     final body = <String, dynamic>{
       'sessionId': sessionId,
+      if (strokes != null && strokes.isNotEmpty) 'strokes': strokes,
     };
 
     debugPrint('POST /export/pdf');

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +12,7 @@ import '../config/app_config.dart';
 import '../services/deep_link_service.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/pdf_file_service.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
 
@@ -63,6 +63,18 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   final DeepLinkService _deepLinkService = DeepLinkService();
   bool _isDownloading = false;
 
+  bool _looksLikeRealtimeSessionId(String? value) {
+    final normalized = value?.trim() ?? '';
+    if (normalized.isEmpty) return false;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{12}$',
+    ).hasMatch(normalized);
+  }
+
   IconData _getMaterialIcon() {
     switch (widget.material.type) {
       case FileMaterialType.pdf: return Icons.picture_as_pdf;
@@ -95,14 +107,10 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     try {
       final bytes = await _loadMaterialBytes(widget.material);
       final suggestedFileName = _suggestedDownloadFileName(widget.material);
-      final extension = _normalizedExtension(suggestedFileName);
-
-      final savedLocation = await FilePicker.platform.saveFile(
-        dialogTitle: '저장 위치를 선택하세요',
-        fileName: suggestedFileName,
-        type: extension != null ? FileType.custom : FileType.any,
-        allowedExtensions: extension != null ? [extension] : null,
+      final savedLocation = await PdfFileService.saveWithPicker(
         bytes: bytes,
+        fileName: suggestedFileName,
+        dialogTitle: '저장 위치를 선택하세요',
       );
 
       if (!mounted) return;
@@ -178,13 +186,6 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     final extension = material.type.extension;
     return extension.isEmpty ? baseName : '$baseName.$extension';
   }
-
-  String? _normalizedExtension(String fileName) {
-    final extension = p.extension(fileName).trim().toLowerCase();
-    if (extension.isEmpty) return null;
-    return extension.startsWith('.') ? extension.substring(1) : extension;
-  }
-
   void _handlePreview(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('미리보기 기능은 추후 구현 예정입니다'),
@@ -244,7 +245,37 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
         (isTeacher
             ? MaterialDetailScreen._demoTeacherId
             : MaterialDetailScreen._demoStudentId);
-    final roomId = widget.sessionId ?? MaterialDetailScreen._demoRoomIdOverride.trim();
+    String? roomId = _looksLikeRealtimeSessionId(widget.sessionId)
+        ? widget.sessionId!.trim()
+        : null;
+
+    if (roomId == null &&
+        widget.classId != null &&
+        widget.classId!.trim().isNotEmpty) {
+      final response = await ApiService.createSession(
+        classId: widget.classId!.trim(),
+        materialId: widget.material.id,
+      );
+
+      if (!response.success || response.data == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response.message ?? '실시간 세션 생성에 실패했습니다.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      roomId = response.data!.sessionId.trim();
+      debugPrint(
+        'Student drawing session bootstrapped: '
+        'classId=${widget.classId} materialId=${widget.material.id} roomId=$roomId',
+      );
+    }
+
+    roomId ??= MaterialDetailScreen._demoRoomIdOverride.trim();
 
     if (roomId.isEmpty) {
       if (!context.mounted) return;
@@ -275,7 +306,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
           serverUrl: serverUrl,
           roomId: roomId,
           userId: userId,
-          sessionId: widget.sessionId,
+          sessionId: roomId,
         ),
       ),
     );
