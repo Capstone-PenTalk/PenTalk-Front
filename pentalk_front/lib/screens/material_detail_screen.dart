@@ -40,9 +40,10 @@ class MaterialDetailScreen extends StatefulWidget {
     'PENTALK_DEMO_STUDENT_ID',
     defaultValue: 'seed-student-01',
   );
-  static const String _demoRoomIdOverride = String.fromEnvironment(
-    'PENTALK_DEMO_ROOM_ID',
-    defaultValue: '6af5c577-2874-4096-8e07-4d6b0fc3035b',
+  // QR 기능 전까지 학생은 여기에 교사가 생성한 sessionId(UUID)를 직접 넣고 입장(하드코딩)
+  static const String _studentHardcodedSessionId = String.fromEnvironment(
+    'PENTALK_STUDENT_SESSION_ID',
+    defaultValue: '',
   );
 
   const MaterialDetailScreen({
@@ -249,6 +250,24 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
         ? widget.sessionId!.trim()
         : null;
 
+    if (!isTeacher && roomId == null) {
+      final hardcodedRoomId = MaterialDetailScreen._studentHardcodedSessionId.trim();
+      if (_looksLikeRealtimeSessionId(hardcodedRoomId)) {
+        roomId = hardcodedRoomId;
+      }
+    }
+
+    if (!isTeacher && roomId == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('학생용 하드코딩 sessionId를 먼저 입력해주세요.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     if (roomId == null &&
         widget.classId != null &&
         widget.classId!.trim().isNotEmpty) {
@@ -275,9 +294,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       );
     }
 
-    roomId ??= MaterialDetailScreen._demoRoomIdOverride.trim();
-
-    if (roomId.isEmpty) {
+    if (roomId == null || roomId.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('세션 ID가 없습니다.')));

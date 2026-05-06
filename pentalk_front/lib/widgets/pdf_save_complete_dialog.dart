@@ -161,7 +161,11 @@ class PdfExportLoadingDialog extends StatelessWidget {
   }
 
   static void dismiss(BuildContext context) {
-    if (context.mounted) Navigator.of(context).pop();
+    if (!context.mounted) return;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   @override

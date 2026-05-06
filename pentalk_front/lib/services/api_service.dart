@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart';
@@ -175,19 +174,23 @@ class ApiService {
   /// [sessionId]: 세션 ID
   /// [strokes]: 학생 개인 필기 stroke 배열
   ///   각 stroke 형식:
-  ///   { sId, color(int), width, page(1~), points:[{x,y,p?}] }
+  ///   { pageNumber, c("#AARRGGBB"), w, points:[{x,y,p?}] }
   ///
-  /// 반환: PDF 바이너리 (Uint8List)
+  /// 반환: PDF 바이너리 + 서버 파일명
   /// ===============================
-  static Future<Uint8List> exportPdf({
+  static Future<PdfExportBinaryResponse> exportPdf({
     required String sessionId,
     List<Map<String, dynamic>>? strokes,
   }) async {
     final token = await AuthService.getToken();
+    final normalizedStrokes =
+        (strokes ?? const <Map<String, dynamic>>[])
+            .map(_normalizeExportStroke)
+            .toList();
 
     final body = <String, dynamic>{
       'sessionId': sessionId,
-      if (strokes != null && strokes.isNotEmpty) 'strokes': strokes,
+      'strokes': normalizedStrokes,
     };
 
     debugPrint('POST /export/pdf');
@@ -195,15 +198,14 @@ class ApiService {
     debugPrint('   sessionId: $sessionId');
     debugPrint('   auth token present: ${token != null && token.isNotEmpty}');
     debugPrint('   body: ${jsonEncode(body)}');
-    if (strokes != null) {
-      debugPrint('   client strokes prepared: ${strokes.length}개');
-    }
+    debugPrint('   client strokes prepared: ${normalizedStrokes.length}개');
 
     final response = await http
         .post(
       Uri.parse('$baseUrl/export/pdf'),
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/pdf',
         if (token != null) 'Authorization': 'Bearer $token',
       },
       body: jsonEncode(body),
@@ -215,8 +217,26 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
+      final contentType = response.headers['content-type']?.toLowerCase() ?? '';
+      if (!contentType.contains('application/pdf')) {
+        debugPrint('❌ Export failed: unexpected content-type=$contentType');
+        throw const PdfExportApiException(
+          '서버가 PDF 파일을 반환하지 않았습니다.',
+          statusCode: 200,
+          code: 'INVALID_CONTENT_TYPE',
+        );
+      }
+
+      final serverFileName = _extractAttachmentFileName(
+        response.headers['content-disposition'],
+      );
+
       debugPrint('✅ PDF received: ${response.bodyBytes.length} bytes');
-      return response.bodyBytes;
+      debugPrint('   server fileName: ${serverFileName ?? '(none)'}');
+      return PdfExportBinaryResponse(
+        bytes: response.bodyBytes,
+        fileName: serverFileName,
+      );
     }
 
     // 에러 응답 파싱
@@ -723,6 +743,63 @@ class ApiService {
       code: 'GET_DOWNLOAD_URL_FAILED',
     );
   }
+
+  static String? _extractAttachmentFileName(String? contentDisposition) {
+    if (contentDisposition == null || contentDisposition.trim().isEmpty) {
+      return null;
+    }
+
+    final utf8Match = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false)
+        .firstMatch(contentDisposition);
+    if (utf8Match != null) {
+      return Uri.decodeComponent(utf8Match.group(1)!.trim());
+    }
+
+    final asciiMatch = RegExp(r'filename="?([^";]+)"?', caseSensitive: false)
+        .firstMatch(contentDisposition);
+    if (asciiMatch != null) {
+      return asciiMatch.group(1)?.trim();
+    }
+
+    return null;
+  }
+
+  static Map<String, dynamic> _normalizeExportStroke(
+    Map<String, dynamic> stroke,
+  ) {
+    final normalized = Map<String, dynamic>.from(stroke);
+    final rawColor = normalized.remove('color');
+    final rawCompactColor = normalized['c'];
+
+    final compactColor = _normalizeArgbHex(rawCompactColor ?? rawColor);
+    if (compactColor != null) {
+      normalized['c'] = compactColor;
+    }
+
+    return normalized;
+  }
+
+  static String? _normalizeArgbHex(Object? value) {
+    if (value == null) return null;
+
+    if (value is Color) {
+      return '#${value.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}';
+    }
+
+    if (value is num) {
+      return '#${value.toInt().toRadixString(16).padLeft(8, '0').toUpperCase()}';
+    }
+
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return null;
+    final hex = raw.startsWith('#') ? raw.substring(1) : raw;
+    if (!RegExp(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').hasMatch(hex)) {
+      return raw.startsWith('#') ? raw : '#$raw';
+    }
+
+    final argb = hex.length == 6 ? 'FF$hex' : hex;
+    return '#${argb.toUpperCase()}';
+  }
 }
 
 /// ===============================
@@ -915,6 +992,16 @@ class PdfExportApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class PdfExportBinaryResponse {
+  final Uint8List bytes;
+  final String? fileName;
+
+  const PdfExportBinaryResponse({
+    required this.bytes,
+    this.fileName,
+  });
 }
 
 class TimeoutException implements Exception {

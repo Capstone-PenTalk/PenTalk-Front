@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import '../models/document_source.dart';
 import '../models/student_session_model.dart';
@@ -75,7 +73,7 @@ class PdfExportService {
     _validate(strokes);
 
     // 4. POST /export/pdf 호출
-    final Uint8List pdfBytes = await ApiService.exportPdf(
+    final pdfResponse = await ApiService.exportPdf(
       sessionId: sessionId,
       strokes: strokes,
     );
@@ -87,12 +85,12 @@ class PdfExportService {
 
     debugPrint('PDF binary received');
     debugPrint('   strokes: ${strokes.length}, total points: $totalPoints');
-    debugPrint('   size: ${pdfBytes.length} bytes');
+    debugPrint('   size: ${pdfResponse.bytes.length} bytes');
 
     final saveResult = PdfSaveResult(
-      fileName: _buildExportFileName(sessionId),
-      bytes: pdfBytes,
-      fileSizeBytes: pdfBytes.length,
+      fileName: pdfResponse.fileName ?? _buildExportFileName(sessionId),
+      bytes: pdfResponse.bytes,
+      fileSizeBytes: pdfResponse.bytes.length,
       savedAt: DateTime.now(),
     );
 

@@ -1,8 +1,6 @@
 
 import 'package:flutter/foundation.dart';
 import '../models/student_session_model.dart';
-import '../services/api_service.dart';
-import '../services/session_storage.dart';
 
 class StudentSessionProvider extends ChangeNotifier {
   static const String _fallbackClassId = String.fromEnvironment(
@@ -42,32 +40,14 @@ class StudentSessionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final lastSession = await SessionStorage.getLastSession();
-
-      String? activeRoomId;
-      DateTime? joinedAt;
-
-      if (lastSession != null) {
-        final status = await ApiService.getSessionStatus(
-          sessionId: lastSession.roomId,
-        );
-
-        if (status.success && status.data != null && status.data!.isActive) {
-          activeRoomId = lastSession.roomId;
-          joinedAt = lastSession.joinedAt;
-        } else {
-          await SessionStorage.clearSession();
-        }
-      }
-
       _sessions = [
         StudentSessionModel(
-          id: activeRoomId ?? _fallbackClassId,
-          title: activeRoomId != null ? '실시간 수업' : 'seed-class-01 테스트 수업',
+          id: _fallbackClassId,
+          title: 'seed-class-01 테스트 수업',
           classId: _fallbackClassId,
           teacherName: 'teacher1',
           subject: '공유 세션',
-          joinedAt: joinedAt ?? DateTime.now(),
+          joinedAt: DateTime.now(),
         ),
       ];
 
