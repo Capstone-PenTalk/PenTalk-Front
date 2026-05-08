@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 class AppConfig {
   static const String _serverUrlOverride = String.fromEnvironment(
     'PENTALK_SERVER_URL',
-    defaultValue: 'http://54.180.113.140:3000',
+    defaultValue: 'http://54.180.120.105:3000',
   );
   static const String _apiUrlOverride = String.fromEnvironment(
     'PENTALK_API_URL',
@@ -58,12 +58,17 @@ class AppConfig {
     'PENTALK_ENABLE_NATIVE_TEACHER_DRAWING',
     defaultValue: false,
   );
+  static const bool _enableAutoLoginOverride = bool.fromEnvironment(
+    'PENTALK_ENABLE_AUTO_LOGIN',
+    defaultValue: false,
+  );
 
   static bool get shouldUseServerLogin => _useServerLoginOverride;
   static bool get allowLocalPdfWorkspace => _allowLocalPdfWorkspaceOverride;
   static bool get preferLocalPdfImport => _preferLocalPdfImportOverride;
   static bool get enableNativeTeacherDrawing =>
       _enableNativeTeacherDrawingOverride;
+  static bool get enableAutoLogin => _enableAutoLoginOverride;
   static bool get hasExplicitServerUrlConfig =>
       _serverUrlOverride.trim().isNotEmpty ||
       _apiUrlOverride.trim().isNotEmpty ||

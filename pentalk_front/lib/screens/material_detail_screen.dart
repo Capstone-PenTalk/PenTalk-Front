@@ -1,12 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/student_session_model.dart';
 import '../config/app_config.dart';
 import '../services/deep_link_service.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../services/pdf_file_service.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
 
@@ -34,9 +40,10 @@ class MaterialDetailScreen extends StatefulWidget {
     'PENTALK_DEMO_STUDENT_ID',
     defaultValue: 'seed-student-01',
   );
-  static const String _demoRoomIdOverride = String.fromEnvironment(
-    'PENTALK_DEMO_ROOM_ID',
-    defaultValue: '6af5c577-2874-4096-8e07-4d6b0fc3035b',
+  // QR 기능 전까지 학생은 여기에 교사가 생성한 sessionId(UUID)를 직접 넣고 입장(하드코딩)
+  static const String _studentHardcodedSessionId = String.fromEnvironment(
+    'PENTALK_STUDENT_SESSION_ID',
+    defaultValue: '',
   );
 
   const MaterialDetailScreen({
@@ -55,6 +62,19 @@ class MaterialDetailScreen extends StatefulWidget {
 
 class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   final DeepLinkService _deepLinkService = DeepLinkService();
+  bool _isDownloading = false;
+
+  bool _looksLikeRealtimeSessionId(String? value) {
+    final normalized = value?.trim() ?? '';
+    if (normalized.isEmpty) return false;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{12}$',
+    ).hasMatch(normalized);
+  }
 
   IconData _getMaterialIcon() {
     switch (widget.material.type) {
@@ -80,13 +100,93 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     return DateFormat('yyyy년 MM월 dd일 HH:mm').format(date);
   }
 
-  void _handleDownload(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('${widget.material.fileName} 다운로드 시작'),
-      duration: const Duration(seconds: 2),
-    ));
+  Future<void> _handleDownload() async {
+    if (_isDownloading) return;
+
+    setState(() => _isDownloading = true);
+
+    try {
+      final bytes = await _loadMaterialBytes(widget.material);
+      final suggestedFileName = _suggestedDownloadFileName(widget.material);
+      final savedLocation = await PdfFileService.saveWithPicker(
+        bytes: bytes,
+        fileName: suggestedFileName,
+        dialogTitle: '저장 위치를 선택하세요',
+      );
+
+      if (!mounted) return;
+
+      if (savedLocation == null || savedLocation.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('저장이 취소되었습니다')),
+        );
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$suggestedFileName 저장 완료'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('다운로드 실패: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
   }
 
+  Future<Uint8List> _loadMaterialBytes(MaterialModel material) async {
+    final isRemoteMaterial = material.id.isNotEmpty && !material.id.startsWith('local_');
+
+    if (isRemoteMaterial) {
+      final downloadUrl = await ApiService.getMaterialDownloadUrl(
+        materialId: material.id,
+      );
+      final response = await http.get(Uri.parse(downloadUrl));
+      if (response.statusCode != 200) {
+        throw Exception('자료 다운로드 실패 [${response.statusCode}]');
+      }
+      return response.bodyBytes;
+    }
+
+    if (kIsWeb) {
+      throw UnsupportedError('웹에서는 로컬 파일 다운로드를 지원하지 않습니다.');
+    }
+
+    final file = File(material.url);
+    if (!await file.exists()) {
+      throw Exception('로컬 파일을 찾을 수 없습니다.');
+    }
+    return file.readAsBytes();
+  }
+
+  String _suggestedDownloadFileName(MaterialModel material) {
+    final candidates = [
+      material.fileName,
+      material.title,
+      material.id,
+    ];
+
+    final baseName = candidates
+        .map((value) => value.trim())
+        .firstWhere((value) => value.isNotEmpty && value != 'untitled');
+
+    if (p.extension(baseName).isNotEmpty) {
+      return baseName;
+    }
+
+    final extension = material.type.extension;
+    return extension.isEmpty ? baseName : '$baseName.$extension';
+  }
   void _handlePreview(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('미리보기 기능은 추후 구현 예정입니다'),
@@ -142,12 +242,59 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       return;
     }
 
-    final userId = isTeacher
-        ? MaterialDetailScreen._demoTeacherId
-        : MaterialDetailScreen._demoStudentId;
-    final roomId = widget.sessionId ?? MaterialDetailScreen._demoRoomIdOverride.trim();
+    final userId = await AuthService.getUserId() ??
+        (isTeacher
+            ? MaterialDetailScreen._demoTeacherId
+            : MaterialDetailScreen._demoStudentId);
+    String? roomId = _looksLikeRealtimeSessionId(widget.sessionId)
+        ? widget.sessionId!.trim()
+        : null;
 
-    if (roomId.isEmpty) {
+    if (!isTeacher && roomId == null) {
+      final hardcodedRoomId = MaterialDetailScreen._studentHardcodedSessionId.trim();
+      if (_looksLikeRealtimeSessionId(hardcodedRoomId)) {
+        roomId = hardcodedRoomId;
+      }
+    }
+
+    if (!isTeacher && roomId == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('학생용 하드코딩 sessionId를 먼저 입력해주세요.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (roomId == null &&
+        widget.classId != null &&
+        widget.classId!.trim().isNotEmpty) {
+      final response = await ApiService.createSession(
+        classId: widget.classId!.trim(),
+        materialId: widget.material.id,
+      );
+
+      if (!response.success || response.data == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response.message ?? '실시간 세션 생성에 실패했습니다.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      roomId = response.data!.sessionId.trim();
+      debugPrint(
+        'Student drawing session bootstrapped: '
+        'classId=${widget.classId} materialId=${widget.material.id} roomId=$roomId',
+      );
+    }
+
+    if (roomId == null || roomId.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('세션 ID가 없습니다.')));
@@ -176,7 +323,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
           serverUrl: serverUrl,
           roomId: roomId,
           userId: userId,
-          sessionId: widget.sessionId,
+          sessionId: roomId,
         ),
       ),
     );
@@ -230,11 +377,23 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
               onPressed: _showQrCodeDialog,
               tooltip: 'QR 코드 공유',
             ),
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: () => _handleDownload(context),
-            tooltip: '다운로드',
-          ),
+          if (_isDownloading)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.download),
+              onPressed: _handleDownload,
+              tooltip: '다운로드',
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -338,9 +497,22 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () => _handleDownload(context),
-                          icon: const Icon(Icons.download),
-                          label: const Text('다운로드'),
+                          onPressed: _isDownloading
+                              ? null
+                              : _handleDownload,
+                          icon: _isDownloading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : const Icon(Icons.download),
+                          label: Text(_isDownloading ? '저장 중...' : '다운로드'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

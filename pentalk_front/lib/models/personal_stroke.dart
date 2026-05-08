@@ -43,12 +43,16 @@ class PersonalStroke {
   }
 
   Stroke toStroke() {
+    final safeRefinedPoints =
+        refinedPoints != null && refinedPoints!.isNotEmpty
+            ? refinedPoints
+            : null;
     return Stroke(
       strokeId: strokeId,
       color: color,
       width: width,
       points: points,
-      refinedPoints: refinedPoints,
+      refinedPoints: safeRefinedPoints,
     );
   }
 
@@ -57,14 +61,16 @@ class PersonalStroke {
   /// POST /export/pdf 요청 형식
   /// ===============================
   Map<String, dynamic> toServerJson(int pageNumber) {
-    // refinedPoints 우선 사용 (정확도 높음)
-    final exportPoints = refinedPoints ?? points;
+    // refinedPoints 우선 사용. DrawPoint는 이미 0~1 정규화 좌표다.
+    final exportPoints =
+        refinedPoints != null && refinedPoints!.isNotEmpty
+            ? refinedPoints!
+            : points;
 
     return {
-      'sId': strokeId,
-      'color': color.value, // Flutter Color.value (ARGB int)
-      'width': width,
-      'page': pageNumber, // 1부터 시작하는 정수
+      'pageNumber': pageNumber,
+      'c': _toArgbHex(color),
+      'w': width,
       'points': exportPoints
           .map((p) => {
         'x': p.x,
@@ -73,6 +79,11 @@ class PersonalStroke {
       })
           .toList(),
     };
+  }
+
+  static String _toArgbHex(Color color) {
+    final argb = color.toARGB32().toRadixString(16).padLeft(8, '0');
+    return '#${argb.toUpperCase()}';
   }
 
   factory PersonalStroke.fromJson(Map<String, dynamic> json) {

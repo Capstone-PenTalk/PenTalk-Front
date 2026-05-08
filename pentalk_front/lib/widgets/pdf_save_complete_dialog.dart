@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:open_file/open_file.dart';
-import '../services/pdf_file_service.dart';
+import '../services/pdf_export_service.dart';
 
 /// ===============================
 /// PDF 저장 완료 다이얼로그 (B안)
 ///
-/// 저장 완료 후 표시:
-///   - 파일명 / 저장 위치 / 용량
-///   - [열기] → 기기 PDF 앱
-///   - [공유] → share_plus 시트
+/// 예전 저장 완료 다이얼로그.
+/// 현재는 로딩 다이얼로그만 사용하고, 저장 완료는 시스템 save dialog 이후 스낵바로 안내한다.
 /// ===============================
 class PdfSaveCompleteDialog extends StatelessWidget {
   final PdfSaveResult saveResult;
@@ -101,28 +98,6 @@ class PdfSaveCompleteDialog extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
 
-                // 저장 위치
-                Row(
-                  children: [
-                    Icon(
-                      Icons.folder_outlined,
-                      color: Colors.grey[500],
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        saveResult.displayPath,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-
                 // 파일 크기
                 Row(
                   children: [
@@ -162,63 +137,11 @@ class PdfSaveCompleteDialog extends StatelessWidget {
         ),
         const SizedBox(width: 8),
 
-        // 열기 버튼
-        OutlinedButton.icon(
-          onPressed: () => _handleOpen(context),
-          icon: const Icon(Icons.open_in_new, size: 18),
-          label: const Text('열기'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-
-        // 공유 버튼
-        ElevatedButton.icon(
-          onPressed: () => _handleShare(context),
-          icon: const Icon(Icons.share, size: 18),
-          label: const Text('공유'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('확인'),
         ),
       ],
-    );
-  }
-
-  Future<void> _handleOpen(BuildContext context) async {
-    final result = await PdfFileService.open(saveResult.filePath);
-
-    if (!context.mounted) return;
-
-    if (result.type == ResultType.noAppToOpen) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('PDF를 열 수 있는 앱이 없습니다. 공유를 통해 저장해주세요.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
-  Future<void> _handleShare(BuildContext context) async {
-    // 태블릿에서 공유 시트 위치를 버튼 근처에 표시하기 위해
-    // RenderBox로 현재 위젯 위치를 계산
-    final box = context.findRenderObject() as RenderBox?;
-    final shareOrigin = box != null
-        ? box.localToGlobal(Offset.zero) & box.size
-        : null;
-
-    await PdfFileService.share(
-      filePath: saveResult.filePath,
-      fileName: saveResult.fileName,
-      sharePositionOrigin: shareOrigin,
     );
   }
 }
@@ -238,7 +161,11 @@ class PdfExportLoadingDialog extends StatelessWidget {
   }
 
   static void dismiss(BuildContext context) {
-    if (context.mounted) Navigator.of(context).pop();
+    if (!context.mounted) return;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   @override

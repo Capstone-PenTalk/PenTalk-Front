@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../config/app_config.dart';
 import '../models/document_source.dart';
+import 'auth_service.dart';
 
 class PdfDocumentService {
   static const MethodChannel _channel = MethodChannel('pentalk/pdf');
@@ -83,7 +84,15 @@ class PdfDocumentService {
         return file.path;
       }
 
-      final response = await http.get(Uri.parse(resolvedPdfUrl));
+      final token = await AuthService.getToken();
+      final shouldAttachAuthHeader = _shouldAttachAuthHeader(resolvedPdfUrl);
+      final response = await http.get(
+        Uri.parse(resolvedPdfUrl),
+        headers: {
+          if (shouldAttachAuthHeader && token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
+        },
+      );
       if (response.statusCode != 200) {
         throw Exception('PDF 다운로드 실패 [${response.statusCode}]');
       }
@@ -102,11 +111,23 @@ class PdfDocumentService {
     return value.startsWith('http://') || value.startsWith('https://');
   }
 
+  static bool _shouldAttachAuthHeader(String url) {
+    final requestUri = Uri.tryParse(url);
+    final apiUri = Uri.tryParse(AppConfig.apiBaseUrl);
+    if (requestUri == null || apiUri == null) return false;
+    return requestUri.scheme == apiUri.scheme &&
+        requestUri.host == apiUri.host &&
+        requestUri.port == apiUri.port;
+  }
+
   static String _resolvePdfUrl(String pdfUrl) {
     final trimmed = pdfUrl.trim();
     if (trimmed.isEmpty) return trimmed;
-    if (_isRemoteUrl(trimmed) || trimmed.startsWith('file://')) {
+    if (_isRemoteUrl(trimmed)) {
       return trimmed;
+    }
+    if (trimmed.startsWith('file://')) {
+      return Uri.parse(trimmed).toFilePath();
     }
     if (p.isAbsolute(trimmed)) {
       return trimmed;

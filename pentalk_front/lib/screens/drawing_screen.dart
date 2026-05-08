@@ -23,6 +23,7 @@ import '../widgets/poll_start_dialog.dart';
 import '../services/api_service.dart';
 import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
+import '../services/pdf_file_service.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
@@ -115,11 +116,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
       await _loadPersonalPageIfNeeded(widget.materialTitle);
     }
 
-    // 그리기 모드 (교사는 기본 활성화)
-    if (widget.isTeacher) {
-      provider.setDrawingMode(true);
-      debugPrint('Drawing mode enabled for teacher');
-    }
+    // 그리기 모드 기본 활성화
+    provider.setDrawingMode(true);
+    debugPrint(
+      widget.isTeacher
+          ? 'Drawing mode enabled for teacher'
+          : 'Drawing mode enabled for student personal drawing',
+    );
 
     if (widget.serverUrl != null &&
         widget.roomId != null &&
@@ -170,7 +173,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       );
       await _restoreCurrentTeacherPage();
     } catch (e) {
-      debugPrint('❌ Failed to prepare PDF document: $e');
+      debugPrint('Failed to prepare PDF document: $e');
       _drawingProvider.setBackgroundUrl(backgroundUrl);
       await _loadPersonalPageIfNeeded(widget.materialTitle);
       if (mounted) {
@@ -294,7 +297,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       );
       await _restoreCurrentTeacherPage();
     } catch (e) {
-      debugPrint('❌ Failed to change PDF page: $e');
+      debugPrint('Failed to change PDF page: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -324,7 +327,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     socketService.onPollStart = (data) {
       final pollData = PollStartData.fromJson(data);
       pollProvider.onPollStart(pollData);
-      debugPrint('📊 Poll started, showing overlay');
+      debugPrint('Poll started, showing overlay');
     };
 
     // poll:result → 교사 실시간 집계 업데이트
@@ -339,7 +342,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       pollProvider.onPollEnd(resultData);
     };
 
-    debugPrint('📊 Poll callbacks setup completed');
+    debugPrint('Poll callbacks setup completed');
   }
 
   /// ===============================
@@ -397,7 +400,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     socketService.onPresenceJoin = participantsProvider.addParticipant;
     socketService.onPresenceLeave = participantsProvider.removeParticipant;
 
-    debugPrint('🔔 Presence callbacks setup completed');
+    debugPrint('Presence callbacks setup completed');
   }
 
   void _handleSessionEnded(Map<String, dynamic> data) {
@@ -434,9 +437,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
         classId: widget.classId,
         materialId: widget.materialId,
       );
-      debugPrint('✅ Socket.IO connection initiated');
+      debugPrint('Socket.IO connection initiated');
     } catch (e) {
-      debugPrint('❌ Socket.IO connection failed: $e');
+      debugPrint('Socket.IO connection failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -495,11 +498,20 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// PDF 내보내기 (학생 전용)
   /// ===============================
   Future<void> _handleExportPdf() async {
-    final sessionId = widget.roomId ?? widget.sessionId;
+    final sessionId =
+        _drawingProvider.roomId ?? widget.roomId ?? widget.sessionId;
     if (sessionId == null) {
       _showExportError(message: '세션 정보가 없습니다.', canRetry: false);
       return;
     }
+
+    debugPrint(
+      'Export requested: '
+      'providerRoomId=${_drawingProvider.roomId} '
+      'widgetRoomId=${widget.roomId} '
+      'widgetSessionId=${widget.sessionId} '
+      'resolvedSessionId=$sessionId',
+    );
 
     setState(() => _isExporting = true);
     PdfExportLoadingDialog.show(context);
@@ -516,7 +528,25 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
       if (!mounted) return;
       PdfExportLoadingDialog.dismiss(context);
-      await PdfSaveCompleteDialog.show(context, saveResult: saveResult);
+      final savedLocation = await PdfFileService.saveWithPicker(
+        bytes: saveResult.bytes,
+        fileName: saveResult.fileName,
+        dialogTitle: '합성된 PDF 저장 위치를 선택하세요',
+      );
+      if (!mounted) return;
+
+      if (savedLocation == null || savedLocation.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF 저장이 취소되었습니다.')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${saveResult.fileName} 저장 완료'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
 
       // ① 클라이언트 사이드 에러 (stroke 수 초과 등) → 재시도 불가
     } on PdfExportException catch (e) {
@@ -695,14 +725,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
                 ),
               ],
 
+              if (!_usesNativeTeacherDrawing) ...[
+                const ColorPaletteBar(),
+                const SizedBox(width: 8),
+                const WidthSelectorBar(),
+                const SizedBox(width: 8),
+              ],
+
               // 교사용 컨트롤
               if (widget.isTeacher) ...[
-                if (!_usesNativeTeacherDrawing) ...[
-                  const ColorPaletteBar(),
-                  const SizedBox(width: 8),
-                  const WidthSelectorBar(),
-                  const SizedBox(width: 8),
-                ],
                 IconButton(
                   icon: const Icon(Icons.undo),
                   onPressed: _handleUndo,
@@ -727,6 +758,19 @@ class _DrawingScreenState extends State<DrawingScreen> {
                       tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
                     );
                   },
+                ),
+              ],
+
+              if (!widget.isTeacher) ...[
+                IconButton(
+                  icon: const Icon(Icons.undo),
+                  onPressed: _handleStudentUndo,
+                  tooltip: '내 필기 실행 취소',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: _handleStudentClear,
+                  tooltip: '내 필기 전체 지우기',
                 ),
               ],
 
@@ -882,7 +926,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    provider.isDrawingMode ? '✏️ 그리기' : '👆 이동/줌',
+                    provider.isDrawingMode ? '그리기' : '이동/줌',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -951,8 +995,8 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   ),
                   child: Text(
                     drawingProvider.isDrawingMode
-                        ? '✏️ 내 필기'
-                        : '👆 이동/줌',
+                        ? '내 필기'
+                        : '이동/줌',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -1018,5 +1062,40 @@ class _DrawingScreenState extends State<DrawingScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleStudentUndo() async {
+    final personalProvider = context.read<PersonalDrawingProvider>();
+    if (personalProvider.personalStrokes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('실행 취소할 내 필기가 없습니다')),
+      );
+      return;
+    }
+    await personalProvider.undoLastStroke();
+  }
+
+  Future<void> _handleStudentClear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('내 필기 지우기'),
+        content: const Text('현재 페이지의 내 필기를 모두 지우시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('지우기'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await context.read<PersonalDrawingProvider>().clearCurrentPage();
   }
 }

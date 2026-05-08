@@ -90,39 +90,26 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
   void _setupMaterialUploadListener() {
     try {
       final drawingProvider = context.read<DrawingProvider>();
-      final materialProvider = context.read<MaterialProvider>();
 
       drawingProvider.socketService.onMaterialUploaded = (data) {
-        debugPrint("material:uploaded received");
-        try {
-          final material = MaterialModel(
-            id: data["id"]?.toString() ?? '',
-            title: data["name"]?.toString() ?? 'untitled',
-            fileName: data["name"]?.toString() ?? 'untitled',
-            url: data["url"]?.toString() ?? '',
-            sizeInBytes: 0,
-            uploadedAt:
-                DateTime.tryParse(data["createdAt"]?.toString() ?? '') ??
-                    DateTime.now(),
-            type: FileMaterialType.pdf,
-          );
-          materialProvider.addMaterial(material);
+        debugPrint("material:uploaded received: $data");
+        _loadMaterials();
 
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("새 자료가 추가됐습니다: " + material.title),
-                duration: const Duration(seconds: 3),
-                action: SnackBarAction(
-                  label: "확인",
-                  onPressed: () {},
-                ),
-              ),
-            );
-          }
-        } catch (e) {
-          debugPrint("Failed to parse material:uploaded: " + e.toString());
-        }
+        if (!mounted) return;
+        final materialName =
+            data["name"]?.toString() ??
+            data["title"]?.toString() ??
+            '새 자료';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("새 자료가 추가됐습니다: $materialName"),
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: "확인",
+              onPressed: () {},
+            ),
+          ),
+        );
       };
     } catch (e) {
       // DrawingProvider 없는 경우 (수업 외 화면) 무시

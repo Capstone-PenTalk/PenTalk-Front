@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../services/auth_service.dart';
-import '../services/session_storage.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 import 'drawing_screen.dart';
@@ -34,6 +33,11 @@ class _SplashScreenState extends State<SplashScreen> {
     try {
       final handledByLink = await _tryHandleUrlSessionJoin();
       if (handledByLink) return;
+
+      if (!AppConfig.enableAutoLogin) {
+        _navigateToLogin();
+        return;
+      }
 
       setState(() => _statusMessage = '로그인 확인 중...');
       await Future.delayed(const Duration(milliseconds: 500));
@@ -78,32 +82,6 @@ class _SplashScreenState extends State<SplashScreen> {
         );
       }
 
-      // 저장된 세션 확인 (자동 재join)
-      setState(() => _statusMessage = '이전 세션 확인 중...');
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      final session = await SessionStorage.getLastSession();
-
-      if (session != null) {
-        setState(() => _statusMessage = '세션 상태 확인 중...');
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        final statusResponse = await ApiService.getSessionStatus(
-          sessionId: session.sessionId,
-        );
-
-        if (statusResponse.success &&
-            statusResponse.data != null &&
-            statusResponse.data!.isActive) {
-          // 세션이 활성 → 자동 재join
-          if (mounted) _navigateToDrawingScreen(session);
-          return;
-        } else {
-          // 세션 만료 → 세션 정보 삭제
-          await SessionStorage.clearSession();
-        }
-      }
-
       // 역할에 따라 홈 화면 분기
       if (mounted) {
         if (role == 'teacher') {
@@ -114,7 +92,6 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     } catch (e) {
       debugPrint('❌ Splash error: $e');
-      await SessionStorage.clearSession();
       if (mounted) _navigateToLogin();
     }
   }
@@ -253,24 +230,6 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const TeacherHomeScreen()),
-    );
-  }
-
-  void _navigateToDrawingScreen(SessionInfo session) async {
-    final userId = await AuthService.getUserId();
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DrawingScreen(
-          materialTitle: session.materialTitle,
-          backgroundUrl: session.backgroundUrl,
-          isTeacher: session.isTeacher,
-          serverUrl: session.serverUrl,
-          roomId: session.roomId,
-          userId: userId,
-        ),
-      ),
     );
   }
 

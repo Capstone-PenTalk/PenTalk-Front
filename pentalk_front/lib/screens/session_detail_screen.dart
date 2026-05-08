@@ -56,7 +56,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _bootstrapRealtimeSessionIfNeeded();
       _loadMaterials();
     });
   }
@@ -68,7 +67,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }) async {
     final userId = await AuthService.getUserId() ?? 'teacher';
     final resolvedBackgroundUrl = await _resolveMaterialBackgroundUrl(material);
-    final realtimeSessionId = connectRealtime ? _effectiveSessionId : null;
+    String? realtimeSessionId = connectRealtime ? _effectiveSessionId : null;
+    if (connectRealtime && realtimeSessionId == null) {
+      realtimeSessionId = await _createRealtimeSessionForMaterial(material);
+      if (realtimeSessionId == null) return;
+    }
     if (!context.mounted) return;
     Navigator.push(
       context,
@@ -102,15 +105,17 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     return ApiService.getMaterialDownloadUrl(materialId: material.id);
   }
 
-  Future<void> _bootstrapRealtimeSessionIfNeeded() async {
-    if (!_canUseRemoteMaterials) return;
-    if (_effectiveSessionId != null) return;
+  Future<String?> _createRealtimeSessionForMaterial(MaterialModel material) async {
+    if (!_canUseRemoteMaterials) return null;
 
     final classId = widget.classId;
-    if (classId == null || classId.isEmpty) return;
+    if (classId == null || classId.isEmpty) return null;
 
     try {
-      final response = await ApiService.createSession(classId: classId);
+      final response = await ApiService.createSession(
+        classId: classId,
+        materialId: material.id,
+      );
       if (!response.success || response.data == null) {
         throw Exception(response.message ?? '실시간 세션 생성에 실패했습니다.');
       }
@@ -121,31 +126,38 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       }
 
       debugPrint(
-        '✅ Realtime session bootstrapped on enter: '
-        'localSessionId=${widget.sessionId} -> serverSessionId=$createdSessionId',
+        '✅ Realtime session created for material: '
+        'classId=$classId materialId=${material.id} serverSessionId=$createdSessionId',
       );
       if (mounted) {
         setState(() {
           _realtimeSessionId = createdSessionId;
         });
       }
+      return createdSessionId;
     } catch (e) {
-      debugPrint('❌ Failed to bootstrap realtime session: $e');
-      if (!mounted) return;
+      debugPrint('❌ Failed to create realtime session for material: $e');
+      if (!mounted) return null;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('실시간 세션 준비 실패: $e'),
+          content: Text('실시간 세션 생성 실패: $e'),
           backgroundColor: Colors.red,
         ),
       );
+      return null;
     }
   }
 
   bool _looksLikeRealtimeSessionId(String value) {
     if (value.isEmpty) return false;
     if (value == 'local-pdf-workspace') return false;
-    if (RegExp(r'^\d+$').hasMatch(value)) return false;
-    return true;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{4}-'
+      r'[0-9a-fA-F]{12}$',
+    ).hasMatch(value);
   }
 
   /// ===============================
