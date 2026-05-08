@@ -3,6 +3,9 @@ import '../models/session_model.dart';
 import '../services/api_service.dart';
 
 class SessionProvider extends ChangeNotifier {
+  static const String qrTestClassId = 'QR_TEST';
+  static const String qrTestSessionId = 'qr-test-session';
+
   List<SessionModel> _sessions = [];
   bool _isLoading = false;
   String? _errorMessage;
@@ -92,6 +95,25 @@ class SessionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      if (classId.trim().toUpperCase() == qrTestClassId) {
+        final testSession = SessionModel(
+          id: qrTestSessionId,
+          title: 'QR 테스트 세션',
+          classId: qrTestClassId,
+          maxParticipants: 0,
+          joinUrl: 'https://pentalk.app/join/$qrTestSessionId',
+          createdAt: DateTime.now(),
+        );
+
+        _sessions = [
+          testSession,
+          ..._sessions.where((session) => session.id != testSession.id),
+        ];
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+
       final response = await ApiService.createSession(
         classId: classId,
         materialId: materialId,

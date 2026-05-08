@@ -1,13 +1,11 @@
-
 import 'package:flutter/material.dart';
 
 class CreateSessionDialog extends StatefulWidget {
-  final Future<void> Function(String classId, String? materialId) onCreateSession;
+  final Future<void> Function(String classId, String? materialId)
+  onCreateSession;
 
-  const CreateSessionDialog({
-    Key? key,
-    required this.onCreateSession,
-  }) : super(key: key);
+  const CreateSessionDialog({Key? key, required this.onCreateSession})
+    : super(key: key);
 
   @override
   State<CreateSessionDialog> createState() => _CreateSessionDialogState();
@@ -65,9 +63,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -78,10 +74,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
             children: [
               const Text(
                 '새 세션 생성',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 24),
 
@@ -90,7 +83,8 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                 controller: _classIdController,
                 decoration: const InputDecoration(
                   labelText: '클래스 ID',
-                  hintText: '예: seed-class-01',
+                  hintText: '예: seed-class-01, QR_TEST',
+                  helperText: 'QR 테스트만 볼 때는 QR_TEST 입력',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.class_),
                 ),
@@ -121,9 +115,11 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: _isLoading ? null : () {
-                      Navigator.of(context).pop();
-                    },
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            Navigator.of(context).pop();
+                          },
                     child: const Text('취소'),
                   ),
                   const SizedBox(width: 8),
@@ -137,12 +133,10 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                     ),
                     child: _isLoading
                         ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                      ),
-                    )
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('생성'),
                   ),
                 ],
