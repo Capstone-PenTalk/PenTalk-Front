@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 import '../models/student_session_model.dart';
 
@@ -15,6 +14,24 @@ class StudentSessionProvider extends ChangeNotifier {
   List<StudentSessionModel> get sessions => _sessions;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+
+  void addJoinedSession(String sessionId) {
+    final trimmedSessionId = sessionId.trim();
+    if (trimmedSessionId.isEmpty) return;
+    if (_sessions.any((session) => session.id == trimmedSessionId)) return;
+
+    _sessions = [
+      StudentSessionModel(
+        id: trimmedSessionId,
+        title: '실시간 세션',
+        teacherName: 'teacher1',
+        subject: '공유 세션',
+        joinedAt: DateTime.now(),
+      ),
+      ..._sessions,
+    ];
+    notifyListeners();
+  }
 
   // 과목별로 세션 그룹화
   Map<String, List<StudentSessionModel>> get sessionsBySubject {

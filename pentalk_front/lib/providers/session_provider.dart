@@ -108,6 +108,7 @@ class SessionProvider extends ChangeNotifier {
         title: classId,
         classId: classId,
         maxParticipants: 0,
+        joinUrl: created.joinUrl ?? created.joinUrlStudent,
         createdAt: DateTime.now(),
       );
 
@@ -154,8 +155,11 @@ class SessionProvider extends ChangeNotifier {
 
       final sessionIndex = _sessions.indexWhere((s) => s.id == sessionId);
       if (sessionIndex != -1) {
-        final updatedFiles = List<FileModel>.from(_sessions[sessionIndex].files)..add(file);
-        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(files: updatedFiles);
+        final updatedFiles = List<FileModel>.from(_sessions[sessionIndex].files)
+          ..add(file);
+        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(
+          files: updatedFiles,
+        );
         notifyListeners();
       }
     } catch (e) {
@@ -173,8 +177,12 @@ class SessionProvider extends ChangeNotifier {
 
       final sessionIndex = _sessions.indexWhere((s) => s.id == sessionId);
       if (sessionIndex != -1) {
-        final updatedFiles = _sessions[sessionIndex].files.where((f) => f.id != fileId).toList();
-        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(files: updatedFiles);
+        final updatedFiles = _sessions[sessionIndex].files
+            .where((f) => f.id != fileId)
+            .toList();
+        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(
+          files: updatedFiles,
+        );
         notifyListeners();
       }
     } catch (e) {

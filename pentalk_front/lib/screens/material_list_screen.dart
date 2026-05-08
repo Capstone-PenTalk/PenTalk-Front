@@ -12,18 +12,14 @@ class MaterialListScreen extends StatefulWidget {
   final String sessionId;
   final String? classId; // 자료 목록 조회에 필요
 
-  const MaterialListScreen({
-    Key? key,
-    required this.sessionId,
-    this.classId,
-  }) : super(key: key);
+  const MaterialListScreen({Key? key, required this.sessionId, this.classId})
+    : super(key: key);
 
   @override
   State<MaterialListScreen> createState() => _MaterialListScreenState();
 }
 
 class _MaterialListScreenState extends State<MaterialListScreen> {
-
   @override
   void initState() {
     super.initState();
@@ -58,15 +54,19 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       if (!mounted) return;
 
       materialProvider.setMaterials(
-        materials.map((m) => MaterialModel(
-          id: m.id,
-          title: m.name,
-          fileName: m.name,
-          url: m.url,
-          sizeInBytes: 0,
-          uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
-          type: FileMaterialType.pdf,
-        )).toList(),
+        materials
+            .map(
+              (m) => MaterialModel(
+                id: m.id,
+                title: m.name,
+                fileName: m.name,
+                url: m.url,
+                sizeInBytes: 0,
+                uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
+                type: FileMaterialType.pdf,
+              ),
+            )
+            .toList(),
       );
     } catch (e) {
       debugPrint("Failed to load materials: " + e.toString());
@@ -97,17 +97,12 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
 
         if (!mounted) return;
         final materialName =
-            data["name"]?.toString() ??
-            data["title"]?.toString() ??
-            '새 자료';
+            data["name"]?.toString() ?? data["title"]?.toString() ?? '새 자료';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("새 자료가 추가됐습니다: $materialName"),
             duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: "확인",
-              onPressed: () {},
-            ),
+            action: SnackBarAction(label: "확인", onPressed: () {}),
           ),
         );
       };
@@ -171,47 +166,58 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : materialProvider.materials.isEmpty
                     ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.folder_open, size: 80, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text(
-                        "아직 업로드된 자료가 없습니다",
-                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        "교사가 자료를 업로드하면 여기에 표시됩니다",
-                        style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                      ),
-                    ],
-                  ),
-                )
-                    : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: materialProvider.materials.length,
-                  itemBuilder: (context, index) {
-                    final material = materialProvider.materials[index];
-                    return _MaterialCard(
-                      material: material,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => MaterialDetailScreen(
-                              material: material,
-                              sessionTitle: session.title,
-                              teacherName: session.teacherName,
-                              sessionId: widget.sessionId,
-                              classId: widget.classId,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.folder_open,
+                              size: 80,
+                              color: Colors.grey[400],
                             ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
+                            const SizedBox(height: 16),
+                            Text(
+                              "아직 업로드된 자료가 없습니다",
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              "교사가 자료를 업로드하면 여기에 표시됩니다",
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: materialProvider.materials.length,
+                        itemBuilder: (context, index) {
+                          final material = materialProvider.materials[index];
+                          return _MaterialCard(
+                            material: material,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => MaterialDetailScreen(
+                                    material: material,
+                                    sessionTitle: session.title,
+                                    teacherName: session.teacherName,
+                                    sessionId: widget.sessionId,
+                                    joinUrl: null,
+                                    classId: widget.classId,
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
               ),
             ],
           );
@@ -241,12 +247,17 @@ class _MaterialCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 60, height: 60,
+                width: 60,
+                height: 60,
                 decoration: BoxDecoration(
                   color: Colors.red.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 32),
+                child: const Icon(
+                  Icons.picture_as_pdf,
+                  color: Colors.red,
+                  size: 32,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -255,7 +266,10 @@ class _MaterialCard extends StatelessWidget {
                   children: [
                     Text(
                       material.title,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),

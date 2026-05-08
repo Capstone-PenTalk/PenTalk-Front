@@ -33,6 +33,29 @@ class DeepLinkService {
   /// 백그라운드에서 복귀 시 링크 감지
   Stream<Uri> get uriLinkStream => _appLinks.uriLinkStream;
 
+  /// URL 파싱: pentalk://join/{sessionId}, https://도메인/join/{sessionId}
+  String? parseJoinSessionId(String uriString) {
+    try {
+      final uri = Uri.parse(uriString);
+
+      if (uri.scheme == 'pentalk' && uri.host == 'join') {
+        final sessionId = uri.pathSegments.isNotEmpty
+            ? uri.pathSegments.first.trim()
+            : '';
+        return sessionId.isEmpty ? null : sessionId;
+      }
+
+      final pathSegments = uri.pathSegments;
+      if (pathSegments.length >= 2 && pathSegments[0] == 'join') {
+        final sessionId = pathSegments[1].trim();
+        return sessionId.isEmpty ? null : sessionId;
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to parse join link: $e');
+    }
+    return null;
+  }
+
   /// URL 파싱: pentalk://material/{sessionId}/{materialId}
   Map<String, String>? parseMaterialLink(String uriString) {
     try {
@@ -59,10 +82,7 @@ class DeepLinkService {
 
         debugPrint('✅ Parsed: sessionId=$sessionId, materialId=$materialId');
 
-        return {
-          'sessionId': sessionId,
-          'materialId': materialId,
-        };
+        return {'sessionId': sessionId, 'materialId': materialId};
       }
 
       debugPrint('⚠️ Unknown path: ${uri.path}');
@@ -76,6 +96,14 @@ class DeepLinkService {
   /// Deep Link URL 생성
   String generateMaterialLink(String sessionId, String materialId) {
     return 'pentalk://material/$sessionId/$materialId';
+  }
+
+  String generateJoinDeepLink(String sessionId) {
+    return 'pentalk://join/$sessionId';
+  }
+
+  String generateJoinWebLink(String sessionId, {String host = 'pentalk.app'}) {
+    return 'https://$host/join/$sessionId';
   }
 
   /// Deep Link를 웹 링크로도 변환 (선택사항)
