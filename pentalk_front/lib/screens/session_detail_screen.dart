@@ -13,6 +13,8 @@ import '../services/auth_service.dart';
 import '../services/local_material_service.dart';
 import '../models/student_session_model.dart';
 import 'drawing_screen.dart'; // 👈 추가
+import '../widgets/quiz_editor_widget.dart';
+
 
 class SessionDetailScreen extends StatefulWidget {
   final String sessionId;
@@ -424,21 +426,25 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     ],
                   ),
                 )
-                    : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: materialProvider.materials.length,
-                  itemBuilder: (context, index) {
-                    final material = materialProvider.materials[index];
-                    return _MaterialListItem(
-                      material: material,
-                      onOpen: () => _navigateToDrawing(
-                        context,
+                    : ListView(
+                  padding: const EdgeInsets.only(top: 8, bottom: 100),
+                  children: [
+                    ...materialProvider.materials.map(
+                          (material) => _MaterialListItem(
                         material: material,
-                        connectRealtime: _canUseRemoteMaterials,
+                        onOpen: () => _navigateToDrawing(
+                          context,
+                          material: material,
+                          connectRealtime: _canUseRemoteMaterials,
+                        ),
+                        onDelete: () => _handleFileDelete(material.id),
                       ),
-                      onDelete: () => _handleFileDelete(material.id),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(thickness: 1),
+                    if (widget.sessionId != 'local-pdf-workspace')
+                      QuizEditorWidget(sessionId: widget.sessionId),
+                  ],
                 ),
               ),
             ],

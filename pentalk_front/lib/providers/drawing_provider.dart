@@ -910,12 +910,11 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void disconnectSocket() {
-    _socketService.disconnect();
-    _isSocketConnected = false;
-    notifyListeners();
-  }
-
+    void disconnectSocket() {
+      _socketService.disconnect();
+      _isSocketConnected = false;
+      notifyListeners();
+    }
   void _handleSessionEnded(Map<String, dynamic> data) {
     onSessionEnded?.call(data);
   }
