@@ -1,9 +1,10 @@
 class SessionModel {
   final String id;
   final String title;
-  final String? classId;        // 자료 업로드/조회에 필요
+  final String? classId; // 자료 업로드/조회에 필요
   final int maxParticipants;
   final String? password;
+  final String? joinUrl;
   final DateTime createdAt;
   final List<FileModel> files;
 
@@ -13,6 +14,7 @@ class SessionModel {
     this.classId,
     required this.maxParticipants,
     this.password,
+    this.joinUrl,
     required this.createdAt,
     this.files = const [],
   });
@@ -24,10 +26,12 @@ class SessionModel {
       classId: json['classId'] as String?,
       maxParticipants: json['maxParticipants'] as int,
       password: json['password'] as String?,
+      joinUrl: json['joinUrl'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
-      files: (json['files'] as List<dynamic>?)
-          ?.map((file) => FileModel.fromJson(file as Map<String, dynamic>))
-          .toList() ??
+      files:
+          (json['files'] as List<dynamic>?)
+              ?.map((file) => FileModel.fromJson(file as Map<String, dynamic>))
+              .toList() ??
           [],
     );
   }
@@ -39,6 +43,7 @@ class SessionModel {
       'classId': classId,
       'maxParticipants': maxParticipants,
       'password': password,
+      'joinUrl': joinUrl,
       'createdAt': createdAt.toIso8601String(),
       'files': files.map((file) => file.toJson()).toList(),
     };
@@ -50,6 +55,7 @@ class SessionModel {
     String? classId,
     int? maxParticipants,
     String? password,
+    String? joinUrl,
     DateTime? createdAt,
     List<FileModel>? files,
   }) {
@@ -59,6 +65,7 @@ class SessionModel {
       classId: classId ?? this.classId,
       maxParticipants: maxParticipants ?? this.maxParticipants,
       password: password ?? this.password,
+      joinUrl: joinUrl ?? this.joinUrl,
       createdAt: createdAt ?? this.createdAt,
       files: files ?? this.files,
     );

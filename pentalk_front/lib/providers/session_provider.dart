@@ -1,8 +1,12 @@
 import 'package:flutter/foundation.dart';
 import '../models/session_model.dart';
 import '../services/api_service.dart';
+import '../services/deep_link_service.dart';
 
 class SessionProvider extends ChangeNotifier {
+  static const String qrTestClassId = 'QR_TEST';
+  static const String qrTestSessionId = 'qr-test-session';
+
   List<SessionModel> _sessions = [];
   bool _isLoading = false;
   String? _errorMessage;
@@ -84,17 +88,31 @@ class SessionProvider extends ChangeNotifier {
 
   // 세션 생성 (/session/create)
   Future<void> createSession({
-    required String classId,
     String? materialId,
+    required String title,
+    int? maxParticipants,
+    String? password,
   }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
+      final classResponse = await ApiService.createClass(title: title);
+      if (!classResponse.success || classResponse.data == null) {
+        throw Exception(classResponse.message ?? '클래스 생성 실패');
+      }
+      final classId = classResponse.data!.id.trim();
+      if (classId.isEmpty) {
+        throw Exception('서버가 비어 있는 classId를 반환했습니다.');
+      }
+
       final response = await ApiService.createSession(
         classId: classId,
         materialId: materialId,
+        title: title,
+        maxParticipants: maxParticipants,
+        password: password,
       );
 
       if (!response.success || response.data == null) {
@@ -105,9 +123,15 @@ class SessionProvider extends ChangeNotifier {
 
       final newSession = SessionModel(
         id: created.sessionId,
-        title: classId,
+        title: title.trim(),
         classId: classId,
-        maxParticipants: 0,
+        maxParticipants: maxParticipants ?? 0,
+        password: password?.trim().isNotEmpty == true ? password!.trim() : null,
+        joinUrl: DeepLinkService().generateJoinWebLink(
+          created.sessionId,
+          classId: classId,
+          materialId: created.materialId ?? materialId,
+        ),
         createdAt: DateTime.now(),
       );
 
@@ -154,8 +178,11 @@ class SessionProvider extends ChangeNotifier {
 
       final sessionIndex = _sessions.indexWhere((s) => s.id == sessionId);
       if (sessionIndex != -1) {
-        final updatedFiles = List<FileModel>.from(_sessions[sessionIndex].files)..add(file);
-        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(files: updatedFiles);
+        final updatedFiles = List<FileModel>.from(_sessions[sessionIndex].files)
+          ..add(file);
+        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(
+          files: updatedFiles,
+        );
         notifyListeners();
       }
     } catch (e) {
@@ -173,8 +200,12 @@ class SessionProvider extends ChangeNotifier {
 
       final sessionIndex = _sessions.indexWhere((s) => s.id == sessionId);
       if (sessionIndex != -1) {
-        final updatedFiles = _sessions[sessionIndex].files.where((f) => f.id != fileId).toList();
-        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(files: updatedFiles);
+        final updatedFiles = _sessions[sessionIndex].files
+            .where((f) => f.id != fileId)
+            .toList();
+        _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(
+          files: updatedFiles,
+        );
         notifyListeners();
       }
     } catch (e) {

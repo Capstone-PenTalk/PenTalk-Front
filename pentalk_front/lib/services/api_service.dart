@@ -25,40 +25,34 @@ class ApiService {
       final token = await AuthService.getToken();
 
       final strokesJson = strokes
-          .map((stroke) => {
-        'sId': stroke.strokeId,
-        'pts': stroke.points
-            .map((p) => {
-          'x': p.x,
-          'y': p.y,
-        })
-            .toList(),
-        'c':
-        '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
-        'w': stroke.width,
-      })
+          .map(
+            (stroke) => {
+              'sId': stroke.strokeId,
+              'pts': stroke.points.map((p) => {'x': p.x, 'y': p.y}).toList(),
+              'c':
+                  '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
+              'w': stroke.width,
+            },
+          )
           .toList();
 
-      final body = {
-        'sessionId': sessionId,
-        'strokes': strokesJson,
-      };
+      final body = {'sessionId': sessionId, 'strokes': strokesJson};
 
       debugPrint('POST /strokes: ${strokes.length} strokes');
 
       final response = await http
           .post(
-        Uri.parse('$baseUrl/strokes'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(body),
-      )
+            Uri.parse('$baseUrl/strokes'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Request timeout'),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
@@ -97,16 +91,16 @@ class ApiService {
 
       final response = await http
           .get(
-        Uri.parse('$baseUrl/strokes?sessionId=$sessionId'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      )
+            Uri.parse('$baseUrl/strokes?sessionId=$sessionId'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Request timeout'),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -117,19 +111,17 @@ class ApiService {
           final points = ((item['pts'] as List?) ?? const [])
               .whereType<Map>()
               .map((p) {
-            final pointMap = Map<String, dynamic>.from(p);
-            return DrawPoint(
-              x: (pointMap['x'] as num?)?.toDouble() ?? 0.0,
-              y: (pointMap['y'] as num?)?.toDouble() ?? 0.0,
-            );
-          }).toList();
+                final pointMap = Map<String, dynamic>.from(p);
+                return DrawPoint(
+                  x: (pointMap['x'] as num?)?.toDouble() ?? 0.0,
+                  y: (pointMap['y'] as num?)?.toDouble() ?? 0.0,
+                );
+              })
+              .toList();
 
           final colorString = (item['c'] as String?) ?? '#000000';
-          final colorInt = int.tryParse(
-                colorString.replaceFirst('#', ''),
-                radix: 16,
-              ) ??
-              0;
+          final colorInt =
+              int.tryParse(colorString.replaceFirst('#', ''), radix: 16) ?? 0;
           final color = Color(0xFF000000 | colorInt);
 
           final rawStrokeId = item['sId'];
@@ -185,10 +177,9 @@ class ApiService {
     List<Map<String, dynamic>>? strokes,
   }) async {
     final token = await AuthService.getToken();
-    final normalizedStrokes =
-        (strokes ?? const <Map<String, dynamic>>[])
-            .map(_normalizeExportStroke)
-            .toList();
+    final normalizedStrokes = (strokes ?? const <Map<String, dynamic>>[])
+        .map(_normalizeExportStroke)
+        .toList();
 
     final body = <String, dynamic>{
       'sessionId': sessionId,
@@ -204,19 +195,19 @@ class ApiService {
 
     final response = await http
         .post(
-      Uri.parse('$baseUrl/export/pdf'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/pdf',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(body),
-    )
+          Uri.parse('$baseUrl/export/pdf'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/pdf',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        )
         .timeout(
-      // PDF 생성은 시간이 걸릴 수 있으므로 타임아웃 넉넉하게
-      const Duration(seconds: 60),
-      onTimeout: () => throw TimeoutException('PDF export timeout'),
-    );
+          // PDF 생성은 시간이 걸릴 수 있으므로 타임아웃 넉넉하게
+          const Duration(seconds: 60),
+          onTimeout: () => throw TimeoutException('PDF export timeout'),
+        );
 
     if (response.statusCode == 200) {
       final contentType = response.headers['content-type']?.toLowerCase() ?? '';
@@ -288,13 +279,21 @@ class ApiService {
   static Future<ApiResponse<SessionCreateResponse>> createSession({
     required String classId,
     String? materialId,
+    String? title,
+    int? maxParticipants,
+    String? password,
   }) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await _ensureTeacherToken();
 
       final body = {
         'classId': classId,
-        if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+        if (materialId != null && materialId.isNotEmpty)
+          'materialId': materialId,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+        if (maxParticipants != null) 'capacity': maxParticipants,
+        if (password != null && password.trim().isNotEmpty)
+          'password': password.trim(),
       };
 
       debugPrint('POST /session/create');
@@ -302,20 +301,29 @@ class ApiService {
       if (materialId != null && materialId.isNotEmpty) {
         debugPrint('   materialId: $materialId');
       }
+      if (title != null && title.trim().isNotEmpty) {
+        debugPrint('   title: ${title.trim()}');
+      }
+      if (maxParticipants != null) {
+        debugPrint('   capacity: $maxParticipants');
+      }
+      if (password != null && password.trim().isNotEmpty) {
+        debugPrint('   password: <set>');
+      }
 
       final response = await http
           .post(
-        Uri.parse('$baseUrl/session/create'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(body),
-      )
+            Uri.parse('$baseUrl/session/create'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Request timeout'),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -347,6 +355,75 @@ class ApiService {
     }
   }
 
+  static Future<ApiResponse<ClassCreateResponse>> createClass({
+    required String title,
+  }) async {
+    try {
+      final token = await _ensureTeacherToken();
+      final body = {'title': title.trim()};
+
+      debugPrint('POST /classes');
+      debugPrint('   title: ${title.trim()}');
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/classes'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return ApiResponse<ClassCreateResponse>(
+          success: true,
+          data: ClassCreateResponse.fromJson(data),
+        );
+      }
+
+      String message = '클래스 생성에 실패했습니다';
+      String code = 'CREATE_CLASS_FAILED';
+      try {
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        message = error['message'] as String? ?? message;
+        code = error['code'] as String? ?? code;
+      } catch (_) {}
+
+      return ApiResponse<ClassCreateResponse>(
+        success: false,
+        error: code,
+        message: message,
+      );
+    } catch (e) {
+      return ApiResponse<ClassCreateResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  static Future<String?> _ensureTeacherToken() async {
+    final response = await login(userId: 'teacher1', role: 'teacher');
+    if (!response.success || response.data == null) {
+      throw Exception(response.message ?? '교사 인증 토큰 발급 실패');
+    }
+
+    final loginData = response.data!;
+    await AuthService.saveUserInfo(
+      userId: loginData.userId,
+      role: loginData.role,
+      token: loginData.token,
+    );
+    return loginData.token;
+  }
+
   /// ===============================
   /// 로그인 (POST /auth/dev-login)
   /// ===============================
@@ -361,14 +438,14 @@ class ApiService {
 
       final response = await http
           .post(
-        Uri.parse('$baseUrl/auth/dev-login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      )
+            Uri.parse('$baseUrl/auth/dev-login'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Login timeout'),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Login timeout'),
+          );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -425,16 +502,16 @@ class ApiService {
 
       final response = await http
           .post(
-        Uri.parse('$baseUrl/sessions/$sessionId/end'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      )
+            Uri.parse('$baseUrl/sessions/$sessionId/end'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Request timeout'),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -482,30 +559,32 @@ class ApiService {
 
       final response = await http
           .get(
-        Uri.parse('$baseUrl/sessions/$sessionId/whiteboard'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      )
+            Uri.parse('$baseUrl/sessions/$sessionId/whiteboard'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Request timeout'),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         debugPrint(
-            '✅ Whiteboard loaded: ${data['strokes']?.length ?? 0} strokes');
+          '✅ Whiteboard loaded: ${data['strokes']?.length ?? 0} strokes',
+        );
 
         return ApiResponse<WhiteboardData>(
           success: true,
           data: WhiteboardData(
             sessionId: data['sessionId'],
             readOnly: data['readOnly'] ?? true,
-            strokes: (data['strokes'] as List?)
-                ?.map((e) => Map<String, dynamic>.from(e as Map))
-                .toList() ??
+            strokes:
+                (data['strokes'] as List?)
+                    ?.map((e) => Map<String, dynamic>.from(e as Map))
+                    .toList() ??
                 [],
           ),
         );
@@ -529,59 +608,80 @@ class ApiService {
   }
 
   /// ===============================
-  /// 세션 상태 확인 (GET /sessions/{sessionId}/status)
+  /// 세션 참여 (POST /sessions/{sessionId}/join)
   /// ===============================
-  static Future<ApiResponse<SessionStatus>> getSessionStatus({
+  static Future<ApiResponse<SessionJoinResponse>> joinSession({
     required String sessionId,
+    required String password,
+    String? materialId,
   }) async {
     try {
       final token = await AuthService.getToken();
+      final trimmedMaterialId = materialId?.trim();
+      final body = {
+        'password': password,
+        if (trimmedMaterialId != null && trimmedMaterialId.isNotEmpty)
+          'materialId': trimmedMaterialId,
+      };
 
-      debugPrint('GET /sessions/$sessionId/status');
+      debugPrint('POST /sessions/$sessionId/join');
+      if (trimmedMaterialId != null && trimmedMaterialId.isNotEmpty) {
+        debugPrint('   materialId: $trimmedMaterialId');
+      }
 
       final response = await http
-          .get(
-        Uri.parse('$baseUrl/sessions/$sessionId/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      )
+          .post(
+            Uri.parse('$baseUrl/sessions/$sessionId/join'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
           .timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw TimeoutException('Request timeout'),
-      );
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugPrint('✅ Session status: ${data['status']}');
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        debugPrint('✅ Session joined: $sessionId');
+        debugPrint('   response: ${response.body}');
 
-        return ApiResponse<SessionStatus>(
+        return ApiResponse<SessionJoinResponse>(
           success: true,
-          data: SessionStatus(
-            sessionId: data['sessionId'] ?? sessionId,
-            status: data['status'] ?? 'UNKNOWN',
+          data: SessionJoinResponse.fromJson(
+            data,
+            fallbackSessionId: sessionId,
           ),
         );
       } else if (response.statusCode == 404) {
+        if (response.body.contains('Cannot POST')) {
+          debugPrint('⚠️ Session join endpoint unavailable');
+          return ApiResponse<SessionJoinResponse>(
+            success: false,
+            error: 'SESSION_JOIN_UNAVAILABLE',
+            message: 'Session join endpoint unavailable',
+          );
+        }
         debugPrint('❌ Session not found: $sessionId');
-        return ApiResponse<SessionStatus>(
+        return ApiResponse<SessionJoinResponse>(
           success: false,
           error: 'SESSION_NOT_FOUND',
           message: 'Session not found',
         );
       } else {
-        final error = jsonDecode(response.body);
-        debugPrint('❌ Get session status failed: ${error['message']}');
-        return ApiResponse<SessionStatus>(
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        debugPrint('❌ Join session failed: ${error['message']}');
+        return ApiResponse<SessionJoinResponse>(
           success: false,
-          error: error['code'] ?? 'GET_STATUS_FAILED',
-          message: error['message'] ?? 'Failed to get session status',
+          error: error['code']?.toString() ?? 'JOIN_SESSION_FAILED',
+          message: error['message']?.toString() ?? 'Failed to join session',
         );
       }
     } catch (e) {
-      debugPrint('❌ Get session status error: $e');
-      return ApiResponse<SessionStatus>(
+      debugPrint('❌ Join session error: $e');
+      return ApiResponse<SessionJoinResponse>(
         success: false,
         error: 'NETWORK_ERROR',
         message: e.toString(),
@@ -589,19 +689,23 @@ class ApiService {
     }
   }
 
-
   /// ===============================
   /// 자료 업로드 (POST /materials/pdf)
   /// 교사 전용, multipart/form-data
   /// ===============================
   static Future<MaterialUploadResponse> uploadMaterial({
     required String classId,
+    String? sessionId,
     required String filePath,
     required String fileName,
   }) async {
     final token = await AuthService.getToken();
+    final trimmedSessionId = sessionId?.trim();
 
-    debugPrint('POST /materials/pdf: $fileName (classId: $classId)');
+    debugPrint(
+      'POST /materials/pdf: $fileName (classId: $classId'
+      '${trimmedSessionId != null && trimmedSessionId.isNotEmpty ? ', sessionId: $trimmedSessionId' : ''})',
+    );
 
     final request = http.MultipartRequest(
       'POST',
@@ -613,12 +717,17 @@ class ApiService {
     }
 
     request.fields['classId'] = classId;
-    request.files.add(await http.MultipartFile.fromPath(
-      'file',
-      filePath,
-      filename: fileName,
-      contentType: MediaType('application', 'pdf'),
-    ));
+    if (trimmedSessionId != null && trimmedSessionId.isNotEmpty) {
+      request.fields['sessionId'] = trimmedSessionId;
+    }
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        filePath,
+        filename: fileName,
+        contentType: MediaType('application', 'pdf'),
+      ),
+    );
 
     final streamedResponse = await request.send().timeout(
       const Duration(seconds: 60),
@@ -627,10 +736,11 @@ class ApiService {
 
     final response = await http.Response.fromStream(streamedResponse);
 
-    if (response.statusCode == 201) {
+    if (response.statusCode == 200 || response.statusCode == 201) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      debugPrint('✅ Material uploaded: ${data['id']}');
-      return MaterialUploadResponse.fromJson(data);
+      final uploaded = MaterialUploadResponse.fromJson(data);
+      debugPrint('✅ Material uploaded: ${uploaded.id}');
+      return uploaded;
     }
 
     // 에러 처리
@@ -643,13 +753,19 @@ class ApiService {
     debugPrint('❌ Upload failed [${response.statusCode}]: $errorMessage');
 
     if (response.statusCode == 413) {
-      throw MaterialUploadException('파일 크기가 너무 큽니다 (최대 50MB)', code: 'FILE_TOO_LARGE');
+      throw MaterialUploadException(
+        '파일 크기가 너무 큽니다 (최대 50MB)',
+        code: 'FILE_TOO_LARGE',
+      );
     }
     if (response.statusCode == 400) {
       throw MaterialUploadException(errorMessage, code: 'INVALID_REQUEST');
     }
     if (response.statusCode == 403) {
-      throw MaterialUploadException('이 수업에 자료를 업로드할 권한이 없습니다', code: 'FORBIDDEN');
+      throw MaterialUploadException(
+        '이 수업에 자료를 업로드할 권한이 없습니다',
+        code: 'FORBIDDEN',
+      );
     }
     throw MaterialUploadException(errorMessage, code: 'UPLOAD_FAILED');
   }
@@ -664,16 +780,18 @@ class ApiService {
 
     debugPrint('📥 GET /materials?classId=$classId');
 
-    final response = await http.get(
-      Uri.parse('$baseUrl/materials?classId=$classId'),
-      headers: {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-    ).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw TimeoutException('Request timeout'),
-    );
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/materials?classId=$classId'),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        )
+        .timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => throw TimeoutException('Request timeout'),
+        );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -681,7 +799,10 @@ class ApiService {
       debugPrint('✅ Materials loaded: ${items.length}개');
       return items
           .whereType<Map>()
-          .map((e) => MaterialUploadResponse.fromJson(Map<String, dynamic>.from(e)))
+          .map(
+            (e) =>
+                MaterialUploadResponse.fromJson(Map<String, dynamic>.from(e)),
+          )
           .toList();
     }
 
@@ -691,7 +812,9 @@ class ApiService {
       errorMessage = error['message'] as String? ?? errorMessage;
     } catch (_) {}
 
-    debugPrint('❌ Get materials failed [${response.statusCode}]: $errorMessage');
+    debugPrint(
+      '❌ Get materials failed [${response.statusCode}]: $errorMessage',
+    );
     throw MaterialUploadException(errorMessage, code: 'GET_MATERIALS_FAILED');
   }
 
@@ -706,16 +829,18 @@ class ApiService {
 
     debugPrint('📥 GET /materials/$materialId/download-url');
 
-    final response = await http.get(
-      Uri.parse('$baseUrl/materials/$materialId/download-url'),
-      headers: {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-    ).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw TimeoutException('Request timeout'),
-    );
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/materials/$materialId/download-url'),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        )
+        .timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => throw TimeoutException('Request timeout'),
+        );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -751,14 +876,18 @@ class ApiService {
       return null;
     }
 
-    final utf8Match = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false)
-        .firstMatch(contentDisposition);
+    final utf8Match = RegExp(
+      r"filename\*=UTF-8''([^;]+)",
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
     if (utf8Match != null) {
       return Uri.decodeComponent(utf8Match.group(1)!.trim());
     }
 
-    final asciiMatch = RegExp(r'filename="?([^";]+)"?', caseSensitive: false)
-        .firstMatch(contentDisposition);
+    final asciiMatch = RegExp(
+      r'filename="?([^";]+)"?',
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
     if (asciiMatch != null) {
       return asciiMatch.group(1)?.trim();
     }
@@ -1026,13 +1155,112 @@ class SessionStatus {
 
   SessionStatus({required this.sessionId, required this.status});
 
-  bool get isActive => status == 'ACTIVE';
-  bool get isArchived => status == 'ARCHIVED';
+  bool get isActive => status.toUpperCase() == 'ACTIVE';
+  bool get isArchived => status.toUpperCase() == 'ARCHIVED';
+}
+
+class SessionJoinResponse {
+  final String sessionId;
+  final String? classId;
+  final String? materialId;
+  final SessionJoinMaterial? material;
+  final String? status;
+
+  SessionJoinResponse({
+    required this.sessionId,
+    this.classId,
+    this.materialId,
+    this.material,
+    this.status,
+  });
+
+  factory SessionJoinResponse.fromJson(
+    Map<String, dynamic> json, {
+    required String fallbackSessionId,
+  }) {
+    final payload = _unwrapJoinPayload(json);
+    final material = payload['material'] is Map
+        ? SessionJoinMaterial.fromJson(
+            Map<String, dynamic>.from(payload['material'] as Map),
+          )
+        : null;
+
+    return SessionJoinResponse(
+      sessionId:
+          payload['sessionId']?.toString() ??
+          payload['roomId']?.toString() ??
+          fallbackSessionId,
+      classId: payload['classId']?.toString(),
+      materialId: payload['materialId']?.toString() ?? material?.id,
+      material: material,
+      status: payload['status']?.toString(),
+    );
+  }
+
+  static Map<String, dynamic> _unwrapJoinPayload(Map<String, dynamic> json) {
+    for (final key in const ['data', 'payload']) {
+      final value = json[key];
+      if (value is Map) {
+        return Map<String, dynamic>.from(value);
+      }
+    }
+    return json;
+  }
+}
+
+class SessionJoinMaterial {
+  final String id;
+  final String name;
+  final String type;
+  final String url;
+
+  SessionJoinMaterial({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.url,
+  });
+
+  factory SessionJoinMaterial.fromJson(Map<String, dynamic> json) {
+    return SessionJoinMaterial(
+      id: json['id']?.toString().trim() ?? '',
+      name: json['name']?.toString().trim() ?? '자료',
+      type: json['type']?.toString().trim() ?? '',
+      url:
+          json['url']?.toString().trim() ??
+          json['downloadUrl']?.toString().trim() ??
+          '',
+    );
+  }
+}
+
+class ClassCreateResponse {
+  final String id;
+  final String title;
+  final String? teacherId;
+  final String? createdAt;
+
+  ClassCreateResponse({
+    required this.id,
+    required this.title,
+    this.teacherId,
+    this.createdAt,
+  });
+
+  factory ClassCreateResponse.fromJson(Map<String, dynamic> json) {
+    return ClassCreateResponse(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      teacherId: json['teacherId']?.toString(),
+      createdAt: json['createdAt']?.toString(),
+    );
+  }
 }
 
 class SessionCreateResponse {
   final String sessionId;
   final String? materialId;
+  final String? joinUrl;
   final String? joinUrlTeacher;
   final String? joinUrlStudent;
   final int? ttlSeconds;
@@ -1040,6 +1268,7 @@ class SessionCreateResponse {
   SessionCreateResponse({
     required this.sessionId,
     this.materialId,
+    this.joinUrl,
     this.joinUrlTeacher,
     this.joinUrlStudent,
     this.ttlSeconds,
@@ -1050,9 +1279,12 @@ class SessionCreateResponse {
     return SessionCreateResponse(
       sessionId: json['sessionId']?.toString() ?? '',
       materialId: json['materialId']?.toString(),
+      joinUrl: json['joinUrl']?.toString(),
       joinUrlTeacher: json['joinUrlTeacher']?.toString(),
       joinUrlStudent: json['joinUrlStudent']?.toString(),
-      ttlSeconds: ttlRaw is num ? ttlRaw.toInt() : int.tryParse(ttlRaw?.toString() ?? ''),
+      ttlSeconds: ttlRaw is num
+          ? ttlRaw.toInt()
+          : int.tryParse(ttlRaw?.toString() ?? ''),
     );
   }
 }
@@ -1063,12 +1295,7 @@ class ApiResponse<T> {
   final String? error;
   final String? message;
 
-  ApiResponse({
-    required this.success,
-    this.data,
-    this.error,
-    this.message,
-  });
+  ApiResponse({required this.success, this.data, this.error, this.message});
 }
 
 /// ===============================
@@ -1092,50 +1319,63 @@ class MaterialUploadResponse {
   });
 
   factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
+    final payload = _unwrapMaterialPayload(json);
+
     String toStringValue(dynamic value, {required String fallback}) {
       if (value == null) return fallback;
       final result = value.toString().trim();
       return result.isEmpty ? fallback : result;
     }
 
-    final resolvedName = [
-      json['name'],
-      json['title'],
-      json['fileName'],
-      json['filename'],
-    ]
-        .map((value) => value?.toString().trim() ?? '')
-        .firstWhere((value) => value.isNotEmpty, orElse: () => 'untitled');
+    final resolvedName =
+        [
+              payload['name'],
+              payload['title'],
+              payload['fileName'],
+              payload['filename'],
+            ]
+            .map((value) => value?.toString().trim() ?? '')
+            .firstWhere((value) => value.isNotEmpty, orElse: () => 'untitled');
 
-    final resolvedUrl = [
-      json['url'],
-      json['downloadUrl'],
-      json['fileUrl'],
-      json['s3Key'],
-      json['key'],
-    ]
-        .map((value) => value?.toString().trim() ?? '')
-        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    final resolvedUrl =
+        [
+              payload['url'],
+              payload['downloadUrl'],
+              payload['fileUrl'],
+              payload['s3Key'],
+              payload['key'],
+            ]
+            .map((value) => value?.toString().trim() ?? '')
+            .firstWhere((value) => value.isNotEmpty, orElse: () => '');
 
-    final resolvedCreatedAt = [
-      json['createdAt'],
-      json['uploadedAt'],
-      json['updatedAt'],
-    ]
-        .map((value) => value?.toString().trim() ?? '')
-        .firstWhere(
-          (value) => value.isNotEmpty,
-          orElse: () => DateTime.now().toIso8601String(),
-        );
+    final resolvedCreatedAt =
+        [payload['createdAt'], payload['uploadedAt'], payload['updatedAt']]
+            .map((value) => value?.toString().trim() ?? '')
+            .firstWhere(
+              (value) => value.isNotEmpty,
+              orElse: () => DateTime.now().toIso8601String(),
+            );
 
     return MaterialUploadResponse(
-      id: toStringValue(json['id'], fallback: ''),
-      type: toStringValue(json['type'], fallback: 'pdf'),
+      id: toStringValue(payload['id'], fallback: ''),
+      type: toStringValue(payload['type'], fallback: 'pdf'),
       url: resolvedUrl,
       name: resolvedName,
-      classId: toStringValue(json['classId'], fallback: ''),
+      classId: toStringValue(payload['classId'], fallback: ''),
       createdAt: resolvedCreatedAt,
     );
+  }
+
+  static Map<String, dynamic> _unwrapMaterialPayload(
+    Map<String, dynamic> json,
+  ) {
+    for (final key in const ['material', 'data', 'payload']) {
+      final value = json[key];
+      if (value is Map) {
+        return Map<String, dynamic>.from(value);
+      }
+    }
+    return json;
   }
 }
 
@@ -1159,10 +1399,10 @@ class PdfExportApiException implements Exception {
   final String code;
 
   const PdfExportApiException(
-      this.message, {
-        required this.statusCode,
-        required this.code,
-      });
+    this.message, {
+    required this.statusCode,
+    required this.code,
+  });
 
   @override
   String toString() => message;
@@ -1172,10 +1412,7 @@ class PdfExportBinaryResponse {
   final Uint8List bytes;
   final String? fileName;
 
-  const PdfExportBinaryResponse({
-    required this.bytes,
-    this.fileName,
-  });
+  const PdfExportBinaryResponse({required this.bytes, this.fileName});
 }
 
 class TimeoutException implements Exception {

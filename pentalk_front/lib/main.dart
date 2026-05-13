@@ -9,8 +9,10 @@ import 'providers/poll_provider.dart';
 import 'providers/personal_drawing_provider.dart';
 import 'providers/participants_provider.dart';
 import 'providers/material_provider.dart';
-import 'screens/splash_screen.dart';
 import 'providers/quiz_provider.dart';
+import 'screens/join_session_screen.dart';
+import 'screens/splash_screen.dart';
+import 'services/deep_link_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,14 +51,64 @@ class MyApp extends StatelessWidget {
             seedColor: Colors.blue,
             brightness: Brightness.light,
           ),
-          appBarTheme: const AppBarTheme(
-            centerTitle: false,
-            elevation: 0,
-          ),
+          appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0),
         ),
 
-        home: const SplashScreen(),
+        onGenerateInitialRoutes: (initialRoute) {
+          final joinSessionId = _parseJoinSessionId(initialRoute);
+          if (joinSessionId != null) {
+            final deepLinkService = DeepLinkService();
+            return [
+              MaterialPageRoute(
+                settings: RouteSettings(name: initialRoute),
+                builder: (_) => JoinSessionScreen(
+                  sessionId: joinSessionId,
+                  classId: deepLinkService.parseJoinClassId(initialRoute),
+                  materialId: deepLinkService.parseJoinMaterialId(initialRoute),
+                ),
+              ),
+            ];
+          }
+          return [
+            MaterialPageRoute(
+              settings: const RouteSettings(name: '/'),
+              builder: (_) => const SplashScreen(),
+            ),
+          ];
+        },
+        onGenerateRoute: (settings) {
+          final joinSessionId = _parseJoinSessionId(settings.name);
+          if (joinSessionId != null) {
+            final deepLinkService = DeepLinkService();
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => JoinSessionScreen(
+                sessionId: joinSessionId,
+                classId: deepLinkService.parseJoinClassId(settings.name!),
+                materialId: deepLinkService.parseJoinMaterialId(settings.name!),
+              ),
+            );
+          }
+          if (settings.name == '/') {
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => const SplashScreen(),
+            );
+          }
+          return null;
+        },
       ),
     );
+  }
+
+  String? _parseJoinSessionId(String? routeName) {
+    if (routeName == null || routeName.trim().isEmpty) return null;
+    final uri = Uri.tryParse(routeName);
+    final segments = uri?.pathSegments ?? const <String>[];
+    if (segments.length == 2 && segments[0] == 'join') {
+      final sessionId = segments[1].trim();
+      return sessionId.isEmpty ? null : sessionId;
+    }
+    return null;
   }
 }

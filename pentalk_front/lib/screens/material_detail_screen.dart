@@ -21,6 +21,7 @@ class MaterialDetailScreen extends StatefulWidget {
   final String sessionTitle;
   final String teacherName;
   final String? sessionId;
+  final String? joinUrl;
   final bool isTeacher;
   final String? classId;
 
@@ -52,6 +53,7 @@ class MaterialDetailScreen extends StatefulWidget {
     required this.sessionTitle,
     required this.teacherName,
     this.sessionId,
+    this.joinUrl,
     this.isTeacher = false,
     this.classId,
   }) : super(key: key);
@@ -78,21 +80,31 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
 
   IconData _getMaterialIcon() {
     switch (widget.material.type) {
-      case FileMaterialType.pdf: return Icons.picture_as_pdf;
-      case FileMaterialType.image: return Icons.image;
-      case FileMaterialType.video: return Icons.video_file;
-      case FileMaterialType.document: return Icons.description;
-      case FileMaterialType.other: return Icons.insert_drive_file;
+      case FileMaterialType.pdf:
+        return Icons.picture_as_pdf;
+      case FileMaterialType.image:
+        return Icons.image;
+      case FileMaterialType.video:
+        return Icons.video_file;
+      case FileMaterialType.document:
+        return Icons.description;
+      case FileMaterialType.other:
+        return Icons.insert_drive_file;
     }
   }
 
   Color _getMaterialIconColor() {
     switch (widget.material.type) {
-      case FileMaterialType.pdf: return Colors.red;
-      case FileMaterialType.image: return Colors.blue;
-      case FileMaterialType.video: return Colors.purple;
-      case FileMaterialType.document: return Colors.green;
-      case FileMaterialType.other: return Colors.grey;
+      case FileMaterialType.pdf:
+        return Colors.red;
+      case FileMaterialType.image:
+        return Colors.blue;
+      case FileMaterialType.video:
+        return Colors.purple;
+      case FileMaterialType.document:
+        return Colors.green;
+      case FileMaterialType.other:
+        return Colors.grey;
     }
   }
 
@@ -117,9 +129,9 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       if (!mounted) return;
 
       if (savedLocation == null || savedLocation.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('저장이 취소되었습니다')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('저장이 취소되었습니다')));
         return;
       }
 
@@ -132,10 +144,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('다운로드 실패: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('다운로드 실패: $e'), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) {
@@ -145,7 +154,8 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   }
 
   Future<Uint8List> _loadMaterialBytes(MaterialModel material) async {
-    final isRemoteMaterial = material.id.isNotEmpty && !material.id.startsWith('local_');
+    final isRemoteMaterial =
+        material.id.isNotEmpty && !material.id.startsWith('local_');
 
     if (isRemoteMaterial) {
       final downloadUrl = await ApiService.getMaterialDownloadUrl(
@@ -170,11 +180,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   }
 
   String _suggestedDownloadFileName(MaterialModel material) {
-    final candidates = [
-      material.fileName,
-      material.title,
-      material.id,
-    ];
+    final candidates = [material.fileName, material.title, material.id];
 
     final baseName = candidates
         .map((value) => value.trim())
@@ -187,10 +193,11 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     final extension = material.type.extension;
     return extension.isEmpty ? baseName : '$baseName.$extension';
   }
+
   void _handlePreview(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('미리보기 기능은 추후 구현 예정입니다'),
-    ));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('미리보기 기능은 추후 구현 예정입니다')));
   }
 
   void _handleStartDrawing(BuildContext context) {
@@ -234,15 +241,20 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     );
   }
 
-  Future<void> _startDrawingWithRole(BuildContext context, {required bool isTeacher}) async {
+  Future<void> _startDrawingWithRole(
+    BuildContext context, {
+    required bool isTeacher,
+  }) async {
     final serverUrl = _resolveServerUrl(isTeacher);
     if (serverUrl == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('서버 URL이 비어 있어요.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('서버 URL이 비어 있어요.')));
       return;
     }
 
-    final userId = await AuthService.getUserId() ??
+    final userId =
+        await AuthService.getUserId() ??
         (isTeacher
             ? MaterialDetailScreen._demoTeacherId
             : MaterialDetailScreen._demoStudentId);
@@ -251,7 +263,8 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
         : null;
 
     if (!isTeacher && roomId == null) {
-      final hardcodedRoomId = MaterialDetailScreen._studentHardcodedSessionId.trim();
+      final hardcodedRoomId = MaterialDetailScreen._studentHardcodedSessionId
+          .trim();
       if (_looksLikeRealtimeSessionId(hardcodedRoomId)) {
         roomId = hardcodedRoomId;
       }
@@ -296,8 +309,9 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
 
     if (roomId == null || roomId.isEmpty) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('세션 ID가 없습니다.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('세션 ID가 없습니다.')));
       return;
     }
 
@@ -309,14 +323,14 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
-
           materialTitle: widget.material.title,
           backgroundUrl: backgroundUrl,
           isPdfDocument: widget.material.type == FileMaterialType.pdf,
           materialId: widget.material.id.isNotEmpty
               ? widget.material.id
               : MaterialDetailScreen._demoMaterialId,
-          classId: widget.classId ??
+          classId:
+              widget.classId ??
               (kIsWeb ? Uri.base.queryParameters['classId'] : null) ??
               MaterialDetailScreen._demoClassId,
           isTeacher: isTeacher,
@@ -348,18 +362,26 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   // 내 코드: QR 코드 공유 (교사 전용)
   void _showQrCodeDialog() {
     if (widget.sessionId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('세션 ID가 없습니다')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('세션 ID가 없습니다')));
       return;
     }
-    final deepLink = _deepLinkService.generateMaterialLink(
+    final joinUrl =
+        widget.joinUrl ??
+        _deepLinkService.generateJoinWebLink(
+          widget.sessionId!,
+          classId: widget.classId,
+          materialId: widget.material.id,
+        );
+    final appDeepLink = _deepLinkService.generateJoinDeepLink(
       widget.sessionId!,
-      widget.material.id,
     );
     showDialog(
       context: context,
       builder: (context) => _QrCodeDialog(
-        deepLink: deepLink,
+        joinUrl: joinUrl,
+        appDeepLink: appDeepLink,
         materialTitle: widget.material.title,
       ),
     );
@@ -409,23 +431,33 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
               child: Column(
                 children: [
                   Container(
-                    width: 120, height: 120,
+                    width: 120,
+                    height: 120,
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      boxShadow: [BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10, offset: const Offset(0, 4),
-                      )],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    child: Icon(_getMaterialIcon(), size: 64, color: _getMaterialIconColor()),
+                    child: Icon(
+                      _getMaterialIcon(),
+                      size: 64,
+                      color: _getMaterialIconColor(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     widget.material.type.name.toUpperCase(),
                     style: TextStyle(
-                      fontSize: 14, color: _getMaterialIconColor(),
-                      fontWeight: FontWeight.bold, letterSpacing: 1.2,
+                      fontSize: 14,
+                      color: _getMaterialIconColor(),
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
                     ),
                   ),
                 ],
@@ -436,91 +468,151 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('제목', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500)),
+                  const Text(
+                    '제목',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-                  Text(widget.material.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  Text(
+                    widget.material.title,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   Card(
                     elevation: 0,
                     color: Colors.grey[100],
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Column(children: [
-                        _buildInfoRow(Icons.insert_drive_file_outlined, '파일명', widget.material.fileName),
-                        const Divider(height: 24),
-                        _buildInfoRow(Icons.storage_outlined, '파일 크기', widget.material.formattedSize),
-                        const Divider(height: 24),
-                        _buildInfoRow(Icons.calendar_today_outlined, '업로드 날짜', _formatDate(widget.material.uploadedAt)),
-                        const Divider(height: 24),
-                        _buildInfoRow(Icons.school_outlined, '세션', '${widget.sessionTitle} (${widget.teacherName})'),
-                      ]),
+                      child: Column(
+                        children: [
+                          _buildInfoRow(
+                            Icons.insert_drive_file_outlined,
+                            '파일명',
+                            widget.material.fileName,
+                          ),
+                          const Divider(height: 24),
+                          _buildInfoRow(
+                            Icons.storage_outlined,
+                            '파일 크기',
+                            widget.material.formattedSize,
+                          ),
+                          const Divider(height: 24),
+                          _buildInfoRow(
+                            Icons.calendar_today_outlined,
+                            '업로드 날짜',
+                            _formatDate(widget.material.uploadedAt),
+                          ),
+                          const Divider(height: 24),
+                          _buildInfoRow(
+                            Icons.school_outlined,
+                            '세션',
+                            '${widget.sessionTitle} (${widget.teacherName})',
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
-                  if (widget.material.description != null && widget.material.description!.isNotEmpty) ...[
-                    const Text('설명', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500)),
+                  if (widget.material.description != null &&
+                      widget.material.description!.isNotEmpty) ...[
+                    const Text(
+                      '설명',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
-                      child: Text(widget.material.description!, style: const TextStyle(fontSize: 15, height: 1.5)),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        widget.material.description!,
+                        style: const TextStyle(fontSize: 15, height: 1.5),
+                      ),
                     ),
                     const SizedBox(height: 24),
                   ],
-                  Column(children: [
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _handleStartDrawing(context),
-                        icon: const Icon(Icons.edit),
-                        label: Text(widget.isTeacher ? '판서 시작' : '내 필기 시작'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _handlePreview(context),
-                          icon: const Icon(Icons.visibility_outlined),
-                          label: const Text('미리보기'),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
+                  Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: _isDownloading
-                              ? null
-                              : _handleDownload,
-                          icon: _isDownloading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                )
-                              : const Icon(Icons.download),
-                          label: Text(_isDownloading ? '저장 중...' : '다운로드'),
+                          onPressed: () => _handleStartDrawing(context),
+                          icon: const Icon(Icons.edit),
+                          label: Text(widget.isTeacher ? '판서 시작' : '내 필기 시작'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ),
-                    ]),
-                  ]),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _handlePreview(context),
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: const Text('미리보기'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isDownloading
+                                  ? null
+                                  : _handleDownload,
+                              icon: _isDownloading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Colors.white,
+                                            ),
+                                      ),
+                                    )
+                                  : const Icon(Icons.download),
+                              label: Text(_isDownloading ? '저장 중...' : '다운로드'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -535,14 +627,25 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       children: [
         Icon(icon, size: 20, color: Colors.grey[600]),
         const SizedBox(width: 12),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            const SizedBox(height: 4),
-            Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-          ],
-        )),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -552,19 +655,25 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
 /// QR 코드 다이얼로그 (내 코드 유지)
 /// ===============================
 class _QrCodeDialog extends StatelessWidget {
-  final String deepLink;
+  final String joinUrl;
+  final String appDeepLink;
   final String materialTitle;
 
-  const _QrCodeDialog({required this.deepLink, required this.materialTitle});
+  const _QrCodeDialog({
+    required this.joinUrl,
+    required this.appDeepLink,
+    required this.materialTitle,
+  });
 
   void _copyLink(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: deepLink));
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('링크가 복사되었습니다')));
+    Clipboard.setData(ClipboardData(text: joinUrl));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('링크가 복사되었습니다')));
   }
 
   void _shareLink() {
-    Share.share(deepLink, subject: '자료 공유: $materialTitle');
+    Share.share(joinUrl, subject: '세션 공유: $materialTitle');
   }
 
   @override
@@ -576,47 +685,78 @@ class _QrCodeDialog extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(children: [
-              const Icon(Icons.qr_code_2, size: 28),
-              const SizedBox(width: 12),
-              const Expanded(child: Text('QR 코드 공유',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-            ]),
+            Row(
+              children: [
+                const Icon(Icons.qr_code_2, size: 28),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'QR 코드 공유',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
             const SizedBox(height: 24),
-            QrImageView(data: deepLink, size: 200, backgroundColor: Colors.white),
+            QrImageView(
+              data: joinUrl,
+              size: 200,
+              backgroundColor: Colors.white,
+            ),
             const SizedBox(height: 16),
-            Text(materialTitle,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center),
+            Text(
+              materialTitle,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(deepLink,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                textAlign: TextAlign.center),
+            Text(
+              joinUrl,
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              appDeepLink,
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 24),
-            Row(children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _copyLink(context),
-                  icon: const Icon(Icons.copy, size: 18),
-                  label: const Text('링크 복사'),
-                  style: OutlinedButton.styleFrom(
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _copyLink(context),
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: const Text('링크 복사'),
+                    style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _shareLink,
-                  icon: const Icon(Icons.share, size: 18),
-                  label: const Text('공유'),
-                  style: ElevatedButton.styleFrom(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _shareLink,
+                    icon: const Icon(Icons.share, size: 18),
+                    label: const Text('공유'),
+                    style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ]),
+              ],
+            ),
           ],
         ),
       ),

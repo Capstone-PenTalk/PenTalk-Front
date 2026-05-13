@@ -1,6 +1,7 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/session_model.dart';
+import 'qr_view.dart';
 import 'package:intl/intl.dart';
 
 class SessionCard extends StatelessWidget {
@@ -34,9 +35,7 @@ class SessionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -78,10 +77,7 @@ class SessionCard extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     '최대 ${session.maxParticipants}명',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(width: 16),
                   if (session.password != null) ...[
@@ -93,10 +89,7 @@ class SessionCard extends StatelessWidget {
                     const SizedBox(width: 4),
                     const Text(
                       '비밀번호 설정됨',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                   ],
                 ],
@@ -112,18 +105,12 @@ class SessionCard extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     '파일 ${session.files.length}개',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const Spacer(),
                   Text(
                     _formatDate(session.createdAt),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
@@ -145,12 +132,18 @@ class SessionCard extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (session.joinUrl != null && session.joinUrl!.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.qr_code_2),
+                  title: const Text('QR 코드 보기'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showQrDialog(context);
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
-                title: const Text(
-                  '세션 삭제',
-                  style: TextStyle(color: Colors.red),
-                ),
+                title: const Text('세션 삭제', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   Navigator.pop(context);
                   _confirmDelete(context);
@@ -163,13 +156,80 @@ class SessionCard extends StatelessWidget {
     );
   }
 
+  void _showQrDialog(BuildContext context) {
+    final joinUrl = session.joinUrl;
+    if (joinUrl == null || joinUrl.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.qr_code_2),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        session.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                QrView(url: joinUrl),
+                const SizedBox(height: 16),
+                Text(
+                  joinUrl,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: joinUrl));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('링크가 복사되었습니다')),
+                      );
+                    },
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: const Text('링크 복사'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _confirmDelete(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: const Text('세션 삭제'),
-          content: Text('정말로 "${session.title}" 세션을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'),
+          content: Text(
+            '정말로 "${session.title}" 세션을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.',
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -182,9 +242,7 @@ class SessionCard extends StatelessWidget {
                 Navigator.pop(context);
                 onDelete?.call();
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               child: const Text('삭제'),
             ),
           ],

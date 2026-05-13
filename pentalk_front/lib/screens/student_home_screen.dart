@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../widgets/student_session_card.dart';
 import 'material_list_screen.dart';
 import 'login_screen.dart';
+import 'qr_scan_screen.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({Key? key}) : super(key: key);
@@ -43,10 +44,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
   void _initializeTabController(List<String> subjects) {
     if (_tabController == null || _tabController!.length != subjects.length) {
       _tabController?.dispose();
-      _tabController = TabController(
-        length: subjects.length,
-        vsync: this,
-      );
+      _tabController = TabController(length: subjects.length, vsync: this);
     }
   }
 
@@ -56,9 +54,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
       appBar: AppBar(
         title: const Text(
           '서예영 님의 공간',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(
@@ -107,9 +103,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
             child: Consumer<StudentSessionProvider>(
               builder: (context, provider, child) {
                 if (provider.isLoading && provider.sessions.isEmpty) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
+                  return const Center(child: CircularProgressIndicator());
                 }
 
                 if (provider.errorMessage != null) {
@@ -207,20 +201,14 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
             ),
             child: InkWell(
               onTap: () {
-                // TODO: QR 스캔 또는 세션 코드 입력 화면
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('QR 코드 스캔 기능은 추후 구현 예정입니다'),
-                  ),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const QrScanScreen()),
                 );
               },
               borderRadius: BorderRadius.circular(12),
               child: Center(
-                child: Icon(
-                  Icons.add,
-                  size: 48,
-                  color: Colors.grey[600],
-                ),
+                child: Icon(Icons.add, size: 48, color: Colors.grey[600]),
               ),
             ),
           );

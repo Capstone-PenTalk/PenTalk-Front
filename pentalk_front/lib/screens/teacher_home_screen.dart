@@ -43,12 +43,15 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     showDialog(
       context: context,
       builder: (context) => CreateSessionDialog(
-        onCreateSession: (classId, materialId) async {
-          await context.read<SessionProvider>().createSession(
-            classId: classId,
-            materialId: materialId,
-          );
-        },
+        onCreateSession:
+            (materialId, {required title, maxParticipants, password}) async {
+              await context.read<SessionProvider>().createSession(
+                materialId: materialId,
+                title: title,
+                maxParticipants: maxParticipants,
+                password: password,
+              );
+            },
       ),
     );
   }
@@ -116,9 +119,11 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                 children: [
                   const Icon(Icons.error_outline, size: 64, color: Colors.red),
                   const SizedBox(height: 16),
-                  Text(provider.errorMessage!,
-                      style: const TextStyle(fontSize: 16),
-                      textAlign: TextAlign.center),
+                  Text(
+                    provider.errorMessage!,
+                    style: const TextStyle(fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: provider.loadSessions,
@@ -136,11 +141,15 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                 children: [
                   Icon(Icons.folder_open, size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 16),
-                  Text('아직 생성된 세션이 없습니다',
-                      style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                  Text(
+                    '아직 생성된 세션이 없습니다',
+                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                  ),
                   const SizedBox(height: 8),
-                  Text('우측 상단 + 버튼을 눌러 새 세션을 생성하세요',
-                      style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+                  Text(
+                    '우측 상단 + 버튼을 눌러 새 세션을 생성하세요',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                  ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
                     onPressed: _showCreateSessionDialog,
@@ -177,9 +186,13 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                         children: [
                           Icon(Icons.add, size: 48, color: Colors.grey[600]),
                           const SizedBox(height: 8),
-                          Text('새 세션',
-                              style: TextStyle(
-                                  fontSize: 14, color: Colors.grey[600])),
+                          Text(
+                            '새 세션',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                          ),
                         ],
                       ),
                     ),
