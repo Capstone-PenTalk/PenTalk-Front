@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../models/drawing_models.dart';
 import 'auth_service.dart';
+import '../models/quiz_model.dart';
 
 /// ===============================
 /// REST API 클라이언트 서비스
@@ -74,6 +75,7 @@ class ApiService {
         message: e.toString(),
       );
     }
+
   }
 
   /// ===============================
@@ -928,6 +930,178 @@ class ApiService {
 
     final argb = hex.length == 6 ? 'FF$hex' : hex;
     return '#${argb.toUpperCase()}';
+  }
+  // ── 퀴즈 문항 조회 (학생 + 교사 공용) ─────────────────────
+//
+// GET /sessions/:sessionId/quiz
+// 응답: { ok: true, questions: [...] }
+//
+// 반환: List<QuizQuestion>
+// 교사 응답에는 answer 포함, 학생 응답에는 answer null
+//
+  static Future<List<QuizQuestion>> getQuizQuestions({
+    required String sessionId,
+  }) async {
+    final token = await AuthService.getToken();
+    final uri = Uri.parse('${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz');
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final rawQuestions = body['questions'] as List<dynamic>? ?? [];
+      return rawQuestions
+          .whereType<Map>()
+          .map((q) => QuizQuestion.fromJson(Map<String, dynamic>.from(q)))
+          .toList();
+    }
+
+    throw Exception('퀴즈 조회 실패 [${response.statusCode}]');
+  }
+
+// ── 퀴즈 답안 제출 (학생) ─────────────────────────────────
+//
+// POST /sessions/:sessionId/quiz/submit
+// Body: { questionId, answer }
+// 응답: { ok, questionId, isCorrect, submittedAnswer, correctAnswer }
+// 429: QUIZ_DAILY_LIMIT_EXCEEDED
+//
+  static Future<QuizSubmitResult> submitQuizAnswer({
+    required String sessionId,
+    required String questionId,
+    required String answer,
+  }) async {
+    final token = await AuthService.getToken();
+    final uri = Uri.parse(
+        '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/submit');
+
+    final response = await http.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'questionId': questionId, 'answer': answer}),
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return QuizSubmitResult.fromJson(body);
+    }
+
+    if (response.statusCode == 429) {
+      // 하루 2회 초과
+      throw const QuizDailyLimitException();
+    }
+
+    throw Exception('퀴즈 제출 실패 [${response.statusCode}]');
+  }
+
+// ── 퀴즈 문항 추가 (교사) ─────────────────────────────────
+//
+// POST /sessions/:sessionId/quiz
+// Body: { question, answer, order }
+// 응답: { ok: true, question: { id, question, answer, order, createdAt } }
+//
+  static Future<QuizQuestion> addQuizQuestion({
+    required String sessionId,
+    required String question,
+    required String answer,
+    required int order,
+  }) async {
+    final token = await AuthService.getToken();
+    final uri = Uri.parse('${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz');
+
+    final response = await http.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'question': question,
+        'answer': answer,
+        'order': order,
+      }),
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final rawQuestion = body['question'] as Map<String, dynamic>;
+      return QuizQuestion.fromJson(rawQuestion);
+    }
+
+    throw Exception('문항 추가 실패 [${response.statusCode}]');
+  }
+
+// ── 퀴즈 문항 수정 (교사) ─────────────────────────────────
+//
+// PUT /sessions/:sessionId/quiz/:questionId
+// Body: { question?, answer? }
+//
+  static Future<QuizQuestion> updateQuizQuestion({
+    required String sessionId,
+    required String questionId,
+    String? question,
+    String? answer,
+  }) async {
+    assert(question != null || answer != null,
+    'question 또는 answer 중 하나는 필수입니다');
+
+    final token = await AuthService.getToken();
+    final uri = Uri.parse(
+        '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/$questionId');
+
+    final body = <String, dynamic>{};
+    if (question != null) body['question'] = question;
+    if (answer != null) body['answer'] = answer;
+
+    final response = await http.put(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 200) {
+      final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+      final rawQuestion = responseBody['question'] as Map<String, dynamic>;
+      return QuizQuestion.fromJson(rawQuestion);
+    }
+
+    throw Exception('문항 수정 실패 [${response.statusCode}]');
+  }
+
+// ── 퀴즈 문항 삭제 (교사) ─────────────────────────────────
+//
+// DELETE /sessions/:sessionId/quiz/:questionId
+//
+  static Future<void> deleteQuizQuestion({
+    required String sessionId,
+    required String questionId,
+  }) async {
+    final token = await AuthService.getToken();
+    final uri = Uri.parse(
+        '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/$questionId');
+
+    final response = await http.delete(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw Exception('문항 삭제 실패 [${response.statusCode}]');
+    }
   }
 }
 

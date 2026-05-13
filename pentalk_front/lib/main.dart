@@ -9,6 +9,7 @@ import 'providers/poll_provider.dart';
 import 'providers/personal_drawing_provider.dart';
 import 'providers/participants_provider.dart';
 import 'providers/material_provider.dart';
+import 'providers/quiz_provider.dart';
 import 'screens/join_session_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/deep_link_service.dart';
@@ -38,6 +39,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ParticipantsProvider()),
         ChangeNotifierProvider(create: (_) => PollProvider()),
         ChangeNotifierProvider(create: (_) => MaterialProvider()),
+        ChangeNotifierProvider(create: (_) => QuizProvider()),
       ],
       child: MaterialApp(
         title: '하이브리드 교실',

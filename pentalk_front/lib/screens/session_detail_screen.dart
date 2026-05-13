@@ -13,6 +13,7 @@ import '../services/auth_service.dart';
 import '../services/local_material_service.dart';
 import '../models/student_session_model.dart';
 import 'drawing_screen.dart'; // 👈 추가
+import '../widgets/quiz_editor_widget.dart';
 
 class SessionDetailScreen extends StatefulWidget {
   final String sessionId;
@@ -446,8 +447,23 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: materialProvider.materials.length,
+                        itemCount:
+                            materialProvider.materials.length +
+                            (widget.sessionId == 'local-pdf-workspace' ? 0 : 3),
                         itemBuilder: (context, index) {
+                          if (index >= materialProvider.materials.length) {
+                            final footerIndex =
+                                index - materialProvider.materials.length;
+                            if (footerIndex == 0) {
+                              return const SizedBox(height: 16);
+                            }
+                            if (footerIndex == 1) {
+                              return const Divider(thickness: 1);
+                            }
+                            return QuizEditorWidget(
+                              sessionId: widget.sessionId,
+                            );
+                          }
                           final material = materialProvider.materials[index];
                           return _MaterialListItem(
                             material: material,
