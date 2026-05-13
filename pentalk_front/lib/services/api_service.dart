@@ -277,20 +277,36 @@ class ApiService {
   static Future<ApiResponse<SessionCreateResponse>> createSession({
     required String classId,
     String? materialId,
+    String? title,
+    int? maxParticipants,
+    String? password,
   }) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await _ensureTeacherToken();
 
       final body = {
         'classId': classId,
         if (materialId != null && materialId.isNotEmpty)
           'materialId': materialId,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+        if (maxParticipants != null) 'capacity': maxParticipants,
+        if (password != null && password.trim().isNotEmpty)
+          'password': password.trim(),
       };
 
       debugPrint('POST /session/create');
       debugPrint('   classId: $classId');
       if (materialId != null && materialId.isNotEmpty) {
         debugPrint('   materialId: $materialId');
+      }
+      if (title != null && title.trim().isNotEmpty) {
+        debugPrint('   title: ${title.trim()}');
+      }
+      if (maxParticipants != null) {
+        debugPrint('   capacity: $maxParticipants');
+      }
+      if (password != null && password.trim().isNotEmpty) {
+        debugPrint('   password: <set>');
       }
 
       final response = await http
@@ -335,6 +351,75 @@ class ApiService {
         message: e.toString(),
       );
     }
+  }
+
+  static Future<ApiResponse<ClassCreateResponse>> createClass({
+    required String title,
+  }) async {
+    try {
+      final token = await _ensureTeacherToken();
+      final body = {'title': title.trim()};
+
+      debugPrint('POST /classes');
+      debugPrint('   title: ${title.trim()}');
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/classes'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Request timeout'),
+          );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return ApiResponse<ClassCreateResponse>(
+          success: true,
+          data: ClassCreateResponse.fromJson(data),
+        );
+      }
+
+      String message = '클래스 생성에 실패했습니다';
+      String code = 'CREATE_CLASS_FAILED';
+      try {
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        message = error['message'] as String? ?? message;
+        code = error['code'] as String? ?? code;
+      } catch (_) {}
+
+      return ApiResponse<ClassCreateResponse>(
+        success: false,
+        error: code,
+        message: message,
+      );
+    } catch (e) {
+      return ApiResponse<ClassCreateResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  static Future<String?> _ensureTeacherToken() async {
+    final response = await login(userId: 'teacher1', role: 'teacher');
+    if (!response.success || response.data == null) {
+      throw Exception(response.message ?? '교사 인증 토큰 발급 실패');
+    }
+
+    final loginData = response.data!;
+    await AuthService.saveUserInfo(
+      userId: loginData.userId,
+      role: loginData.role,
+      token: loginData.token,
+    );
+    return loginData.token;
   }
 
   /// ===============================
@@ -521,59 +606,80 @@ class ApiService {
   }
 
   /// ===============================
-  /// 세션 상태 확인 (GET /sessions/{sessionId}/status)
+  /// 세션 참여 (POST /sessions/{sessionId}/join)
   /// ===============================
-  static Future<ApiResponse<SessionStatus>> getSessionStatus({
+  static Future<ApiResponse<SessionJoinResponse>> joinSession({
     required String sessionId,
+    required String password,
+    String? materialId,
   }) async {
     try {
       final token = await AuthService.getToken();
+      final trimmedMaterialId = materialId?.trim();
+      final body = {
+        'password': password,
+        if (trimmedMaterialId != null && trimmedMaterialId.isNotEmpty)
+          'materialId': trimmedMaterialId,
+      };
 
-      debugPrint('GET /sessions/$sessionId/status');
+      debugPrint('POST /sessions/$sessionId/join');
+      if (trimmedMaterialId != null && trimmedMaterialId.isNotEmpty) {
+        debugPrint('   materialId: $trimmedMaterialId');
+      }
 
       final response = await http
-          .get(
-            Uri.parse('$baseUrl/sessions/$sessionId/status'),
+          .post(
+            Uri.parse('$baseUrl/sessions/$sessionId/join'),
             headers: {
               'Content-Type': 'application/json',
               if (token != null) 'Authorization': 'Bearer $token',
             },
+            body: jsonEncode(body),
           )
           .timeout(
             const Duration(seconds: 5),
             onTimeout: () => throw TimeoutException('Request timeout'),
           );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugPrint('✅ Session status: ${data['status']}');
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        debugPrint('✅ Session joined: $sessionId');
+        debugPrint('   response: ${response.body}');
 
-        return ApiResponse<SessionStatus>(
+        return ApiResponse<SessionJoinResponse>(
           success: true,
-          data: SessionStatus(
-            sessionId: data['sessionId'] ?? sessionId,
-            status: data['status'] ?? 'UNKNOWN',
+          data: SessionJoinResponse.fromJson(
+            data,
+            fallbackSessionId: sessionId,
           ),
         );
       } else if (response.statusCode == 404) {
+        if (response.body.contains('Cannot POST')) {
+          debugPrint('⚠️ Session join endpoint unavailable');
+          return ApiResponse<SessionJoinResponse>(
+            success: false,
+            error: 'SESSION_JOIN_UNAVAILABLE',
+            message: 'Session join endpoint unavailable',
+          );
+        }
         debugPrint('❌ Session not found: $sessionId');
-        return ApiResponse<SessionStatus>(
+        return ApiResponse<SessionJoinResponse>(
           success: false,
           error: 'SESSION_NOT_FOUND',
           message: 'Session not found',
         );
       } else {
-        final error = jsonDecode(response.body);
-        debugPrint('❌ Get session status failed: ${error['message']}');
-        return ApiResponse<SessionStatus>(
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        debugPrint('❌ Join session failed: ${error['message']}');
+        return ApiResponse<SessionJoinResponse>(
           success: false,
-          error: error['code'] ?? 'GET_STATUS_FAILED',
-          message: error['message'] ?? 'Failed to get session status',
+          error: error['code']?.toString() ?? 'JOIN_SESSION_FAILED',
+          message: error['message']?.toString() ?? 'Failed to join session',
         );
       }
     } catch (e) {
-      debugPrint('❌ Get session status error: $e');
-      return ApiResponse<SessionStatus>(
+      debugPrint('❌ Join session error: $e');
+      return ApiResponse<SessionJoinResponse>(
         success: false,
         error: 'NETWORK_ERROR',
         message: e.toString(),
@@ -587,12 +693,17 @@ class ApiService {
   /// ===============================
   static Future<MaterialUploadResponse> uploadMaterial({
     required String classId,
+    String? sessionId,
     required String filePath,
     required String fileName,
   }) async {
     final token = await AuthService.getToken();
+    final trimmedSessionId = sessionId?.trim();
 
-    debugPrint('POST /materials/pdf: $fileName (classId: $classId)');
+    debugPrint(
+      'POST /materials/pdf: $fileName (classId: $classId'
+      '${trimmedSessionId != null && trimmedSessionId.isNotEmpty ? ', sessionId: $trimmedSessionId' : ''})',
+    );
 
     final request = http.MultipartRequest(
       'POST',
@@ -604,6 +715,9 @@ class ApiService {
     }
 
     request.fields['classId'] = classId;
+    if (trimmedSessionId != null && trimmedSessionId.isNotEmpty) {
+      request.fields['sessionId'] = trimmedSessionId;
+    }
     request.files.add(
       await http.MultipartFile.fromPath(
         'file',
@@ -620,10 +734,11 @@ class ApiService {
 
     final response = await http.Response.fromStream(streamedResponse);
 
-    if (response.statusCode == 201) {
+    if (response.statusCode == 200 || response.statusCode == 201) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      debugPrint('✅ Material uploaded: ${data['id']}');
-      return MaterialUploadResponse.fromJson(data);
+      final uploaded = MaterialUploadResponse.fromJson(data);
+      debugPrint('✅ Material uploaded: ${uploaded.id}');
+      return uploaded;
     }
 
     // 에러 처리
@@ -870,6 +985,104 @@ class SessionStatus {
   bool get isArchived => status.toUpperCase() == 'ARCHIVED';
 }
 
+class SessionJoinResponse {
+  final String sessionId;
+  final String? classId;
+  final String? materialId;
+  final SessionJoinMaterial? material;
+  final String? status;
+
+  SessionJoinResponse({
+    required this.sessionId,
+    this.classId,
+    this.materialId,
+    this.material,
+    this.status,
+  });
+
+  factory SessionJoinResponse.fromJson(
+    Map<String, dynamic> json, {
+    required String fallbackSessionId,
+  }) {
+    final payload = _unwrapJoinPayload(json);
+    final material = payload['material'] is Map
+        ? SessionJoinMaterial.fromJson(
+            Map<String, dynamic>.from(payload['material'] as Map),
+          )
+        : null;
+
+    return SessionJoinResponse(
+      sessionId:
+          payload['sessionId']?.toString() ??
+          payload['roomId']?.toString() ??
+          fallbackSessionId,
+      classId: payload['classId']?.toString(),
+      materialId: payload['materialId']?.toString() ?? material?.id,
+      material: material,
+      status: payload['status']?.toString(),
+    );
+  }
+
+  static Map<String, dynamic> _unwrapJoinPayload(Map<String, dynamic> json) {
+    for (final key in const ['data', 'payload']) {
+      final value = json[key];
+      if (value is Map) {
+        return Map<String, dynamic>.from(value);
+      }
+    }
+    return json;
+  }
+}
+
+class SessionJoinMaterial {
+  final String id;
+  final String name;
+  final String type;
+  final String url;
+
+  SessionJoinMaterial({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.url,
+  });
+
+  factory SessionJoinMaterial.fromJson(Map<String, dynamic> json) {
+    return SessionJoinMaterial(
+      id: json['id']?.toString().trim() ?? '',
+      name: json['name']?.toString().trim() ?? '자료',
+      type: json['type']?.toString().trim() ?? '',
+      url:
+          json['url']?.toString().trim() ??
+          json['downloadUrl']?.toString().trim() ??
+          '',
+    );
+  }
+}
+
+class ClassCreateResponse {
+  final String id;
+  final String title;
+  final String? teacherId;
+  final String? createdAt;
+
+  ClassCreateResponse({
+    required this.id,
+    required this.title,
+    this.teacherId,
+    this.createdAt,
+  });
+
+  factory ClassCreateResponse.fromJson(Map<String, dynamic> json) {
+    return ClassCreateResponse(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      teacherId: json['teacherId']?.toString(),
+      createdAt: json['createdAt']?.toString(),
+    );
+  }
+}
+
 class SessionCreateResponse {
   final String sessionId;
   final String? materialId;
@@ -932,6 +1145,8 @@ class MaterialUploadResponse {
   });
 
   factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
+    final payload = _unwrapMaterialPayload(json);
+
     String toStringValue(dynamic value, {required String fallback}) {
       if (value == null) return fallback;
       final result = value.toString().trim();
@@ -939,23 +1154,28 @@ class MaterialUploadResponse {
     }
 
     final resolvedName =
-        [json['name'], json['title'], json['fileName'], json['filename']]
+        [
+              payload['name'],
+              payload['title'],
+              payload['fileName'],
+              payload['filename'],
+            ]
             .map((value) => value?.toString().trim() ?? '')
             .firstWhere((value) => value.isNotEmpty, orElse: () => 'untitled');
 
     final resolvedUrl =
         [
-              json['url'],
-              json['downloadUrl'],
-              json['fileUrl'],
-              json['s3Key'],
-              json['key'],
+              payload['url'],
+              payload['downloadUrl'],
+              payload['fileUrl'],
+              payload['s3Key'],
+              payload['key'],
             ]
             .map((value) => value?.toString().trim() ?? '')
             .firstWhere((value) => value.isNotEmpty, orElse: () => '');
 
     final resolvedCreatedAt =
-        [json['createdAt'], json['uploadedAt'], json['updatedAt']]
+        [payload['createdAt'], payload['uploadedAt'], payload['updatedAt']]
             .map((value) => value?.toString().trim() ?? '')
             .firstWhere(
               (value) => value.isNotEmpty,
@@ -963,13 +1183,25 @@ class MaterialUploadResponse {
             );
 
     return MaterialUploadResponse(
-      id: toStringValue(json['id'], fallback: ''),
-      type: toStringValue(json['type'], fallback: 'pdf'),
+      id: toStringValue(payload['id'], fallback: ''),
+      type: toStringValue(payload['type'], fallback: 'pdf'),
       url: resolvedUrl,
       name: resolvedName,
-      classId: toStringValue(json['classId'], fallback: ''),
+      classId: toStringValue(payload['classId'], fallback: ''),
       createdAt: resolvedCreatedAt,
     );
+  }
+
+  static Map<String, dynamic> _unwrapMaterialPayload(
+    Map<String, dynamic> json,
+  ) {
+    for (final key in const ['material', 'data', 'payload']) {
+      final value = json[key];
+      if (value is Map) {
+        return Map<String, dynamic>.from(value);
+      }
+    }
+    return json;
   }
 }
 

@@ -46,7 +46,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       widget.classId!.isNotEmpty;
 
   String? get _effectiveSessionId =>
-      _realtimeSessionId ?? (_looksLikeRealtimeSessionId(widget.sessionId)
+      _realtimeSessionId ??
+      (_looksLikeRealtimeSessionId(widget.sessionId)
           ? widget.sessionId.trim()
           : null);
 
@@ -59,6 +60,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       _loadMaterials();
     });
   }
+
   // ⭐ 추가: 판서 화면으로 넘어가는 핵심 함수
   Future<void> _navigateToDrawing(
     BuildContext context, {
@@ -80,7 +82,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           materialTitle: material.title,
           backgroundUrl: resolvedBackgroundUrl,
           isPdfDocument: material.type == FileMaterialType.pdf,
-          isTeacher: true,             // 교사 모드 켜기
+          isTeacher: true, // 교사 모드 켜기
           sessionId: realtimeSessionId,
           roomId: realtimeSessionId,
           userId: realtimeSessionId != null ? userId : null,
@@ -105,7 +107,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     return ApiService.getMaterialDownloadUrl(materialId: material.id);
   }
 
-  Future<String?> _createRealtimeSessionForMaterial(MaterialModel material) async {
+  Future<String?> _createRealtimeSessionForMaterial(
+    MaterialModel material,
+  ) async {
     if (!_canUseRemoteMaterials) return null;
 
     final classId = widget.classId;
@@ -172,10 +176,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       return;
     }
 
-    final classId =
-        (widget.classId != null && widget.classId!.isNotEmpty)
-            ? widget.classId
-            : (kIsWeb ? Uri.base.queryParameters['classId'] : null);
+    final classId = (widget.classId != null && widget.classId!.isNotEmpty)
+        ? widget.classId
+        : (kIsWeb ? Uri.base.queryParameters['classId'] : null);
     if (classId == null) return;
 
     materialProvider.setLoading(true);
@@ -185,15 +188,19 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       if (!mounted) return;
 
       materialProvider.setMaterials(
-        materials.map((m) => MaterialModel(
-          id: m.id,
-          title: m.name,
-          fileName: m.name,
-          url: m.url,
-          sizeInBytes: 0, // 서버 응답에 size 없음
-          uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
-          type: FileMaterialType.pdf,
-        )).toList(),
+        materials
+            .map(
+              (m) => MaterialModel(
+                id: m.id,
+                title: m.name,
+                fileName: m.name,
+                url: m.url,
+                sizeInBytes: 0, // 서버 응답에 size 없음
+                uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
+                type: FileMaterialType.pdf,
+              ),
+            )
+            .toList(),
       );
     } catch (e) {
       debugPrint('❌ Failed to load materials: $e');
@@ -264,10 +271,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('업로드 실패: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('업로드 실패: $e'), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isUploading = false);
@@ -285,6 +289,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final file = await _localMaterialService.importPdf(File(filePath));
     final uploaded = await ApiService.uploadMaterial(
       classId: classId,
+      sessionId: _effectiveSessionId ?? widget.sessionId,
       filePath: file.url,
       fileName: file.fileName,
     );
@@ -331,16 +336,13 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   Future<void> _handleFileDelete(String fileId) async {
     try {
       context.read<MaterialProvider>().removeMaterial(fileId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('자료가 삭제됐습니다')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('자료가 삭제됐습니다')));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('삭제 실패: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('삭제 실패: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -362,7 +364,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: SizedBox(
-                  width: 20, height: 20,
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
@@ -395,51 +398,68 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : materialProvider.materials.isEmpty
                     ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.upload_file, size: 80, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('아직 업로드된 자료가 없습니다',
-                          style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-                      const SizedBox(height: 8),
-                      Text(_canUseRemoteMaterials
-                          ? '하단의 + 버튼을 눌러 자료를 업로드하세요'
-                          : '하단의 + 버튼을 눌러 로컬 PDF를 열어보세요',
-                          style: TextStyle(fontSize: 14, color: Colors.grey[500])),
-                      if (AppConfig.shouldAvoidLoopbackServerOnDevice) ...[
-                        const SizedBox(height: 12),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Text(
-                            '현재 서버 주소가 localhost/127.0.0.1 계열이라 실기기에서는 서버 업로드를 건너뛰고 로컬 PDF 테스트 모드로 동작합니다.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.orange[800],
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.upload_file,
+                              size: 80,
+                              color: Colors.grey[400],
                             ),
-                          ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '아직 업로드된 자료가 없습니다',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _canUseRemoteMaterials
+                                  ? '하단의 + 버튼을 눌러 자료를 업로드하세요'
+                                  : '하단의 + 버튼을 눌러 로컬 PDF를 열어보세요',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                            if (AppConfig
+                                .shouldAvoidLoopbackServerOnDevice) ...[
+                              const SizedBox(height: 12),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                child: Text(
+                                  '현재 서버 주소가 localhost/127.0.0.1 계열이라 실기기에서는 서버 업로드를 건너뛰고 로컬 PDF 테스트 모드로 동작합니다.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.orange[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                      ],
-                    ],
-                  ),
-                )
+                      )
                     : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: materialProvider.materials.length,
-                  itemBuilder: (context, index) {
-                    final material = materialProvider.materials[index];
-                    return _MaterialListItem(
-                      material: material,
-                      onOpen: () => _navigateToDrawing(
-                        context,
-                        material: material,
-                        connectRealtime: _canUseRemoteMaterials,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: materialProvider.materials.length,
+                        itemBuilder: (context, index) {
+                          final material = materialProvider.materials[index];
+                          return _MaterialListItem(
+                            material: material,
+                            onOpen: () => _navigateToDrawing(
+                              context,
+                              material: material,
+                              connectRealtime: _canUseRemoteMaterials,
+                            ),
+                            onDelete: () => _handleFileDelete(material.id),
+                          );
+                        },
                       ),
-                      onDelete: () => _handleFileDelete(material.id),
-                    );
-                  },
-                ),
               ),
             ],
           );
@@ -447,7 +467,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isUploading ? null : _handleFileUpload,
-        icon: Icon(_canUseRemoteMaterials ? Icons.upload_file : Icons.picture_as_pdf),
+        icon: Icon(
+          _canUseRemoteMaterials ? Icons.upload_file : Icons.picture_as_pdf,
+        ),
         label: Text(_canUseRemoteMaterials ? '자료 업로드' : '로컬 PDF 열기'),
       ),
     );
@@ -475,7 +497,8 @@ class _MaterialListItem extends StatelessWidget {
       child: ListTile(
         onTap: onOpen,
         leading: Container(
-          width: 48, height: 48,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
             color: Colors.red.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),

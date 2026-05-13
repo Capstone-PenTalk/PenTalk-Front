@@ -11,6 +11,7 @@ import 'providers/participants_provider.dart';
 import 'providers/material_provider.dart';
 import 'screens/join_session_screen.dart';
 import 'screens/splash_screen.dart';
+import 'services/deep_link_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,10 +55,15 @@ class MyApp extends StatelessWidget {
         onGenerateInitialRoutes: (initialRoute) {
           final joinSessionId = _parseJoinSessionId(initialRoute);
           if (joinSessionId != null) {
+            final deepLinkService = DeepLinkService();
             return [
               MaterialPageRoute(
                 settings: RouteSettings(name: initialRoute),
-                builder: (_) => JoinSessionScreen(sessionId: joinSessionId),
+                builder: (_) => JoinSessionScreen(
+                  sessionId: joinSessionId,
+                  classId: deepLinkService.parseJoinClassId(initialRoute),
+                  materialId: deepLinkService.parseJoinMaterialId(initialRoute),
+                ),
               ),
             ];
           }
@@ -71,9 +77,14 @@ class MyApp extends StatelessWidget {
         onGenerateRoute: (settings) {
           final joinSessionId = _parseJoinSessionId(settings.name);
           if (joinSessionId != null) {
+            final deepLinkService = DeepLinkService();
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => JoinSessionScreen(sessionId: joinSessionId),
+              builder: (_) => JoinSessionScreen(
+                sessionId: joinSessionId,
+                classId: deepLinkService.parseJoinClassId(settings.name!),
+                materialId: deepLinkService.parseJoinMaterialId(settings.name!),
+              ),
             );
           }
           if (settings.name == '/') {

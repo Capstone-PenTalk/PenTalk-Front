@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/document_source.dart';
@@ -20,10 +21,14 @@ import '../widgets/pdf_save_complete_dialog.dart';
 import '../widgets/poll_overlay.dart';
 import '../widgets/poll_result_sheet.dart';
 import '../widgets/poll_start_dialog.dart';
+import '../widgets/qr_view.dart';
 import '../services/api_service.dart';
+import '../services/deep_link_service.dart';
 import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/pdf_file_service.dart';
+import 'student_home_screen.dart';
+import 'teacher_home_screen.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
@@ -38,8 +43,8 @@ class DrawingScreen extends StatefulWidget {
 
   /// PDF export용 자료 목록 (학생 화면에서 필요)
   /// pageId(materialTitle) → page 번호 매핑에 사용
-  final String? materialId;   // 팀원 추가: 자료 ID
-  final String? classId;      // 팀원 추가: 클래스 ID
+  final String? materialId; // 팀원 추가: 자료 ID
+  final String? classId; // 팀원 추가: 클래스 ID
   final List<MaterialModel> materials;
 
   const DrawingScreen({
@@ -79,6 +84,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.iOS &&
       widget.isTeacher;
+
+  String? get _shareableSessionId {
+    final sessionId = widget.sessionId?.trim();
+    if (sessionId != null && sessionId.isNotEmpty) return sessionId;
+
+    final roomId = widget.roomId?.trim();
+    if (roomId != null && roomId.isNotEmpty) return roomId;
+    return null;
+  }
 
   @override
   void initState() {
@@ -292,9 +306,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         width: renderedPage.width,
         height: renderedPage.height,
       );
-      await _loadPersonalPageIfNeeded(
-        updatedDocument.pageKeyFor(pageNumber),
-      );
+      await _loadPersonalPageIfNeeded(updatedDocument.pageKeyFor(pageNumber));
       await _restoreCurrentTeacherPage();
     } catch (e) {
       debugPrint('Failed to change PDF page: $e');
@@ -351,17 +363,18 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _handleStartPoll() async {
     await PollStartDialog.show(
       context,
-      onStart: ({
-        required String question,
-        required List<Map<String, dynamic>> options,
-        int? duration,
-      }) {
-        _drawingProvider.socketService.sendPollStart(
-          question: question,
-          options: options,
-          duration: duration,
-        );
-      },
+      onStart:
+          ({
+            required String question,
+            required List<Map<String, dynamic>> options,
+            int? duration,
+          }) {
+            _drawingProvider.socketService.sendPollStart(
+              question: question,
+              options: options,
+              duration: duration,
+            );
+          },
     );
   }
 
@@ -373,6 +386,82 @@ class _DrawingScreenState extends State<DrawingScreen> {
     if (pollState.pollData == null) return;
 
     _drawingProvider.socketService.sendPollEnd(pollState.pollData!.pollId);
+  }
+
+  void _showQrCodeDialog() {
+    final sessionId = _shareableSessionId;
+    if (sessionId == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('공유할 세션 ID가 없습니다.')));
+      return;
+    }
+
+    final joinUrl = DeepLinkService().generateJoinWebLink(
+      sessionId,
+      classId: widget.classId,
+      materialId: widget.materialId,
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.qr_code_2),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'QR 코드 공유',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                QrView(url: joinUrl),
+                const SizedBox(height: 16),
+                Text(
+                  joinUrl,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: joinUrl));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('링크가 복사되었습니다')),
+                      );
+                    },
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: const Text('링크 복사'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// ===============================
@@ -420,7 +509,14 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void _cleanupAndGoHome() {
     _drawingProvider.disconnectSocket();
     _drawingProvider.clear();
-    Navigator.popUntil(context, (route) => route.isFirst);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => widget.isTeacher
+            ? const TeacherHomeScreen()
+            : const StudentHomeScreen(),
+      ),
+      (route) => false,
+    );
   }
 
   Future<void> _connectSocket() async {
@@ -462,14 +558,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
     if (!widget.isTeacher) return;
 
     final confirmed = await SessionEndedDialog.showEndConfirmation(context);
+    if (!mounted) return;
     if (!confirmed) return;
 
     SessionEndedDialog.showEndingProgress(context);
 
     try {
-      final response = await ApiService.endSession(
-        sessionId: widget.roomId!,
-      );
+      final response = await ApiService.endSession(sessionId: widget.roomId!);
 
       if (!mounted) return;
       Navigator.pop(context); // 로딩 팝업 닫기
@@ -481,15 +576,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
             backgroundColor: Colors.red,
           ),
         );
+        return;
       }
+
+      _cleanupAndGoHome();
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('오류: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('오류: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -536,9 +631,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
       if (!mounted) return;
 
       if (savedLocation == null || savedLocation.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('PDF 저장이 취소되었습니다.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('PDF 저장이 취소되었습니다.')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -586,10 +681,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     } catch (e) {
       if (!mounted) return;
       PdfExportLoadingDialog.dismiss(context);
-      _showExportError(
-        message: _resolveUnknownError(e),
-        canRetry: true,
-      );
+      _showExportError(message: _resolveUnknownError(e), canRetry: true);
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
@@ -619,10 +711,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
   /// 에러 스낵바 표시
   /// [canRetry]: true면 재시도 버튼 포함
-  void _showExportError({
-    required String message,
-    required bool canRetry,
-  }) {
+  void _showExportError({required String message, required bool canRetry}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -630,10 +719,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
         duration: Duration(seconds: canRetry ? 6 : 4),
         action: canRetry
             ? SnackBarAction(
-          label: '재시도',
-          textColor: Colors.white,
-          onPressed: _handleExportPdf,
-        )
+                label: '재시도',
+                textColor: Colors.white,
+                onPressed: _handleExportPdf,
+              )
             : null,
       ),
     );
@@ -673,8 +762,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
               ),
               if (widget.isReadOnly)
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange[100],
                     borderRadius: BorderRadius.circular(12),
@@ -683,7 +774,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.visibility, size: 16, color: Colors.orange[800]),
+                      Icon(
+                        Icons.visibility,
+                        size: 16,
+                        color: Colors.orange[800],
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         '읽기 전용',
@@ -699,7 +794,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
             ],
           ),
           actions: [
-              if (!widget.isReadOnly) ...[
+            if (!widget.isReadOnly) ...[
               if (_hasPagedDocument) ...[
                 IconButton(
                   icon: const Icon(Icons.chevron_left),
@@ -734,6 +829,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
               // 교사용 컨트롤
               if (widget.isTeacher) ...[
+                if (_shareableSessionId != null)
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_2),
+                    onPressed: _showQrCodeDialog,
+                    tooltip: 'QR 코드 공유',
+                  ),
                 IconButton(
                   icon: const Icon(Icons.undo),
                   onPressed: _handleUndo,
@@ -780,22 +881,23 @@ class _DrawingScreenState extends State<DrawingScreen> {
               if (!widget.isTeacher)
                 _isExporting
                     ? const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor:
-                      AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                )
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        ),
+                      )
                     : IconButton(
-                  icon: const Icon(Icons.picture_as_pdf),
-                  onPressed: _handleExportPdf,
-                  tooltip: 'PDF 내보내기',
-                ),
+                        icon: const Icon(Icons.picture_as_pdf),
+                        onPressed: _handleExportPdf,
+                        tooltip: 'PDF 내보내기',
+                      ),
 
               // 교사 전용: 세션 종료
               if (widget.isTeacher)
@@ -810,204 +912,200 @@ class _DrawingScreenState extends State<DrawingScreen> {
         ),
         body: (_isConnecting || _isPreparingDocument)
             ? const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('문서 및 실시간 연결 준비 중...'),
-            ],
-          ),
-        )
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('문서 및 실시간 연결 준비 중...'),
+                  ],
+                ),
+              )
             : Stack(
-          children: [
-            DrawingCanvasWidget(
-                isTeacher: widget.isTeacher,
-                enableTouchInput: true,     // 👈 추가 (터치 입력 켜기)
-                showMyStrokes: true,        // 👈 추가 (내 필기 보이기)
-            ),
+                children: [
+                  DrawingCanvasWidget(
+                    isTeacher: widget.isTeacher,
+                    enableTouchInput: true, // 👈 추가 (터치 입력 켜기)
+                    showMyStrokes: true, // 👈 추가 (내 필기 보이기)
+                  ),
 
-            if (_hasPagedDocument)
-              Positioned(
-                bottom: 14,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.72),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Text(
-                      '${_documentSource!.currentPage} / ${_documentSource!.pageCount}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                  if (_hasPagedDocument)
+                    Positioned(
+                      bottom: 14,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.72),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            '${_documentSource!.currentPage} / ${_documentSource!.pageCount}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ),
 
-            // 학생: 이해도 체크 오버레이
-            if (!widget.isTeacher)
-              Consumer<PollProvider>(
-                builder: (context, pollProvider, _) {
-                  final state = pollProvider.state;
-                  if (!state.isActive && !state.isAnswered) {
-                    return const SizedBox.shrink();
-                  }
-                  return PollOverlay(
-                    pollState: state,
-                    remainingSeconds: pollProvider.remainingSeconds,
-                    onAnswer: _handlePollAnswer,
-                  );
-                },
-              ),
+                  // 학생: 이해도 체크 오버레이
+                  if (!widget.isTeacher)
+                    Consumer<PollProvider>(
+                      builder: (context, pollProvider, _) {
+                        final state = pollProvider.state;
+                        if (!state.isActive && !state.isAnswered) {
+                          return const SizedBox.shrink();
+                        }
+                        return PollOverlay(
+                          pollState: state,
+                          remainingSeconds: pollProvider.remainingSeconds,
+                          onAnswer: _handlePollAnswer,
+                        );
+                      },
+                    ),
 
-            // 교사: 실시간 집계 결과 표시
-            if (widget.isTeacher)
-              Consumer<PollProvider>(
-                builder: (context, pollProvider, _) {
-                  final state = pollProvider.state;
-                  if (!state.isActive && !state.isEnded) {
-                    return const SizedBox.shrink();
-                  }
-                  return PollResultSheet(
-                    pollState: state,
-                    remainingSeconds: pollProvider.remainingSeconds,
-                    onClose: () => pollProvider.reset(),
-                  );
-                },
+                  // 교사: 실시간 집계 결과 표시
+                  if (widget.isTeacher)
+                    Consumer<PollProvider>(
+                      builder: (context, pollProvider, _) {
+                        final state = pollProvider.state;
+                        if (!state.isActive && !state.isEnded) {
+                          return const SizedBox.shrink();
+                        }
+                        return PollResultSheet(
+                          pollState: state,
+                          remainingSeconds: pollProvider.remainingSeconds,
+                          onClose: () => pollProvider.reset(),
+                        );
+                      },
+                    ),
+                ],
               ),
-          ],
-        ),
         floatingActionButton: widget.isReadOnly
             ? null
             : widget.isTeacher
             ? Consumer<DrawingProvider>(
-          builder: (context, provider, child) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                FloatingActionButton(
-                  heroTag: 'drawing_mode',
-                  onPressed: () {
-                    provider.setDrawingMode(!provider.isDrawingMode);
-                  },
-                  backgroundColor: provider.isDrawingMode
-                      ? Colors.blue
-                      : Colors.grey,
-                  tooltip: provider.isDrawingMode
-                      ? '이동 모드로 전환'
-                      : '그리기 모드로 전환',
-                  child: Icon(
-                    provider.isDrawingMode
-                        ? Icons.edit
-                        : Icons.pan_tool,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: provider.isDrawingMode
-                        ? Colors.blue.withOpacity(0.9)
-                        : Colors.grey.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    provider.isDrawingMode ? '그리기' : '이동/줌',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        )
+                builder: (context, provider, child) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      FloatingActionButton(
+                        heroTag: 'drawing_mode',
+                        onPressed: () {
+                          provider.setDrawingMode(!provider.isDrawingMode);
+                        },
+                        backgroundColor: provider.isDrawingMode
+                            ? Colors.blue
+                            : Colors.grey,
+                        tooltip: provider.isDrawingMode
+                            ? '이동 모드로 전환'
+                            : '그리기 모드로 전환',
+                        child: Icon(
+                          provider.isDrawingMode ? Icons.edit : Icons.pan_tool,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: provider.isDrawingMode
+                              ? Colors.blue.withOpacity(0.9)
+                              : Colors.grey.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          provider.isDrawingMode ? '그리기' : '이동/줌',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              )
             : Consumer2<DrawingProvider, PersonalDrawingProvider>(
-          builder:
-              (context, drawingProvider, personalProvider, child) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                FloatingActionButton(
-                  heroTag: 'personal_layer',
-                  onPressed: () {
-                    personalProvider.togglePersonalLayer();
-                  },
-                  backgroundColor: personalProvider.showPersonalLayer
-                      ? Colors.green
-                      : Colors.grey,
-                  tooltip: personalProvider.showPersonalLayer
-                      ? '내 필기 숨기기'
-                      : '내 필기 보기',
-                  child: Icon(
-                    personalProvider.showPersonalLayer
-                        ? Icons.visibility
-                        : Icons.visibility_off,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                FloatingActionButton(
-                  heroTag: 'drawing_mode',
-                  onPressed: () {
-                    drawingProvider
-                        .setDrawingMode(!drawingProvider.isDrawingMode);
-                  },
-                  backgroundColor: drawingProvider.isDrawingMode
-                      ? Colors.blue
-                      : Colors.grey,
-                  tooltip: drawingProvider.isDrawingMode
-                      ? '이동 모드로 전환'
-                      : '그리기 모드로 전환',
-                  child: Icon(
-                    drawingProvider.isDrawingMode
-                        ? Icons.edit
-                        : Icons.pan_tool,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: drawingProvider.isDrawingMode
-                        ? Colors.blue.withOpacity(0.9)
-                        : Colors.grey.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    drawingProvider.isDrawingMode
-                        ? '내 필기'
-                        : '이동/줌',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
+                builder: (context, drawingProvider, personalProvider, child) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      FloatingActionButton(
+                        heroTag: 'personal_layer',
+                        onPressed: () {
+                          personalProvider.togglePersonalLayer();
+                        },
+                        backgroundColor: personalProvider.showPersonalLayer
+                            ? Colors.green
+                            : Colors.grey,
+                        tooltip: personalProvider.showPersonalLayer
+                            ? '내 필기 숨기기'
+                            : '내 필기 보기',
+                        child: Icon(
+                          personalProvider.showPersonalLayer
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FloatingActionButton(
+                        heroTag: 'drawing_mode',
+                        onPressed: () {
+                          drawingProvider.setDrawingMode(
+                            !drawingProvider.isDrawingMode,
+                          );
+                        },
+                        backgroundColor: drawingProvider.isDrawingMode
+                            ? Colors.blue
+                            : Colors.grey,
+                        tooltip: drawingProvider.isDrawingMode
+                            ? '이동 모드로 전환'
+                            : '그리기 모드로 전환',
+                        child: Icon(
+                          drawingProvider.isDrawingMode
+                              ? Icons.edit
+                              : Icons.pan_tool,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: drawingProvider.isDrawingMode
+                              ? Colors.blue.withOpacity(0.9)
+                              : Colors.grey.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          drawingProvider.isDrawingMode ? '내 필기' : '이동/줌',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
       ),
     );
   }
@@ -1015,9 +1113,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _handleUndo() async {
     final strokes = _drawingProvider.myStrokes;
     if (strokes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('실행 취소할 내용이 없습니다')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('실행 취소할 내용이 없습니다')));
       return;
     }
     final lastStrokeId = strokes.keys.last;
@@ -1067,9 +1165,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _handleStudentUndo() async {
     final personalProvider = context.read<PersonalDrawingProvider>();
     if (personalProvider.personalStrokes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('실행 취소할 내 필기가 없습니다')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('실행 취소할 내 필기가 없습니다')));
       return;
     }
     await personalProvider.undoLastStroke();

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 
+import '../config/app_config.dart';
+
 /// ===============================
 /// Deep Link 처리 서비스
 /// pentalk://material/{sessionId}/{materialId}
@@ -45,6 +47,11 @@ class DeepLinkService {
         return sessionId.isEmpty ? null : sessionId;
       }
 
+      final querySessionId = uri.queryParameters['sessionId']?.trim();
+      if (querySessionId != null && querySessionId.isNotEmpty) {
+        return querySessionId;
+      }
+
       final pathSegments = uri.pathSegments;
       if (pathSegments.length >= 2 && pathSegments[0] == 'join') {
         final sessionId = pathSegments[1].trim();
@@ -52,6 +59,28 @@ class DeepLinkService {
       }
     } catch (e) {
       debugPrint('❌ Failed to parse join link: $e');
+    }
+    return null;
+  }
+
+  String? parseJoinClassId(String uriString) {
+    try {
+      final uri = Uri.parse(uriString);
+      final classId = uri.queryParameters['classId']?.trim();
+      return (classId == null || classId.isEmpty) ? null : classId;
+    } catch (e) {
+      debugPrint('❌ Failed to parse join classId: $e');
+    }
+    return null;
+  }
+
+  String? parseJoinMaterialId(String uriString) {
+    try {
+      final uri = Uri.parse(uriString);
+      final materialId = uri.queryParameters['materialId']?.trim();
+      return (materialId == null || materialId.isEmpty) ? null : materialId;
+    } catch (e) {
+      debugPrint('❌ Failed to parse join materialId: $e');
     }
     return null;
   }
@@ -102,8 +131,27 @@ class DeepLinkService {
     return 'pentalk://join/$sessionId';
   }
 
-  String generateJoinWebLink(String sessionId, {String host = 'pentalk.app'}) {
-    return 'https://$host/join/$sessionId';
+  String generateJoinWebLink(
+    String sessionId, {
+    String? baseUrl,
+    String? classId,
+    String? materialId,
+  }) {
+    final normalizedBaseUrl = (baseUrl ?? AppConfig.apiBaseUrl).trim();
+    final uri = Uri.parse(
+      '${normalizedBaseUrl.replaceFirst(RegExp(r'/$'), '')}/join/$sessionId',
+    );
+    final queryParameters = <String, String>{};
+    final trimmedClassId = classId?.trim();
+    if (trimmedClassId != null && trimmedClassId.isNotEmpty) {
+      queryParameters['classId'] = trimmedClassId;
+    }
+    final trimmedMaterialId = materialId?.trim();
+    if (trimmedMaterialId != null && trimmedMaterialId.isNotEmpty) {
+      queryParameters['materialId'] = trimmedMaterialId;
+    }
+    if (queryParameters.isEmpty) return uri.toString();
+    return uri.replace(queryParameters: queryParameters).toString();
   }
 
   /// Deep Link를 웹 링크로도 변환 (선택사항)

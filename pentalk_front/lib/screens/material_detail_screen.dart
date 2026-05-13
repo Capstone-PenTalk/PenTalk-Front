@@ -369,7 +369,11 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     }
     final joinUrl =
         widget.joinUrl ??
-        _deepLinkService.generateJoinWebLink(widget.sessionId!);
+        _deepLinkService.generateJoinWebLink(
+          widget.sessionId!,
+          classId: widget.classId,
+          materialId: widget.material.id,
+        );
     final appDeepLink = _deepLinkService.generateJoinDeepLink(
       widget.sessionId!,
     );

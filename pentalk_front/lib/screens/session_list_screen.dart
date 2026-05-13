@@ -26,12 +26,15 @@ class _SessionListScreenState extends State<SessionListScreen> {
       context: context,
       builder: (context) {
         return CreateSessionDialog(
-          onCreateSession: (classId, materialId) async {
-            await context.read<SessionProvider>().createSession(
-              classId: classId,
-              materialId: materialId,
-            );
-          },
+          onCreateSession:
+              (materialId, {required title, maxParticipants, password}) async {
+                await context.read<SessionProvider>().createSession(
+                  materialId: materialId,
+                  title: title,
+                  maxParticipants: maxParticipants,
+                  password: password,
+                );
+              },
         );
       },
     );
@@ -43,9 +46,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
       appBar: AppBar(
         title: const Text(
           '서예영 님의 공간',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(
@@ -59,9 +60,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
       body: Consumer<SessionProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading && provider.sessions.isEmpty) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           if (provider.errorMessage != null) {
@@ -69,11 +68,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red,
-                  ),
+                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
                   const SizedBox(height: 16),
                   Text(
                     provider.errorMessage!,
@@ -97,26 +92,16 @@ class _SessionListScreenState extends State<SessionListScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.folder_open,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
+                  Icon(Icons.folder_open, size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
                     '아직 생성된 세션이 없습니다',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     '+ 버튼을 눌러 새 세션을 생성하세요',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[500],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
                   ),
                 ],
               ),
@@ -144,11 +129,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                     onTap: _showCreateSessionDialog,
                     borderRadius: BorderRadius.circular(12),
                     child: Center(
-                      child: Icon(
-                        Icons.add,
-                        size: 48,
-                        color: Colors.grey[600],
-                      ),
+                      child: Icon(Icons.add, size: 48, color: Colors.grey[600]),
                     ),
                   ),
                 );
@@ -173,9 +154,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                     await provider.deleteSession(session.id);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('세션이 삭제되었습니다'),
-                        ),
+                        const SnackBar(content: Text('세션이 삭제되었습니다')),
                       );
                     }
                   } catch (e) {
