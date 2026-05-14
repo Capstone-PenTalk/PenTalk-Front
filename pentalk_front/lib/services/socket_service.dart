@@ -56,7 +56,7 @@ class SocketService {
     String? classId,
     String? materialId,
     int? pageNumber,
-    }) async {
+  }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
@@ -95,10 +95,10 @@ class SocketService {
           .setTransports(['websocket'])
           .disableAutoConnect()
           .setExtraHeaders({
-        'bypass-tunnel-reminder': 'true',
-        'user-id': userId,
-        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
-      });
+            'bypass-tunnel-reminder': 'true',
+            'user-id': userId,
+            if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+          });
       if (queryParams.isNotEmpty) options.setQuery(queryParams);
       if (token.isNotEmpty) options.setAuth({'token': token});
 
@@ -131,7 +131,12 @@ class SocketService {
         ? uri.port
         : (uri.scheme == 'https' ? 443 : 80);
     final storageKey = [
-      _tokenStoragePrefix, uri.scheme, uri.host, '$effectivePort', role, userId
+      _tokenStoragePrefix,
+      uri.scheme,
+      uri.host,
+      '$effectivePort',
+      role,
+      userId,
     ].join(':');
 
     final prefs = await SharedPreferences.getInstance();
@@ -142,16 +147,23 @@ class SocketService {
     }
 
     final authUri = Uri(
-        scheme: uri.scheme, host: uri.host, port: effectivePort, path: '/auth/dev-login');
-    final response = await http.post(authUri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'userId': userId, 'role': role}));
+      scheme: uri.scheme,
+      host: uri.host,
+      port: effectivePort,
+      path: '/auth/dev-login',
+    );
+    final response = await http.post(
+      authUri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'userId': userId, 'role': role}),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('dev-login failed status=${response.statusCode}');
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) throw Exception('dev-login invalid response');
+    if (decoded is! Map<String, dynamic>)
+      throw Exception('dev-login invalid response');
     final token = decoded['token']?.toString() ?? '';
     if (token.isEmpty) throw Exception('dev-login token missing');
     await prefs.setString(storageKey, token);
@@ -166,8 +178,13 @@ class SocketService {
       _isRoomJoined = false;
       onConnected?.call();
       if (_currentRoomId != null && _currentUserId != null) {
-        _joinRoom(_currentRoomId!, _currentUserId!, _currentIsTeacher,
-            classId: _currentClassId, materialId: _currentMaterialId);
+        _joinRoom(
+          _currentRoomId!,
+          _currentUserId!,
+          _currentIsTeacher,
+          classId: _currentClassId,
+          materialId: _currentMaterialId,
+        );
       }
     });
 
@@ -185,7 +202,9 @@ class SocketService {
 
     _socket!.on('draw:append', (data) {
       try {
-        onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
+        onDrawEventReceived?.call(
+          DrawEvent.fromJson(Map<String, dynamic>.from(data)),
+        );
       } catch (e) {
         debugPrint('[socket][error] draw:append: $e');
       }
@@ -196,16 +215,18 @@ class SocketService {
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
       onDrawEventReceived?.call(
-        DrawEvent.fromJson({
-          'e': 'cl',
-          'sId': 0,
-          ...payload,
-        }),
+        DrawEvent.fromJson({'e': 'cl', 'sId': 0, ...payload}),
       );
     });
 
-    _socket!.on('user_joined', (data) => onUserJoined?.call(data['userId'] as String));
-    _socket!.on('user_left', (data) => onUserLeft?.call(data['userId'] as String));
+    _socket!.on(
+      'user_joined',
+      (data) => onUserJoined?.call(data['userId'] as String),
+    );
+    _socket!.on(
+      'user_left',
+      (data) => onUserLeft?.call(data['userId'] as String),
+    );
 
     // JOIN_SUCCESS → pending emit flush → DrawingProvider에서 sync:request 전송
     _socket!.on('join_success', (data) {
@@ -247,8 +268,13 @@ class SocketService {
       if (map?['code']?.toString() == 'NOT_JOINED') {
         _isRoomJoined = false;
         if (_currentRoomId != null && _currentUserId != null) {
-          _joinRoom(_currentRoomId!, _currentUserId!, _currentIsTeacher,
-              classId: _currentClassId, materialId: _currentMaterialId);
+          _joinRoom(
+            _currentRoomId!,
+            _currentUserId!,
+            _currentIsTeacher,
+            classId: _currentClassId,
+            materialId: _currentMaterialId,
+          );
         }
       }
       onError?.call(error);
@@ -270,7 +296,8 @@ class SocketService {
     // material:uploaded → 수업 중 자료 추가 시 실시간 반영
     _socket!.on('material:uploaded', (data) {
       debugPrint('[socket] material:uploaded received: $data');
-      if (data is Map) onMaterialUploaded?.call(Map<String, dynamic>.from(data));
+      if (data is Map)
+        onMaterialUploaded?.call(Map<String, dynamic>.from(data));
     });
 
     // Chat / DM
@@ -304,15 +331,19 @@ class SocketService {
       if (data is! Map) return;
       final usersList = data['users'];
       if (usersList is! List) return;
-      onPresenceState?.call(usersList
-          .where((u) => u is Map)
-          .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
-          .toList());
+      onPresenceState?.call(
+        usersList
+            .where((u) => u is Map)
+            .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
+            .toList(),
+      );
     });
     _socket!.on('presence:join', (data) {
       if (data is! Map) return;
       try {
-        onPresenceJoin?.call(Participant.fromJson(Map<String, dynamic>.from(data)));
+        onPresenceJoin?.call(
+          Participant.fromJson(Map<String, dynamic>.from(data)),
+        );
       } catch (e) {
         debugPrint('[socket][error] presence:join: $e');
       }
@@ -329,36 +360,40 @@ class SocketService {
 
   void removePresenceListeners() {
     if (_socket == null) return;
-    _socket!..off('presence:state')..off('presence:join')..off('presence:leave');
+    _socket!
+      ..off('presence:state')
+      ..off('presence:join')
+      ..off('presence:leave');
     onPresenceState = null;
     onPresenceJoin = null;
     onPresenceLeave = null;
   }
 
-  void _joinRoom(String roomId, String userId, bool isTeacher,
-      {String? classId, String? materialId}) {
+  void _joinRoom(
+    String roomId,
+    String userId,
+    bool isTeacher, {
+    String? classId,
+    String? materialId,
+  }) {
     if (_socket == null || !_socket!.connected) return;
     final payload = {
       'roomId': roomId,
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
     };
     _socket!.emit('join_room', payload);
-    debugPrint('[socket][send] join_room payload=${jsonEncode(payload)} '
-        'userId=$userId role=${isTeacher ? 'teacher' : 'student'} '
-        'classId=$classId');
+    debugPrint(
+      '[socket][send] join_room payload=${jsonEncode(payload)} '
+      'userId=$userId role=${isTeacher ? 'teacher' : 'student'} '
+      'classId=$classId',
+    );
   }
 
   void sendDrawEvent(DrawEvent event) {
     _currentMaterialId = event.materialId ?? _currentMaterialId;
     _currentPageNumber = event.pageNumber ?? _currentPageNumber;
-    final payload = {
-      ...event.toJson(),
-    };
-    _emitOrQueue(
-      'draw:append',
-      payload,
-      summary: _drawAppendSummary(payload),
-    );
+    final payload = {...event.toJson()};
+    _emitOrQueue('draw:append', payload, summary: _drawAppendSummary(payload));
   }
 
   void sendUndo(int strokeId) {
@@ -372,6 +407,7 @@ class SocketService {
     required String scope,
   }) {
     final payload = {
+      'e': 'cl',
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
       if (pageNumber != null) 'pageNumber': pageNumber,
       'scope': scope,
@@ -390,8 +426,11 @@ class SocketService {
     }, summary: 'poll:answer pollId=$pollId');
   }
 
-  void sendPollStart({required String question,
-    required List<Map<String, dynamic>> options, int? duration}) {
+  void sendPollStart({
+    required String question,
+    required List<Map<String, dynamic>> options,
+    int? duration,
+  }) {
     final optionTexts = options
         .map((option) => option['text']?.toString() ?? '')
         .where((text) => text.isNotEmpty)
@@ -421,50 +460,40 @@ class SocketService {
   }
 
   void sendMessage(String content) {
-    _emitOrQueue(
-      'send_message',
-      {'content': content},
-      summary: 'send_message',
-    );
+    _emitOrQueue('send_message', {'content': content}, summary: 'send_message');
   }
 
   void sendTeacherDm(String message) {
-    _emitOrQueue(
-      'teacher_send_dm',
-      {'message': message},
-      summary: 'teacher_send_dm',
-    );
+    _emitOrQueue('teacher_send_dm', {
+      'message': message,
+    }, summary: 'teacher_send_dm');
   }
 
   void askQuestion({required String content, bool isAnonymous = false}) {
-    _emitOrQueue(
-      'question:ask',
-      {'content': content, 'isAnonymous': isAnonymous},
-      summary: 'question:ask',
-    );
+    _emitOrQueue('question:ask', {
+      'content': content,
+      'isAnonymous': isAnonymous,
+    }, summary: 'question:ask');
   }
 
   void requestQuestionList() {
-    _emitOrQueue(
-      'question:list',
-      const {},
-      summary: 'question:list',
-    );
+    _emitOrQueue('question:list', const {}, summary: 'question:list');
   }
 
   void answerQuestion({required String questionId, required String answer}) {
-    _emitOrQueue(
-      'question:answer',
-      {'questionId': questionId, 'answer': answer},
-      summary: 'question:answer',
-    );
+    _emitOrQueue('question:answer', {
+      'questionId': questionId,
+      'answer': answer,
+    }, summary: 'question:answer');
   }
 
   void leaveRoom() {
-    if (_socket == null || !_socket!.connected || _currentRoomId == null) return;
+    if (_socket == null || !_socket!.connected || _currentRoomId == null)
+      return;
     _isRoomJoined = false;
     _socket!.emit('leave_room', {
-      'roomId': _currentRoomId, 'userId': _currentUserId,
+      'roomId': _currentRoomId,
+      'userId': _currentUserId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }
@@ -489,14 +518,21 @@ class SocketService {
     _socket?.connect();
   }
 
-  void _emitOrQueue(String eventName, Map<String, dynamic> payload,
-      {required String summary}) {
+  void _emitOrQueue(
+    String eventName,
+    Map<String, dynamic> payload, {
+    required String summary,
+  }) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('[socket][send] skipped(not connected) $summary');
       return;
     }
     if (!_isRoomJoined) {
-      _pendingEmits.add({'event': eventName, 'payload': payload, 'summary': summary});
+      _pendingEmits.add({
+        'event': eventName,
+        'payload': payload,
+        'summary': summary,
+      });
       debugPrint('[socket][send] queued(not_joined) $summary');
       return;
     }
