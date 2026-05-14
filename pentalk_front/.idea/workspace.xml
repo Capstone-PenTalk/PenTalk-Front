@@ -4,8 +4,9 @@
     <option name="autoReloadType" value="NONE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="a43d7af6-91b0-4c72-8d0a-25e367676910" name="Changes" comment="충돌 해결 &amp; 이해도 체크(Poll) 기능 구현">
+    <list default="true" id="a43d7af6-91b0-4c72-8d0a-25e367676910" name="Changes" comment="&quot;fix: 이해도 체크 및 복습 퀴즈 기능 구현 및 버그 수정&quot;">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/services/socket_service.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/services/socket_service.dart" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -49,12 +50,12 @@
     &quot;assignee&quot;: &quot;JI-HP&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/Capstone-PenTalk/PenTalk-Front.git",
-    "accountId": "069a7f3f-c0df-47cc-95ef-e464493a789b"
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/Capstone-PenTalk/PenTalk-Front.git&quot;,
+    &quot;accountId&quot;: &quot;069a7f3f-c0df-47cc-95ef-e464493a789b&quot;
   }
-}]]></component>
+}</component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
   </component>
@@ -86,7 +87,7 @@
     "cidr.known.project.marker": "true",
     "com.google.services.firebase.aqiPopupShown": "true",
     "dart.analysis.tool.window.visible": "false",
-    "git-widget-placeholder": "Feat/#74",
+    "git-widget-placeholder": "Merging feat/#70",
     "ignore.virus.scanning.warn.message": "true",
     "kotlin-language-version-configured": "true",
     "last_opened_file_path": "/Users/leeyeeunkim/Desktop/Pentalk-front/PenTalk-Front/pentalk_front",
