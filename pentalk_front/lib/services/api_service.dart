@@ -962,6 +962,11 @@ class ApiService {
           .toList();
     }
 
+    // 404 = 아직 등록된 문항 없음 → 빈 리스트 반환
+    if (response.statusCode == 404) {
+      return [];
+    }
+
     throw Exception('퀴즈 조회 실패 [${response.statusCode}]');
   }
 

@@ -444,7 +444,7 @@ class _QuestionEditDialogState extends State<_QuestionEditDialog> {
       RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: Text(widget.title),
       contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-      content: Column(
+        content: SingleChildScrollView(child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -493,6 +493,7 @@ class _QuestionEditDialogState extends State<_QuestionEditDialog> {
           ),
           const SizedBox(height: 8),
         ],
+        )
       ),
       actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       actions: [

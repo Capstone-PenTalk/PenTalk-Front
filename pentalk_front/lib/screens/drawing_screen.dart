@@ -384,8 +384,11 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// ===============================
   void _handleEndPoll() {
     final pollState = context.read<PollProvider>().state;
-    if (pollState.pollData == null) return;
-
+    debugPrint('handleEndPoll: pollData=${pollState.pollData?.pollId}');
+    if (pollState.pollData == null) {
+      debugPrint('pollData is null, cannot end poll');
+      return;
+    }
     _drawingProvider.socketService.sendPollEnd(pollState.pollData!.pollId);
   }
 
@@ -840,6 +843,21 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
               // 교사용 컨트롤
               if (widget.isTeacher) ...[
+                // 교사 전용: 이해도 체크 버튼
+                Consumer<PollProvider>(
+                  builder: (context, pollProvider, _) {
+                    final isActive = pollProvider.state.isActive;
+                    return IconButton(
+                      icon: Icon(
+                        isActive ? Icons.poll : Icons.poll_outlined,
+                        color: isActive ? Colors.amber : Colors.black87,
+                      ),
+                      onPressed: isActive ? _handleEndPoll : _handleStartPoll,
+                      tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
+                    );
+                  },
+                ),
+
                 if (_shareableSessionId != null)
                   IconButton(
                     icon: const Icon(Icons.qr_code_2),
@@ -857,20 +875,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   tooltip: '전체 지우기',
                 ),
 
-                // 교사 전용: 이해도 체크 버튼
-                Consumer<PollProvider>(
-                  builder: (context, pollProvider, _) {
-                    final isActive = pollProvider.state.isActive;
-                    return IconButton(
-                      icon: Icon(
-                        isActive ? Icons.poll : Icons.poll_outlined,
-                        color: isActive ? Colors.amber : Colors.white,
-                      ),
-                      onPressed: isActive ? _handleEndPoll : _handleStartPoll,
-                      tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
-                    );
-                  },
-                ),
               ],
 
               if (!widget.isTeacher) ...[

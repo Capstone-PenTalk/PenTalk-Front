@@ -390,16 +390,25 @@ class SocketService {
     }, summary: 'poll:answer pollId=$pollId');
   }
 
-  void sendPollStart({required String question,
-    required List<Map<String, dynamic>> options, int? duration}) {
-    final optionTexts = options
-        .map((option) => option['text']?.toString() ?? '')
-        .where((text) => text.isNotEmpty)
+  void sendPollStart({
+    required String question,
+    required List<Map<String, dynamic>> options,
+    int? duration,
+  }) {
+    final formattedOptions = options
+        .asMap()
+        .entries
+        .map((entry) => {
+      'id': (entry.key + 1).toString(),
+      'text': entry.value['text']?.toString() ?? '',
+    })
+        .where((o) => (o['text'] as String).isNotEmpty)
         .toList();
+
     _emitOrQueue('poll:start', {
       'question': question,
-      'options': optionTexts,
-      if (duration != null) 'duration': duration,
+      'options': formattedOptions,
+      if (duration != null) 'duration': duration.toInt(),
     }, summary: 'poll:start');
   }
 
