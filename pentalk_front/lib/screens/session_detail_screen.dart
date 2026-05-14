@@ -120,6 +120,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       final response = await ApiService.createSession(
         classId: classId,
         materialId: material.id,
+        title: material.title,
       );
       if (!response.success || response.data == null) {
         throw Exception(response.message ?? '실시간 세션 생성에 실패했습니다.');
@@ -460,9 +461,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                             if (footerIndex == 1) {
                               return const Divider(thickness: 1);
                             }
-                            return QuizEditorWidget(
-                              sessionId: widget.sessionId,
-                            );
+                            if (_looksLikeRealtimeSessionId(widget.sessionId))
+                              return QuizEditorWidget(
+                                sessionId: widget.sessionId,
+                              );
+                            return const SizedBox.shrink();
                           }
                           final material = materialProvider.materials[index];
                           return _MaterialListItem(
