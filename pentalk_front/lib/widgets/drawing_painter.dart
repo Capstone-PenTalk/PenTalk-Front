@@ -53,35 +53,25 @@ class DrawingPainter extends CustomPainter {
     final path = Path();
     if (points.isEmpty) return path;
 
-    final firstPoint = scaler.normalizedToPixel(points[0]);
-    path.moveTo(firstPoint.dx, firstPoint.dy);
+    final first = scaler.normalizedToPixel(points[0]);
+    path.moveTo(first.dx, first.dy);
 
-    if (points.length == 2) {
-      final secondPoint = scaler.normalizedToPixel(points[1]);
-      path.lineTo(secondPoint.dx, secondPoint.dy);
-      return path;
-    }
+    for (int i = 0; i < points.length - 2; i++) {
+      final p0 = scaler.normalizedToPixel(points[i]);
+      final p1 = scaler.normalizedToPixel(points[i + 1]);
+      final p2 = scaler.normalizedToPixel(points[i + 2]);
 
-    for (int i = 0; i < points.length - 1; i++) {
-      final current = scaler.normalizedToPixel(points[i]);
-      final next = scaler.normalizedToPixel(points[i + 1]);
-
-      final controlPoint = current;
-      final endPoint = Offset(
-        (current.dx + next.dx) / 2,
-        (current.dy + next.dy) / 2,
+      final cp1 = Offset(
+        p0.dx + (p1.dx - p0.dx) * 0.5,
+        p0.dy + (p1.dy - p0.dy) * 0.5,
+      );
+      final cp2 = Offset(
+        p1.dx - (p2.dx - p0.dx) * 0.15,
+        p1.dy - (p2.dy - p0.dy) * 0.15,
       );
 
-      path.quadraticBezierTo(
-        controlPoint.dx,
-        controlPoint.dy,
-        endPoint.dx,
-        endPoint.dy,
-      );
+      path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p1.dx, p1.dy);
     }
-
-    final lastPoint = scaler.normalizedToPixel(points.last);
-    path.lineTo(lastPoint.dx, lastPoint.dy);
 
     return path;
   }

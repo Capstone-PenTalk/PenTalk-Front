@@ -28,9 +28,9 @@ class DrawPoint {
 class DrawStreamScheduler {
   DrawStreamScheduler({
     required this.sender,
-    this.sampleInterval = const Duration(milliseconds: 16),
-    this.sendInterval = const Duration(milliseconds: 32),
-    this.distanceThreshold = 0.5,
+    this.sampleInterval = const Duration(milliseconds: 8),
+    this.sendInterval = const Duration(milliseconds: 16),
+    this.distanceThreshold = 0.3,
   });
 
   final Future<void> Function(Map<String, dynamic> payload) sender;
