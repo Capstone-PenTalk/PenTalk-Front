@@ -44,7 +44,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
 
   // InteractiveViewer 컨트롤러
   final TransformationController _transformationController =
-  TransformationController();
+      TransformationController();
 
   // 현재 줌 레벨
   double _currentScale = 1.0;
@@ -100,7 +100,8 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
         final isDrawingMode = context.select<DrawingProvider, bool>(
           (provider) => provider.isDrawingMode,
         );
-        final useNativeTeacherInput = AppConfig.enableNativeTeacherDrawing &&
+        final useNativeTeacherInput =
+            AppConfig.enableNativeTeacherDrawing &&
             !kIsWeb &&
             defaultTargetPlatform == TargetPlatform.iOS &&
             widget.isTeacher;
@@ -113,213 +114,212 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
 
         return Stack(
           children: [
-                // ====================================
-                // InteractiveViewer로 전체 감싸기
-                // ====================================
-                InteractiveViewer(
-                  transformationController: _transformationController,
-                  panEnabled: !isDrawingMode &&
-                      _currentScale > _panEnabledScaleThreshold,
-                  scaleEnabled: !isDrawingMode, // 그리기 모드에서는 줌 비활성화
-                  minScale: _minZoomScale,
-                  maxScale: _maxZoomScale,
-                  boundaryMargin: EdgeInsets.zero,
-                  onInteractionEnd: (_) {
-                    _centerViewportAtCurrentScale(canvasSize);
-                  },
-                  child: SizedBox(
-                    width: canvasSize.width,
-                    height: canvasSize.height,
-                    child: Stack(
-                      children: [
-                        // ====================================
-                        // 레이어 1: 배경 (문서/이미지/PDF)
-                        // ====================================
-                        RepaintBoundary(
-                          child: _BackgroundLayer(
-                            canvasSize: canvasSize,
-                            onImageLoaded: (size) {
-                              setState(() {
-                                _backgroundImageSize = size;
-                              });
-                            },
-                          ),
+            // ====================================
+            // InteractiveViewer로 전체 감싸기
+            // ====================================
+            InteractiveViewer(
+              transformationController: _transformationController,
+              panEnabled:
+                  !isDrawingMode && _currentScale > _panEnabledScaleThreshold,
+              scaleEnabled: !isDrawingMode, // 그리기 모드에서는 줌 비활성화
+              minScale: _minZoomScale,
+              maxScale: _maxZoomScale,
+              boundaryMargin: EdgeInsets.zero,
+              onInteractionEnd: (_) {
+                _centerViewportAtCurrentScale(canvasSize);
+              },
+              child: SizedBox(
+                width: canvasSize.width,
+                height: canvasSize.height,
+                child: Stack(
+                  children: [
+                    // ====================================
+                    // 레이어 1: 배경 (문서/이미지/PDF)
+                    // ====================================
+                    RepaintBoundary(
+                      child: _BackgroundLayer(
+                        canvasSize: canvasSize,
+                        onImageLoaded: (size) {
+                          setState(() {
+                            _backgroundImageSize = size;
+                          });
+                        },
+                      ),
+                    ),
+
+                    // ====================================
+                    // 레이어 2: 다른 사람들의 판서 (파란색)
+                    // ====================================
+                    RepaintBoundary(
+                      child: _OthersDrawingLayer(
+                        canvasSize: canvasSize,
+                        backgroundImageSize: _backgroundImageSize,
+                        scale: _currentScale,
+                      ),
+                    ),
+
+                    // ====================================
+                    // 레이어 3: 내 판서 (검은색) - 교사 공용 판서
+                    // ====================================
+                    if (widget.isTeacher)
+                      RepaintBoundary(
+                        child: _MyDrawingLayer(
+                          canvasSize: canvasSize,
+                          backgroundImageSize: _backgroundImageSize,
+                          scale: _currentScale,
                         ),
+                      ),
 
-                        // ====================================
-                        // 레이어 2: 다른 사람들의 판서 (파란색)
-                        // ====================================
-                        RepaintBoundary(
-                          child: _OthersDrawingLayer(
-                            canvasSize: canvasSize,
-                            backgroundImageSize: _backgroundImageSize,
-                            scale: _currentScale,
-                          ),
+                    // ====================================
+                    // 레이어 3.5: 개인 필기 레이어 (학생 전용)
+                    // ====================================
+                    if (!widget.isTeacher)
+                      RepaintBoundary(
+                        child: _PersonalDrawingLayer(
+                          canvasSize: canvasSize,
+                          backgroundImageSize: _backgroundImageSize,
+                          scale: _currentScale,
                         ),
+                      ),
 
-                        // ====================================
-                        // 레이어 3: 내 판서 (검은색) - 교사 공용 판서
-                        // ====================================
-                        if (widget.isTeacher)
-                          RepaintBoundary(
-                            child: _MyDrawingLayer(
-                              canvasSize: canvasSize,
-                              backgroundImageSize: _backgroundImageSize,
-                              scale: _currentScale,
-                            ),
-                          ),
+                    // ====================================
+                    // 레이어 4: 터치 입력
+                    // ====================================
+                    if (useNativeTeacherInput)
+                      Positioned(
+                        left: contentRect.left,
+                        top: contentRect.top,
+                        width: contentRect.width,
+                        height: contentRect.height,
+                        child: _NativeTeacherInputLayer(
+                          isDrawingEnabled: isDrawingMode,
+                          renderSize: contentRect.size,
+                          contentSize: _backgroundImageSize,
+                        ),
+                      ),
 
-                        // ====================================
-                        // 레이어 3.5: 개인 필기 레이어 (학생 전용)
-                        // ====================================
-                        if (!widget.isTeacher)
-                          RepaintBoundary(
-                            child: _PersonalDrawingLayer(
-                              canvasSize: canvasSize,
-                              backgroundImageSize: _backgroundImageSize,
-                              scale: _currentScale,
-                            ),
-                          ),
+                    // 교사: 공용 판서용
+                    if (widget.isTeacher &&
+                        isDrawingMode &&
+                        !useNativeTeacherInput)
+                      _TouchInputLayer(
+                        canvasSize: canvasSize,
+                        backgroundImageSize: _backgroundImageSize,
+                        currentStrokeId: _currentStrokeId,
+                        currentPoints: _currentPoints,
+                        transformationController: _transformationController,
+                        onPointerStart: _onPointerStart,
+                        onPointerMove: _onPointerMove,
+                        onPointerEnd: _onPointerEnd,
+                      ),
 
-                        // ====================================
-                        // 레이어 4: 터치 입력
-                        // ====================================
-                        if (useNativeTeacherInput)
-                          Positioned(
-                            left: contentRect.left,
-                            top: contentRect.top,
-                            width: contentRect.width,
-                            height: contentRect.height,
-                            child: _NativeTeacherInputLayer(
-                              isDrawingEnabled: isDrawingMode,
-                              renderSize: contentRect.size,
-                              contentSize: _backgroundImageSize,
-                            ),
-                          ),
+                    // 학생: 개인 필기용
+                    if (!widget.isTeacher && isDrawingMode)
+                      _PersonalTouchInputLayer(
+                        canvasSize: canvasSize,
+                        backgroundImageSize: _backgroundImageSize,
+                        currentStrokeId: _currentStrokeId,
+                        currentPoints: _currentPoints,
+                        transformationController: _transformationController,
+                        onPointerStart: _onPersonalPointerStart,
+                        onPointerMove: _onPersonalPointerMove,
+                        onPointerEnd: _onPersonalPointerEnd,
+                      ),
+                  ],
+                ),
+              ),
+            ),
 
-                        // 교사: 공용 판서용
-                        if (widget.isTeacher &&
-                            isDrawingMode &&
-                            !useNativeTeacherInput)
-                          _TouchInputLayer(
-                            canvasSize: canvasSize,
-                            backgroundImageSize: _backgroundImageSize,
-                            currentStrokeId: _currentStrokeId,
-                            currentPoints: _currentPoints,
-                            transformationController: _transformationController,
-                            onPanStart: _onPanStart,
-                            onPanUpdate: _onPanUpdate,
-                            onPanEnd: _onPanEnd,
-                          ),
+            // ====================================
+            // 레이어 5: 소켓 연결 상태 표시
+            // ====================================
+            Positioned(top: 8, right: 8, child: _SocketStatusIndicator()),
 
-                        // 학생: 개인 필기용
-                        if (!widget.isTeacher && isDrawingMode)
-                          _PersonalTouchInputLayer(
-                            canvasSize: canvasSize,
-                            backgroundImageSize: _backgroundImageSize,
-                            currentStrokeId: _currentStrokeId,
-                            currentPoints: _currentPoints,
-                            transformationController: _transformationController,
-                            onPanStart: _onPersonalPanStart,
-                            onPanUpdate: _onPersonalPanUpdate,
-                            onPanEnd: _onPersonalPanEnd,
-                          ),
-                      ],
+            // ====================================
+            // 레이어 6: 줌 레벨 표시
+            // ====================================
+            Positioned(
+              top: 8,
+              left: 8,
+              child: _ZoomIndicator(scale: _currentScale),
+            ),
+
+            // ====================================
+            // 레이어 7: 디버그 정보 (개발용)
+            // ====================================
+            if (_backgroundImageSize != null)
+              Positioned(
+                bottom: 8,
+                left: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Canvas: ${canvasSize.width.toInt()}x${canvasSize.height.toInt()}\n'
+                    'Image: ${_backgroundImageSize!.width.toInt()}x${_backgroundImageSize!.height.toInt()}\n'
+                    'Zoom: ${_currentScale.toStringAsFixed(2)}x',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontFamily: 'monospace',
                     ),
                   ),
                 ),
+              ),
 
-                // ====================================
-                // 레이어 5: 소켓 연결 상태 표시
-                // ====================================
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: _SocketStatusIndicator(),
-                ),
-
-                // ====================================
-                // 레이어 6: 줌 레벨 표시
-                // ====================================
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: _ZoomIndicator(scale: _currentScale),
-                ),
-
-                // ====================================
-                // 레이어 7: 디버그 정보 (개발용)
-                // ====================================
-                if (_backgroundImageSize != null)
-                  Positioned(
-                    bottom: 8,
-                    left: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Canvas: ${canvasSize.width.toInt()}x${canvasSize.height.toInt()}\n'
-                            'Image: ${_backgroundImageSize!.width.toInt()}x${_backgroundImageSize!.height.toInt()}\n'
-                            'Zoom: ${_currentScale.toStringAsFixed(2)}x',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontFamily: 'monospace',
-                        ),
+            // ====================================
+            // 레이어 8: 모드 안내 (그리기 모드일 때)
+            // ====================================
+            if (isDrawingMode)
+              Positioned(
+                bottom: 60,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      '그리기 모드 (줌/이동 비활성화)',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-
-                // ====================================
-                // 레이어 8: 모드 안내 (그리기 모드일 때)
-                // ====================================
-                if (isDrawingMode)
-                  Positioned(
-                    bottom: 60,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          '그리기 모드 (줌/이동 비활성화)',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                ),
+              ),
           ],
         );
       },
     );
   }
 
-  void _onPanStart(DragStartDetails details, CoordinateScaler scaler, DrawingProvider provider) {
-    // InteractiveViewer의 변환을 고려한 실제 로컬 좌표 계산
-    final localPosition = _getTransformedPosition(details.localPosition);
+  void _onPointerStart(
+    Offset localPosition,
+    CoordinateScaler scaler,
+    DrawingProvider provider,
+  ) {
+    final transformedPosition = _getTransformedPosition(localPosition);
 
     // 터치가 콘텐츠 영역 안인지 확인
-    if (!scaler.isInContentArea(localPosition)) {
+    if (!scaler.isInContentArea(transformedPosition)) {
       return;
     }
 
     _currentPoints.clear();
 
-    final point = scaler.pixelToNormalized(localPosition);
+    final point = scaler.pixelToNormalized(transformedPosition);
     _currentPoints.add(point);
 
     if (widget.isTeacher) {
@@ -329,18 +329,21 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     }
   }
 
-  void _onPanUpdate(DragUpdateDetails details, CoordinateScaler scaler, DrawingProvider provider) {
+  void _onPointerMove(
+    Offset localPosition,
+    CoordinateScaler scaler,
+    DrawingProvider provider,
+  ) {
     if (_currentStrokeId == null) return;
 
-    // InteractiveViewer의 변환을 고려한 실제 로컬 좌표 계산
-    final localPosition = _getTransformedPosition(details.localPosition);
+    final transformedPosition = _getTransformedPosition(localPosition);
 
     // 터치가 콘텐츠 영역 안인지 확인
-    if (!scaler.isInContentArea(localPosition)) {
+    if (!scaler.isInContentArea(transformedPosition)) {
       return;
     }
 
-    final point = scaler.pixelToNormalized(localPosition);
+    final point = scaler.pixelToNormalized(transformedPosition);
     _currentPoints.add(point);
 
     if (widget.isTeacher) {
@@ -350,7 +353,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     }
   }
 
-  void _onPanEnd(CoordinateScaler scaler, DrawingProvider provider) {
+  void _onPointerEnd(CoordinateScaler scaler, DrawingProvider provider) {
     if (_currentStrokeId == null) return;
 
     final points = List<DrawPoint>.from(_currentPoints);
@@ -365,46 +368,61 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
   }
 
   /// InteractiveViewer의 변환을 역으로 적용하여 실제 좌표 계산
-  Offset _getTransformedPosition(Offset screenPosition) {
-    final matrix = _transformationController.value.clone()..invert();
-    final transformed = MatrixUtils.transformPoint(matrix, screenPosition);
-    return transformed;
+  Offset _getTransformedPosition(Offset localPosition) {
+    // The touch layers are children of InteractiveViewer's transformed child.
+    // Flutter already converts pointer positions into that child coordinate
+    // space during hit testing, so applying the inverse matrix here would
+    // double-correct the point and shift strokes while zoomed.
+    return localPosition;
   }
 
   /// ===============================
   /// 개인 필기 터치 이벤트 (학생용)
   /// ===============================
-  void _onPersonalPanStart(DragStartDetails details, CoordinateScaler scaler, PersonalDrawingProvider provider, Color color, double width) {
-    final localPosition = _getTransformedPosition(details.localPosition);
+  void _onPersonalPointerStart(
+    Offset localPosition,
+    CoordinateScaler scaler,
+    PersonalDrawingProvider provider,
+    Color color,
+    double width,
+  ) {
+    final transformedPosition = _getTransformedPosition(localPosition);
 
-    if (!scaler.isInContentArea(localPosition)) {
+    if (!scaler.isInContentArea(transformedPosition)) {
       return;
     }
 
     _currentPoints.clear();
-    final point = scaler.pixelToNormalized(localPosition);
+    final point = scaler.pixelToNormalized(transformedPosition);
     _currentPoints.add(point);
 
     _currentStrokeId = DateTime.now().millisecondsSinceEpoch;
     provider.startDrawing(_currentStrokeId!, point, color, width);
   }
 
-  void _onPersonalPanUpdate(DragUpdateDetails details, CoordinateScaler scaler, PersonalDrawingProvider provider) {
+  void _onPersonalPointerMove(
+    Offset localPosition,
+    CoordinateScaler scaler,
+    PersonalDrawingProvider provider,
+  ) {
     if (_currentStrokeId == null) return;
 
-    final localPosition = _getTransformedPosition(details.localPosition);
+    final transformedPosition = _getTransformedPosition(localPosition);
 
-    if (!scaler.isInContentArea(localPosition)) {
+    if (!scaler.isInContentArea(transformedPosition)) {
       return;
     }
 
-    final point = scaler.pixelToNormalized(localPosition);
+    final point = scaler.pixelToNormalized(transformedPosition);
     _currentPoints.add(point);
 
     provider.updateDrawing(_currentStrokeId!, point);
   }
 
-  void _onPersonalPanEnd(CoordinateScaler scaler, PersonalDrawingProvider provider) {
+  void _onPersonalPointerEnd(
+    CoordinateScaler scaler,
+    PersonalDrawingProvider provider,
+  ) {
     if (_currentStrokeId == null) return;
 
     final points = List<DrawPoint>.from(_currentPoints);
@@ -433,74 +451,73 @@ class _BackgroundLayer extends StatelessWidget {
       selector: (context, provider) => provider.backgroundUrl,
       builder: (context, backgroundUrl, child) {
         if (backgroundUrl != null && backgroundUrl.isNotEmpty) {
-          final isRemote = backgroundUrl.startsWith('http://') ||
+          final isRemote =
+              backgroundUrl.startsWith('http://') ||
               backgroundUrl.startsWith('https://');
           return SizedBox.expand(
             child: isRemote || kIsWeb
                 ? Image.network(
-              backgroundUrl,
-              fit: BoxFit.contain,
-              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                if (frame != null) {
-                  // 이미지 로드 완료 - 크기 측정
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _getImageSize(backgroundUrl).then((size) {
-                      if (size != null) {
-                        onImageLoaded(size);
-                      }
-                    });
-                  });
-                }
-                return child;
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: Colors.white,
-                  child: const Center(
-                    child: Icon(Icons.error, color: Colors.red, size: 48),
-                  ),
-                );
-              },
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Container(
-                  color: Colors.white,
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                );
-              },
-            )
+                    backgroundUrl,
+                    fit: BoxFit.contain,
+                    frameBuilder:
+                        (context, child, frame, wasSynchronouslyLoaded) {
+                          if (frame != null) {
+                            // 이미지 로드 완료 - 크기 측정
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _getImageSize(backgroundUrl).then((size) {
+                                if (size != null) {
+                                  onImageLoaded(size);
+                                }
+                              });
+                            });
+                          }
+                          return child;
+                        },
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.white,
+                        child: const Center(
+                          child: Icon(Icons.error, color: Colors.red, size: 48),
+                        ),
+                      );
+                    },
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        color: Colors.white,
+                        child: const Center(child: CircularProgressIndicator()),
+                      );
+                    },
+                  )
                 : Image.file(
-              File(backgroundUrl),
-              fit: BoxFit.contain,
-              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                if (frame != null) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _getImageSize(backgroundUrl).then((size) {
-                      if (size != null) {
-                        onImageLoaded(size);
-                      }
-                    });
-                  });
-                }
-                return child;
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: Colors.white,
-                  child: const Center(
-                    child: Icon(Icons.error, color: Colors.red, size: 48),
+                    File(backgroundUrl),
+                    fit: BoxFit.contain,
+                    frameBuilder:
+                        (context, child, frame, wasSynchronouslyLoaded) {
+                          if (frame != null) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _getImageSize(backgroundUrl).then((size) {
+                                if (size != null) {
+                                  onImageLoaded(size);
+                                }
+                              });
+                            });
+                          }
+                          return child;
+                        },
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.white,
+                        child: const Center(
+                          child: Icon(Icons.error, color: Colors.red, size: 48),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           );
         }
 
-        return const SizedBox.expand(
-          child: ColoredBox(color: Colors.white),
-        );
+        return const SizedBox.expand(child: ColoredBox(color: Colors.white));
       },
     );
   }
@@ -519,18 +536,20 @@ class _BackgroundLayer extends StatelessWidget {
       final completer = Completer<Size?>();
 
       late ImageStreamListener listener;
-      listener = ImageStreamListener((ImageInfo info, bool synchronousCall) {
-        final image = info.image;
-        completer.complete(Size(
-          image.width.toDouble(),
-          image.height.toDouble(),
-        ));
-        imageStream.removeListener(listener);
-      }, onError: (dynamic error, StackTrace? stackTrace) {
-        debugPrint('Failed to get image size: $error');
-        completer.complete(null);
-        imageStream.removeListener(listener);
-      });
+      listener = ImageStreamListener(
+        (ImageInfo info, bool synchronousCall) {
+          final image = info.image;
+          completer.complete(
+            Size(image.width.toDouble(), image.height.toDouble()),
+          );
+          imageStream.removeListener(listener);
+        },
+        onError: (dynamic error, StackTrace? stackTrace) {
+          debugPrint('Failed to get image size: $error');
+          completer.complete(null);
+          imageStream.removeListener(listener);
+        },
+      );
 
       imageStream.addListener(listener);
       return await completer.future;
@@ -560,8 +579,7 @@ class _OthersDrawingLayer extends StatelessWidget {
     return Selector<DrawingProvider, List<Stroke>>(
       selector: (context, provider) => provider.othersAllStrokes,
       shouldRebuild: (previous, next) {
-        return previous.length != next.length ||
-            !_strokesEqual(previous, next);
+        return previous.length != next.length || !_strokesEqual(previous, next);
       },
       builder: (context, strokes, child) {
         final scaler = CoordinateScaler(
@@ -615,8 +633,7 @@ class _MyDrawingLayer extends StatelessWidget {
     return Selector<DrawingProvider, List<Stroke>>(
       selector: (context, provider) => provider.myAllStrokes,
       shouldRebuild: (previous, next) {
-        return previous.length != next.length ||
-            !_strokesEqual(previous, next);
+        return previous.length != next.length || !_strokesEqual(previous, next);
       },
       builder: (context, strokes, child) {
         final scaler = CoordinateScaler(
@@ -666,7 +683,8 @@ class _NativeTeacherInputLayer extends StatefulWidget {
   });
 
   @override
-  State<_NativeTeacherInputLayer> createState() => _NativeTeacherInputLayerState();
+  State<_NativeTeacherInputLayer> createState() =>
+      _NativeTeacherInputLayerState();
 }
 
 class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
@@ -737,12 +755,13 @@ class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
 
   @override
   Widget build(BuildContext context) {
-    final brush = context.select<DrawingProvider, ({int colorValue, double width})>(
-      (provider) => (
-        colorValue: provider.currentColor.toARGB32(),
-        width: provider.currentWidth,
-      ),
-    );
+    final brush = context
+        .select<DrawingProvider, ({int colorValue, double width})>(
+          (provider) => (
+            colorValue: provider.currentColor.toARGB32(),
+            width: provider.currentWidth,
+          ),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncNativeBrushAndMetrics(
         colorValue: brush.colorValue,
@@ -774,9 +793,9 @@ class _TouchInputLayer extends StatefulWidget {
   final int? currentStrokeId;
   final List<DrawPoint> currentPoints;
   final TransformationController transformationController;
-  final Function(DragStartDetails, CoordinateScaler, DrawingProvider) onPanStart;
-  final Function(DragUpdateDetails, CoordinateScaler, DrawingProvider) onPanUpdate;
-  final Function(CoordinateScaler, DrawingProvider) onPanEnd;
+  final Function(Offset, CoordinateScaler, DrawingProvider) onPointerStart;
+  final Function(Offset, CoordinateScaler, DrawingProvider) onPointerMove;
+  final Function(CoordinateScaler, DrawingProvider) onPointerEnd;
 
   const _TouchInputLayer({
     required this.canvasSize,
@@ -784,9 +803,9 @@ class _TouchInputLayer extends StatefulWidget {
     required this.currentStrokeId,
     required this.currentPoints,
     required this.transformationController,
-    required this.onPanStart,
-    required this.onPanUpdate,
-    required this.onPanEnd,
+    required this.onPointerStart,
+    required this.onPointerMove,
+    required this.onPointerEnd,
   });
 
   @override
@@ -796,6 +815,7 @@ class _TouchInputLayer extends StatefulWidget {
 class _TouchInputLayerState extends State<_TouchInputLayer> {
   final Set<int> _activePointers = <int>{};
   bool _gestureBlocked = false;
+  int? _drawingPointer;
 
   void _handlePointerDown(PointerDownEvent event, CoordinateScaler scaler) {
     _activePointers.add(event.pointer);
@@ -803,16 +823,46 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
       _gestureBlocked = true;
       if (widget.currentStrokeId != null) {
         final provider = context.read<DrawingProvider>();
-        widget.onPanEnd(scaler, provider);
+        widget.onPointerEnd(scaler, provider);
       }
+      _drawingPointer = null;
+      return;
     }
+
+    if (_gestureBlocked || _drawingPointer != null) {
+      return;
+    }
+
+    _drawingPointer = event.pointer;
+    final provider = context.read<DrawingProvider>();
+    widget.onPointerStart(event.localPosition, scaler, provider);
   }
 
   void _handlePointerUp(PointerEvent event) {
+    if (_drawingPointer == event.pointer && widget.currentStrokeId != null) {
+      final scaler = CoordinateScaler(
+        canvasSize: widget.canvasSize,
+        contentSize: widget.backgroundImageSize,
+        fit: BoxFit.contain,
+      );
+      final provider = context.read<DrawingProvider>();
+      widget.onPointerEnd(scaler, provider);
+    }
+
     _activePointers.remove(event.pointer);
+    if (_drawingPointer == event.pointer) {
+      _drawingPointer = null;
+    }
     if (_activePointers.length <= 1) {
       _gestureBlocked = false;
     }
+  }
+
+  void _handlePointerMove(PointerMoveEvent event, CoordinateScaler scaler) {
+    if (_gestureBlocked || _drawingPointer != event.pointer) return;
+    if (_activePointers.length != 1 || widget.currentStrokeId == null) return;
+    final provider = context.read<DrawingProvider>();
+    widget.onPointerMove(event.localPosition, scaler, provider);
   }
 
   @override
@@ -827,27 +877,10 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
       child: Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: (event) => _handlePointerDown(event, scaler),
+        onPointerMove: (event) => _handlePointerMove(event, scaler),
         onPointerUp: _handlePointerUp,
         onPointerCancel: _handlePointerUp,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (details) {
-            if (_gestureBlocked || _activePointers.length != 1) return;
-            final provider = context.read<DrawingProvider>();
-            widget.onPanStart(details, scaler, provider);
-          },
-          onPanUpdate: (details) {
-            if (_gestureBlocked || _activePointers.length != 1) return;
-            final provider = context.read<DrawingProvider>();
-            widget.onPanUpdate(details, scaler, provider);
-          },
-          onPanEnd: (details) {
-            if (widget.currentStrokeId == null) return;
-            final provider = context.read<DrawingProvider>();
-            widget.onPanEnd(scaler, provider);
-          },
-          child: Container(color: Colors.transparent),
-        ),
+        child: Container(color: Colors.transparent),
       ),
     );
   }
@@ -918,11 +951,7 @@ class _ZoomIndicator extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.zoom_in,
-            color: Colors.white,
-            size: 16,
-          ),
+          const Icon(Icons.zoom_in, color: Colors.white, size: 16),
           const SizedBox(width: 4),
           Text(
             '${(scale * 100).toStringAsFixed(0)}%',
@@ -954,10 +983,13 @@ class _PersonalDrawingLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<PersonalDrawingProvider, ({bool show, List<Stroke> strokes})>(
+    return Selector<
+      PersonalDrawingProvider,
+      ({bool show, List<Stroke> strokes})
+    >(
       selector: (context, provider) => (
-      show: provider.showPersonalLayer,
-      strokes: provider.allPersonalStrokes,
+        show: provider.showPersonalLayer,
+        strokes: provider.allPersonalStrokes,
       ),
       shouldRebuild: (previous, next) =>
           previous.show != next.show ||
@@ -985,7 +1017,6 @@ class _PersonalDrawingLayer extends StatelessWidget {
       },
     );
   }
-
 }
 
 /// ===============================
@@ -997,9 +1028,17 @@ class _PersonalTouchInputLayer extends StatefulWidget {
   final int? currentStrokeId;
   final List<DrawPoint> currentPoints;
   final TransformationController transformationController;
-  final Function(DragStartDetails, CoordinateScaler, PersonalDrawingProvider, Color, double) onPanStart;
-  final Function(DragUpdateDetails, CoordinateScaler, PersonalDrawingProvider) onPanUpdate;
-  final Function(CoordinateScaler, PersonalDrawingProvider) onPanEnd;
+  final Function(
+    Offset,
+    CoordinateScaler,
+    PersonalDrawingProvider,
+    Color,
+    double,
+  )
+  onPointerStart;
+  final Function(Offset, CoordinateScaler, PersonalDrawingProvider)
+  onPointerMove;
+  final Function(CoordinateScaler, PersonalDrawingProvider) onPointerEnd;
 
   const _PersonalTouchInputLayer({
     required this.canvasSize,
@@ -1007,9 +1046,9 @@ class _PersonalTouchInputLayer extends StatefulWidget {
     required this.currentStrokeId,
     required this.currentPoints,
     required this.transformationController,
-    required this.onPanStart,
-    required this.onPanUpdate,
-    required this.onPanEnd,
+    required this.onPointerStart,
+    required this.onPointerMove,
+    required this.onPointerEnd,
   });
 
   @override
@@ -1020,6 +1059,7 @@ class _PersonalTouchInputLayer extends StatefulWidget {
 class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
   final Set<int> _activePointers = <int>{};
   bool _gestureBlocked = false;
+  int? _drawingPointer;
 
   void _handlePointerDown(PointerDownEvent event, CoordinateScaler scaler) {
     _activePointers.add(event.pointer);
@@ -1027,16 +1067,53 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
       _gestureBlocked = true;
       if (widget.currentStrokeId != null) {
         final provider = context.read<PersonalDrawingProvider>();
-        widget.onPanEnd(scaler, provider);
+        widget.onPointerEnd(scaler, provider);
       }
+      _drawingPointer = null;
+      return;
     }
+
+    if (_gestureBlocked || _drawingPointer != null) {
+      return;
+    }
+
+    _drawingPointer = event.pointer;
+    final personalProvider = context.read<PersonalDrawingProvider>();
+    final drawingProvider = context.read<DrawingProvider>();
+    widget.onPointerStart(
+      event.localPosition,
+      scaler,
+      personalProvider,
+      drawingProvider.currentColor,
+      drawingProvider.currentWidth,
+    );
   }
 
   void _handlePointerUp(PointerEvent event) {
+    if (_drawingPointer == event.pointer && widget.currentStrokeId != null) {
+      final scaler = CoordinateScaler(
+        canvasSize: widget.canvasSize,
+        contentSize: widget.backgroundImageSize,
+        fit: BoxFit.contain,
+      );
+      final provider = context.read<PersonalDrawingProvider>();
+      widget.onPointerEnd(scaler, provider);
+    }
+
     _activePointers.remove(event.pointer);
+    if (_drawingPointer == event.pointer) {
+      _drawingPointer = null;
+    }
     if (_activePointers.length <= 1) {
       _gestureBlocked = false;
     }
+  }
+
+  void _handlePointerMove(PointerMoveEvent event, CoordinateScaler scaler) {
+    if (_gestureBlocked || _drawingPointer != event.pointer) return;
+    if (_activePointers.length != 1 || widget.currentStrokeId == null) return;
+    final provider = context.read<PersonalDrawingProvider>();
+    widget.onPointerMove(event.localPosition, scaler, provider);
   }
 
   @override
@@ -1050,35 +1127,13 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
     return Positioned.fill(
       child: Consumer<PersonalDrawingProvider>(
         builder: (context, personalProvider, child) {
-          final drawingProvider = context.read<DrawingProvider>();
-
           return Listener(
             behavior: HitTestBehavior.opaque,
             onPointerDown: (event) => _handlePointerDown(event, scaler),
+            onPointerMove: (event) => _handlePointerMove(event, scaler),
             onPointerUp: _handlePointerUp,
             onPointerCancel: _handlePointerUp,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onPanStart: (details) {
-                if (_gestureBlocked || _activePointers.length != 1) return;
-                widget.onPanStart(
-                  details,
-                  scaler,
-                  personalProvider,
-                  drawingProvider.currentColor,
-                  drawingProvider.currentWidth,
-                );
-              },
-              onPanUpdate: (details) {
-                if (_gestureBlocked || _activePointers.length != 1) return;
-                widget.onPanUpdate(details, scaler, personalProvider);
-              },
-              onPanEnd: (details) {
-                if (widget.currentStrokeId == null) return;
-                widget.onPanEnd(scaler, personalProvider);
-              },
-              child: Container(color: Colors.transparent),
-            ),
+            child: Container(color: Colors.transparent),
           );
         },
       ),
