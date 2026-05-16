@@ -24,7 +24,7 @@ class DrawingPainter extends CustomPainter {
   }
 
   void _drawStroke(Canvas canvas, Stroke stroke) {
-    final points = stroke.displayPoints;
+    final points = _decimatePoints(stroke.displayPoints);
     if (points.isEmpty) return;
 
     // 필압(pressure) 데이터가 있으면 필압 기반 렌더링
@@ -37,13 +37,17 @@ class DrawingPainter extends CustomPainter {
     // 줌 레벨에 따른 굵기 보정
     final adjustedWidth = (stroke.width / scale).clamp(1.0, 50.0);
 
-    // 👇 날아갔던 '진짜 선 그리기' 로직 복구!
     final paint = Paint()
       ..color = stroke.color
       ..strokeWidth = adjustedWidth
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
+
+    if (points.length == 1) {
+      _drawStartDot(canvas, points.first, paint);
+      return;
+    }
 
     final path = _createSmoothPath(points);
     canvas.drawPath(path, paint);
@@ -53,37 +57,60 @@ class DrawingPainter extends CustomPainter {
     final path = Path();
     if (points.isEmpty) return path;
 
-    final firstPoint = scaler.normalizedToPixel(points[0]);
+    final pixelPoints = points.map(scaler.normalizedToPixel).toList();
+    final firstPoint = pixelPoints.first;
     path.moveTo(firstPoint.dx, firstPoint.dy);
 
     if (points.length == 2) {
-      final secondPoint = scaler.normalizedToPixel(points[1]);
+      final secondPoint = pixelPoints[1];
       path.lineTo(secondPoint.dx, secondPoint.dy);
       return path;
     }
 
-    for (int i = 0; i < points.length - 1; i++) {
-      final current = scaler.normalizedToPixel(points[i]);
-      final next = scaler.normalizedToPixel(points[i + 1]);
+    for (int i = 0; i < pixelPoints.length - 1; i++) {
+      final p0 = i == 0 ? pixelPoints[i] : pixelPoints[i - 1];
+      final p1 = pixelPoints[i];
+      final p2 = pixelPoints[i + 1];
+      final p3 = i + 2 < pixelPoints.length ? pixelPoints[i + 2] : p2;
 
-      final controlPoint = current;
-      final endPoint = Offset(
-        (current.dx + next.dx) / 2,
-        (current.dy + next.dy) / 2,
-      );
+      final control1 = p1 + (p2 - p0) / 6;
+      final control2 = p2 - (p3 - p1) / 6;
 
-      path.quadraticBezierTo(
-        controlPoint.dx,
-        controlPoint.dy,
-        endPoint.dx,
-        endPoint.dy,
+      path.cubicTo(
+        control1.dx,
+        control1.dy,
+        control2.dx,
+        control2.dy,
+        p2.dx,
+        p2.dy,
       );
     }
 
-    final lastPoint = scaler.normalizedToPixel(points.last);
-    path.lineTo(lastPoint.dx, lastPoint.dy);
-
     return path;
+  }
+
+  List<DrawPoint> _decimatePoints(List<DrawPoint> points) {
+    if (points.length <= 2) return points;
+
+    final tolerance = (0.75 / scale).clamp(0.35, 1.25);
+    final result = <DrawPoint>[points.first];
+    var lastKept = scaler.normalizedToPixel(points.first);
+
+    for (int i = 1; i < points.length - 1; i++) {
+      final current = scaler.normalizedToPixel(points[i]);
+      if ((current - lastKept).distance >= tolerance) {
+        result.add(points[i]);
+        lastKept = current;
+      }
+    }
+
+    result.add(points.last);
+    return result;
+  }
+
+  void _drawStartDot(Canvas canvas, DrawPoint point, Paint paint) {
+    final center = scaler.normalizedToPixel(point);
+    canvas.drawCircle(center, paint.strokeWidth / 2, paint);
   }
 
   @override
@@ -97,12 +124,27 @@ class DrawingPainter extends CustomPainter {
   @override
   bool shouldRebuildSemantics(covariant DrawingPainter oldDelegate) => false;
 
-  // 👇 추가할 함수 시작
-  void _drawStrokeWithPressure(Canvas canvas, Stroke stroke, List<DrawPoint> points) {
+  void _drawStrokeWithPressure(
+    Canvas canvas,
+    Stroke stroke,
+    List<DrawPoint> points,
+  ) {
     if (points.isEmpty) return;
 
     // 기본 굵기 계산
     final baseWidth = (stroke.width / scale).clamp(1.0, 50.0);
+
+    if (points.length == 1) {
+      final pressure = points.first.pressure ?? 0.5;
+      final paint = Paint()
+        ..color = stroke.color
+        ..strokeWidth = baseWidth * (pressure * 2)
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      _drawStartDot(canvas, points.first, paint);
+      return;
+    }
 
     for (int i = 0; i < points.length - 1; i++) {
       final p1 = scaler.normalizedToPixel(points[i]);
@@ -126,5 +168,4 @@ class DrawingPainter extends CustomPainter {
       canvas.drawLine(p1, p2, paint);
     }
   }
-// 👆 추가할 함수 끝
 }
