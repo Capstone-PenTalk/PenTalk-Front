@@ -364,11 +364,12 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
     _currentPoints.clear();
   }
 
-  /// InteractiveViewer의 변환을 역으로 적용하여 실제 좌표 계산
-  Offset _getTransformedPosition(Offset screenPosition) {
-    final matrix = _transformationController.value.clone()..invert();
-    final transformed = MatrixUtils.transformPoint(matrix, screenPosition);
-    return transformed;
+  Offset _getTransformedPosition(Offset localPosition) {
+    // The touch layers are children of InteractiveViewer's transformed child.
+    // Flutter already converts pointer positions into that child coordinate
+    // space during hit testing, so applying the inverse matrix here would
+    // double-correct the point and shift strokes while zoomed.
+    return localPosition;
   }
 
   /// ===============================
