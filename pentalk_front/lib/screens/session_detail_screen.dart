@@ -71,10 +71,13 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final userId = await AuthService.getUserId() ?? 'teacher';
     final resolvedBackgroundUrl = await _resolveMaterialBackgroundUrl(material);
     String? realtimeSessionId = connectRealtime ? _effectiveSessionId : null;
+    debugPrint('🎯 _navigateToDrawing: effectiveSessionId=$_effectiveSessionId, realtimeSessionId=$realtimeSessionId');
     if (connectRealtime && realtimeSessionId == null) {
+      debugPrint('🆕 Creating new session in _navigateToDrawing...');
       realtimeSessionId = await _createRealtimeSessionForMaterial(material);
       if (realtimeSessionId == null) return;
     }
+    debugPrint('🚀 Opening DrawingScreen with sessionId=$realtimeSessionId');
     if (!context.mounted) return;
     Navigator.push(
       context,
@@ -244,6 +247,27 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
       setState(() => _isUploading = true);
 
+      debugPrint('📋 _handleFileUpload: '
+          'widgetSessionId=${widget.sessionId}, '
+          'canUseRemote=$_canUseRemoteMaterials');
+
+      // 자료 업로드 전에 항상 새 세션 생성 (세션-자료 연결 보장)
+      if (_canUseRemoteMaterials) {
+        debugPrint('🆕 Creating new session before material upload...');
+        final sessionResponse = await ApiService.createSession(
+          classId: widget.classId!,
+        );
+        if (sessionResponse.success && sessionResponse.data != null) {
+          setState(() {
+            _realtimeSessionId = sessionResponse.data!.sessionId;
+          });
+          debugPrint('✅ New session created: $_realtimeSessionId');
+        } else {
+          debugPrint('❌ Session creation failed: ${sessionResponse.message}');
+        }
+      }
+
+      debugPrint('📤 Uploading material with sessionId=$_effectiveSessionId');
       final material = await _createMaterialForTesting(filePath: file.path);
       if (!mounted) return;
 
@@ -289,9 +313,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     }
 
     final file = await _localMaterialService.importPdf(File(filePath));
+    final resolvedSessionId = _effectiveSessionId ?? widget.sessionId;
+    debugPrint('🔗 uploadMaterial: classId=$classId, sessionId=$resolvedSessionId');
     final uploaded = await ApiService.uploadMaterial(
       classId: classId,
-      sessionId: _effectiveSessionId ?? widget.sessionId,
+      sessionId: resolvedSessionId,
       filePath: file.url,
       fileName: file.fileName,
     );

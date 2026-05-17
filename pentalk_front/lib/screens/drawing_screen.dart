@@ -27,7 +27,6 @@ import '../services/deep_link_service.dart';
 import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/pdf_file_service.dart';
-import '../screens/quiz_screen.dart';
 import 'student_home_screen.dart';
 import 'teacher_home_screen.dart';
 
@@ -505,16 +504,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
       SessionEndedDialog.showStudentNotification(
         context,
         message: message,
-        onConfirm: () {
-          QuizScreen.show(
-            context,
-            sessionId: widget.sessionId ?? widget.roomId ?? '',
-            onPassed: () {
-              _handleExportPdf();
-              _cleanupAndGoHome();
-            },
-            onClose: _cleanupAndGoHome,
-          );
+        onConfirm: () async {
+          await _handleExportPdf();
+          if (mounted) _cleanupAndGoHome();
         },
       );
     }
