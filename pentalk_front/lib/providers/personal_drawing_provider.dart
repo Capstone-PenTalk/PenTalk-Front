@@ -115,7 +115,8 @@ class PersonalDrawingProvider extends ChangeNotifier {
         ? List<DrawPoint>.from(refinedPoints)
         : null;
 
-    final finalStroke = copiedRefinedPoints != null && copiedRefinedPoints.isNotEmpty
+    final finalStroke =
+        copiedRefinedPoints != null && copiedRefinedPoints.isNotEmpty
         ? stroke.withRefinedPoints(copiedRefinedPoints)
         : stroke;
 
@@ -151,9 +152,7 @@ class PersonalDrawingProvider extends ChangeNotifier {
 
     if (_currentPageId == null) return;
 
-    final lastStrokeId = _personalStrokes.keys.reduce(
-          (a, b) => a > b ? a : b,
-    );
+    final lastStrokeId = _personalStrokes.keys.reduce((a, b) => a > b ? a : b);
 
     _personalStrokes.remove(lastStrokeId);
     notifyListeners();
@@ -172,7 +171,8 @@ class PersonalDrawingProvider extends ChangeNotifier {
   Future<void> deleteStroke(int strokeId) async {
     if (_currentPageId == null) return;
 
-    final removed = _personalStrokes.remove(strokeId) != null ||
+    final removed =
+        _personalStrokes.remove(strokeId) != null ||
         _personalActiveStrokes.remove(strokeId) != null;
 
     if (removed) {
@@ -223,11 +223,11 @@ class PersonalDrawingProvider extends ChangeNotifier {
     final result = <Map<String, dynamic>>[];
 
     for (final pageId in allPageIds) {
-      // 알 수 없는 pageId는 page: 1로 fallback (안전 처리)
-      final pageNumber = pageMapping[pageId] ?? 1;
+      final pageNumber = pageMapping[pageId];
 
-      if (!pageMapping.containsKey(pageId)) {
-        debugPrint('Unknown pageId "$pageId" -> fallback to page 1');
+      if (pageNumber == null) {
+        debugPrint('Skipping personal strokes for unrelated pageId "$pageId"');
+        continue;
       }
 
       final strokes = await _dbService.getStrokesByPageId(pageId);
@@ -237,11 +237,13 @@ class PersonalDrawingProvider extends ChangeNotifier {
       }
 
       debugPrint(
-          'Page "$pageId" (page: $pageNumber): ${strokes.length} strokes');
+        'Page "$pageId" (page: $pageNumber): ${strokes.length} strokes',
+      );
     }
 
     debugPrint(
-        'Total export strokes: ${result.length} across ${allPageIds.length} pages');
+      'Total export strokes: ${result.length} across ${allPageIds.length} pages',
+    );
 
     return result;
   }

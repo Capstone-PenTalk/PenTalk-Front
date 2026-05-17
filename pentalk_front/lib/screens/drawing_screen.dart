@@ -127,7 +127,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
           pageNumber: 1,
         );
       }
-      await _loadPersonalPageIfNeeded(widget.materialTitle);
+      await _loadPersonalPageIfNeeded(
+        _personalPageKeyForTitle(widget.materialTitle),
+      );
     }
 
     // 그리기 모드 기본 활성화
@@ -183,13 +185,18 @@ class _DrawingScreenState extends State<DrawingScreen> {
         height: firstPage.height,
       );
       await _loadPersonalPageIfNeeded(
-        hydratedDocument.pageKeyFor(firstPage.pageNumber),
+        _personalPageKeyFor(
+          materialId: hydratedDocument.materialId,
+          pageNumber: firstPage.pageNumber,
+        ),
       );
       await _restoreCurrentTeacherPage();
     } catch (e) {
       debugPrint('Failed to prepare PDF document: $e');
       _drawingProvider.setBackgroundUrl(backgroundUrl);
-      await _loadPersonalPageIfNeeded(widget.materialTitle);
+      await _loadPersonalPageIfNeeded(
+        _personalPageKeyForTitle(widget.materialTitle),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -208,6 +215,48 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _loadPersonalPageIfNeeded(String pageKey) async {
     if (widget.isTeacher) return;
     await context.read<PersonalDrawingProvider>().loadPage(pageKey);
+  }
+
+  String _personalPageKeyFor({
+    required String materialId,
+    required int pageNumber,
+  }) {
+    return '${_personalStorageScope()}:$materialId:$pageNumber';
+  }
+
+  String _personalPageKeyForTitle(String title) {
+    return '${_personalStorageScope()}:$title';
+  }
+
+  String _personalStorageScope() {
+    final roomId = widget.roomId?.trim();
+    if (roomId != null && roomId.isNotEmpty) return roomId;
+
+    final sessionId = widget.sessionId?.trim();
+    if (sessionId != null && sessionId.isNotEmpty) return sessionId;
+
+    final materialId = widget.materialId?.trim();
+    if (materialId != null && materialId.isNotEmpty) return materialId;
+
+    return 'local';
+  }
+
+  Map<String, int> _createPersonalExportPageMapping() {
+    final document = _documentSource;
+    if (document != null) {
+      return {
+        for (final page in document.pages)
+          _personalPageKeyFor(
+            materialId: document.materialId,
+            pageNumber: page.pageNumber,
+          ): page.pageNumber,
+      };
+    }
+
+    return {
+      for (int i = 0; i < widget.materials.length; i++)
+        _personalPageKeyForTitle(widget.materials[i].title): i + 1,
+    };
   }
 
   Future<void> _syncNativePageContext({
@@ -306,7 +355,12 @@ class _DrawingScreenState extends State<DrawingScreen> {
         width: renderedPage.width,
         height: renderedPage.height,
       );
-      await _loadPersonalPageIfNeeded(updatedDocument.pageKeyFor(pageNumber));
+      await _loadPersonalPageIfNeeded(
+        _personalPageKeyFor(
+          materialId: updatedDocument.materialId,
+          pageNumber: pageNumber,
+        ),
+      );
       await _restoreCurrentTeacherPage();
     } catch (e) {
       debugPrint('Failed to change PDF page: $e');
@@ -625,6 +679,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
         materials: widget.materials,
         personalProvider: personalProvider,
         documentSource: _documentSource,
+        pageMapping: _createPersonalExportPageMapping(),
       );
 
       if (!mounted) return;
@@ -866,7 +921,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   onPressed: _handleClear,
                   tooltip: '전체 지우기',
                 ),
-
               ],
 
               if (!widget.isTeacher) ...[

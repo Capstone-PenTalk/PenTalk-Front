@@ -44,20 +44,24 @@ class PdfExportService {
     required List<MaterialModel> materials,
     required PersonalDrawingProvider personalProvider,
     DocumentSource? documentSource,
+    Map<String, int>? pageMapping,
   }) async {
     debugPrint('PdfExportService.export() started');
     debugPrint('   sessionId: $sessionId');
     debugPrint('   materials: ${materials.length}개');
 
-    final pageMapping = documentSource != null
-        ? documentSource.createPageNumberMap()
-        : <String, int>{
-            for (int i = 0; i < materials.length; i++) materials[i].title: i + 1,
-          };
+    final resolvedPageMapping =
+        pageMapping ??
+        (documentSource != null
+            ? documentSource.createPageNumberMap()
+            : <String, int>{
+                for (int i = 0; i < materials.length; i++)
+                  materials[i].title: i + 1,
+              });
 
     // 2. 개인 필기 전체 취합
     final strokes = await personalProvider.getAllPersonalStrokesForExport(
-      pageMapping: pageMapping,
+      pageMapping: resolvedPageMapping,
     );
 
     debugPrint('Total personal strokes for export: ${strokes.length}');
@@ -80,7 +84,7 @@ class PdfExportService {
 
     final totalPoints = strokes.fold<int>(
       0,
-          (sum, s) => sum + ((s['points'] as List?)?.length ?? 0),
+      (sum, s) => sum + ((s['points'] as List?)?.length ?? 0),
     );
 
     debugPrint('PDF binary received');
@@ -106,14 +110,14 @@ class PdfExportService {
     if (strokes.length > _maxStrokes) {
       throw PdfExportException(
         '필기 데이터가 너무 많습니다 (${strokes.length}개 / 최대 $_maxStrokes개).\n'
-            '일부 필기를 삭제한 후 다시 시도해주세요.',
+        '일부 필기를 삭제한 후 다시 시도해주세요.',
         code: 'STROKE_LIMIT_EXCEEDED',
       );
     }
 
     final totalPoints = strokes.fold<int>(
       0,
-          (sum, s) => sum + ((s['points'] as List?)?.length ?? 0),
+      (sum, s) => sum + ((s['points'] as List?)?.length ?? 0),
     );
 
     if (totalPoints > _maxPoints) {
