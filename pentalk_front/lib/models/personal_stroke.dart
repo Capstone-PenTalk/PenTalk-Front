@@ -27,10 +27,10 @@ class PersonalStroke {
   }) : timestamp = timestamp ?? DateTime.now();
 
   factory PersonalStroke.fromStroke(
-      Stroke stroke,
-      String pageId, {
-        DateTime? timestamp,
-      }) {
+    Stroke stroke,
+    String pageId, {
+    DateTime? timestamp,
+  }) {
     return PersonalStroke(
       pageId: pageId,
       strokeId: stroke.strokeId,
@@ -43,10 +43,9 @@ class PersonalStroke {
   }
 
   Stroke toStroke() {
-    final safeRefinedPoints =
-        refinedPoints != null && refinedPoints!.isNotEmpty
-            ? refinedPoints
-            : null;
+    final safeRefinedPoints = refinedPoints != null && refinedPoints!.isNotEmpty
+        ? refinedPoints
+        : null;
     return Stroke(
       strokeId: strokeId,
       color: color,
@@ -62,28 +61,31 @@ class PersonalStroke {
   /// ===============================
   Map<String, dynamic> toServerJson(int pageNumber) {
     // refinedPoints 우선 사용. DrawPoint는 이미 0~1 정규화 좌표다.
-    final exportPoints =
-        refinedPoints != null && refinedPoints!.isNotEmpty
-            ? refinedPoints!
-            : points;
+    final exportPoints = refinedPoints != null && refinedPoints!.isNotEmpty
+        ? refinedPoints!
+        : points;
 
     return {
-      'pageNumber': pageNumber,
+      'page': pageNumber,
       'c': _toArgbHex(color),
       'w': width,
       'points': exportPoints
-          .map((p) => {
-        'x': p.x,
-        'y': p.y,
-        if (p.pressure != null) 'p': p.pressure,
-      })
+          .map(
+            (p) => {
+              'x': p.x,
+              'y': p.y,
+              if (p.pressure != null) 'p': p.pressure,
+            },
+          )
           .toList(),
     };
   }
 
   static String _toArgbHex(Color color) {
-    final argb = color.toARGB32().toRadixString(16).padLeft(8, '0');
-    return '#${argb.toUpperCase()}';
+    final rgb = (color.toARGB32() & 0x00FFFFFF)
+        .toRadixString(16)
+        .padLeft(6, '0');
+    return '#${rgb.toUpperCase()}';
   }
 
   factory PersonalStroke.fromJson(Map<String, dynamic> json) {
@@ -98,8 +100,8 @@ class PersonalStroke {
           .toList(),
       refinedPoints: json['refinedPoints'] != null
           ? (json['refinedPoints'] as List<dynamic>)
-          .map((p) => DrawPoint.fromJson(p as Map<String, dynamic>))
-          .toList()
+                .map((p) => DrawPoint.fromJson(p as Map<String, dynamic>))
+                .toList()
           : null,
       timestamp: DateTime.parse(json['timestamp'] as String),
     );
@@ -130,8 +132,9 @@ class PersonalStroke {
       color: Color(map['color'] as int),
       width: (map['width'] as num).toDouble(),
       points: _parsePoints(pointsData),
-      refinedPoints:
-      refinedPointsData != null ? _parsePoints(refinedPointsData) : null,
+      refinedPoints: refinedPointsData != null
+          ? _parsePoints(refinedPointsData)
+          : null,
       timestamp: DateTime.parse(map['timestamp'] as String),
     );
   }
@@ -144,31 +147,37 @@ class PersonalStroke {
       'color': color.value,
       'width': width,
       'points_json': _pointsToJson(points),
-      'refined_points_json':
-      refinedPoints != null ? _pointsToJson(refinedPoints!) : null,
+      'refined_points_json': refinedPoints != null
+          ? _pointsToJson(refinedPoints!)
+          : null,
       'timestamp': timestamp.toIso8601String(),
     };
   }
 
   static String _pointsToJson(List<DrawPoint> points) {
-    return jsonEncode(points
-        .map((p) => {
-      'x': p.x,
-      'y': p.y,
-      if (p.pressure != null) 'p': p.pressure,
-    })
-        .toList());
+    return jsonEncode(
+      points
+          .map(
+            (p) => {
+              'x': p.x,
+              'y': p.y,
+              if (p.pressure != null) 'p': p.pressure,
+            },
+          )
+          .toList(),
+    );
   }
 
   static List<DrawPoint> _parsePoints(String json) {
     final list = jsonDecode(json) as List<dynamic>;
     return list
-        .map((p) => DrawPoint(
-      x: (p['x'] as num).toDouble(),
-      y: (p['y'] as num).toDouble(),
-      pressure:
-      p['p'] != null ? (p['p'] as num).toDouble() : null,
-    ))
+        .map(
+          (p) => DrawPoint(
+            x: (p['x'] as num).toDouble(),
+            y: (p['y'] as num).toDouble(),
+            pressure: p['p'] != null ? (p['p'] as num).toDouble() : null,
+          ),
+        )
         .toList();
   }
 

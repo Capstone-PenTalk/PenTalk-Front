@@ -1,4 +1,4 @@
-package com.example.pentalk_front.drawing
+package com.whiletrue.pentalk.drawing
 
 import kotlin.math.max
 import kotlin.math.min
