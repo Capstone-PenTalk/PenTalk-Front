@@ -1,4 +1,4 @@
-package com.example.pentalk_front.drawing
+package com.whiletrue.pentalk.drawing
 
 import android.content.Context
 import android.graphics.Color

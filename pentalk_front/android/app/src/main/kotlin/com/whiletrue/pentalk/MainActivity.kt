@@ -1,4 +1,4 @@
-package com.example.pentalk_front
+package com.whiletrue.pentalk
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -7,10 +7,10 @@ import android.graphics.pdf.PdfRenderer
 import android.content.Intent
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import com.example.pentalk_front.drawing.DrawingChannel
-import com.example.pentalk_front.drawing.DrawingMetricsStore
-import com.example.pentalk_front.drawing.InkDrawingActivity
-import com.example.pentalk_front.drawing.InkDrawingView
+import com.whiletrue.pentalk.drawing.DrawingChannel
+import com.whiletrue.pentalk.drawing.DrawingMetricsStore
+import com.whiletrue.pentalk.drawing.InkDrawingActivity
+import com.whiletrue.pentalk.drawing.InkDrawingView
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel

@@ -75,7 +75,6 @@ class ApiService {
         message: e.toString(),
       );
     }
-
   }
 
   /// ===============================
@@ -168,7 +167,7 @@ class ApiService {
   /// [sessionId]: 세션 ID
   /// [strokes]: 학생 개인 필기 stroke 배열
   ///   각 stroke 형식:
-  ///   { pageNumber, c("#AARRGGBB"), w, points:[{x,y,p?}] }
+  ///   { page, c("#RRGGBB"), w, points:[{x,y,p?}] }
   ///
   /// 반환: PDF 바이너리 + 서버 파일명
   /// ===============================
@@ -902,7 +901,7 @@ class ApiService {
     final rawColor = normalized.remove('color');
     final rawCompactColor = normalized['c'];
 
-    final compactColor = _normalizeArgbHex(rawCompactColor ?? rawColor);
+    final compactColor = _normalizeRgbHex(rawCompactColor ?? rawColor);
     if (compactColor != null) {
       normalized['c'] = compactColor;
     }
@@ -910,35 +909,36 @@ class ApiService {
     return normalized;
   }
 
-  static String? _normalizeArgbHex(Object? value) {
+  static String? _normalizeRgbHex(Object? value) {
     if (value == null) return null;
 
     if (value is Color) {
-      return '#${value.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}';
+      return '#${(value.toARGB32() & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
     }
 
     if (value is num) {
-      return '#${value.toInt().toRadixString(16).padLeft(8, '0').toUpperCase()}';
+      return '#${(value.toInt() & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
     }
 
     final raw = value.toString().trim();
     if (raw.isEmpty) return null;
     final hex = raw.startsWith('#') ? raw.substring(1) : raw;
-    if (!RegExp(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').hasMatch(hex)) {
+    if (!RegExp(r'^([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$').hasMatch(hex)) {
       return raw.startsWith('#') ? raw : '#$raw';
     }
 
-    final argb = hex.length == 6 ? 'FF$hex' : hex;
-    return '#${argb.toUpperCase()}';
+    final rgb = hex.length == 8 ? hex.substring(2) : hex;
+    return '#${rgb.toUpperCase()}';
   }
+
   // ── 퀴즈 문항 조회 (학생 + 교사 공용) ─────────────────────
-//
-// GET /sessions/:sessionId/quiz
-// 응답: { ok: true, questions: [...] }
-//
-// 반환: List<QuizQuestion>
-// 교사 응답에는 answer 포함, 학생 응답에는 answer null
-//
+  //
+  // GET /sessions/:sessionId/quiz
+  // 응답: { ok: true, questions: [...] }
+  //
+  // 반환: List<QuizQuestion>
+  // 교사 응답에는 answer 포함, 학생 응답에는 answer null
+  //
   static Future<List<QuizQuestion>> getQuizQuestions({
     required String sessionId,
   }) async {
@@ -970,13 +970,13 @@ class ApiService {
     throw Exception('퀴즈 조회 실패 [${response.statusCode}]');
   }
 
-// ── 퀴즈 답안 제출 (학생) ─────────────────────────────────
-//
-// POST /sessions/:sessionId/quiz/submit
-// Body: { questionId, answer }
-// 응답: { ok, questionId, isCorrect, submittedAnswer, correctAnswer }
-// 429: QUIZ_DAILY_LIMIT_EXCEEDED
-//
+  // ── 퀴즈 답안 제출 (학생) ─────────────────────────────────
+  //
+  // POST /sessions/:sessionId/quiz/submit
+  // Body: { questionId, answer }
+  // 응답: { ok, questionId, isCorrect, submittedAnswer, correctAnswer }
+  // 429: QUIZ_DAILY_LIMIT_EXCEEDED
+  //
   static Future<QuizSubmitResult> submitQuizAnswer({
     required String sessionId,
     required String questionId,
@@ -984,7 +984,8 @@ class ApiService {
   }) async {
     final token = await AuthService.getToken();
     final uri = Uri.parse(
-        '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/submit');
+      '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/submit',
+    );
 
     final response = await http.post(
       uri,
@@ -1008,12 +1009,12 @@ class ApiService {
     throw Exception('퀴즈 제출 실패 [${response.statusCode}]');
   }
 
-// ── 퀴즈 문항 추가 (교사) ─────────────────────────────────
-//
-// POST /sessions/:sessionId/quiz
-// Body: { question, answer, order }
-// 응답: { ok: true, question: { id, question, answer, order, createdAt } }
-//
+  // ── 퀴즈 문항 추가 (교사) ─────────────────────────────────
+  //
+  // POST /sessions/:sessionId/quiz
+  // Body: { question, answer, order }
+  // 응답: { ok: true, question: { id, question, answer, order, createdAt } }
+  //
   static Future<QuizQuestion> addQuizQuestion({
     required String sessionId,
     required String question,
@@ -1045,23 +1046,26 @@ class ApiService {
     throw Exception('문항 추가 실패 [${response.statusCode}]');
   }
 
-// ── 퀴즈 문항 수정 (교사) ─────────────────────────────────
-//
-// PUT /sessions/:sessionId/quiz/:questionId
-// Body: { question?, answer? }
-//
+  // ── 퀴즈 문항 수정 (교사) ─────────────────────────────────
+  //
+  // PUT /sessions/:sessionId/quiz/:questionId
+  // Body: { question?, answer? }
+  //
   static Future<QuizQuestion> updateQuizQuestion({
     required String sessionId,
     required String questionId,
     String? question,
     String? answer,
   }) async {
-    assert(question != null || answer != null,
-    'question 또는 answer 중 하나는 필수입니다');
+    assert(
+      question != null || answer != null,
+      'question 또는 answer 중 하나는 필수입니다',
+    );
 
     final token = await AuthService.getToken();
     final uri = Uri.parse(
-        '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/$questionId');
+      '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/$questionId',
+    );
 
     final body = <String, dynamic>{};
     if (question != null) body['question'] = question;
@@ -1085,23 +1089,22 @@ class ApiService {
     throw Exception('문항 수정 실패 [${response.statusCode}]');
   }
 
-// ── 퀴즈 문항 삭제 (교사) ─────────────────────────────────
-//
-// DELETE /sessions/:sessionId/quiz/:questionId
-//
+  // ── 퀴즈 문항 삭제 (교사) ─────────────────────────────────
+  //
+  // DELETE /sessions/:sessionId/quiz/:questionId
+  //
   static Future<void> deleteQuizQuestion({
     required String sessionId,
     required String questionId,
   }) async {
     final token = await AuthService.getToken();
     final uri = Uri.parse(
-        '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/$questionId');
+      '${AppConfig.apiBaseUrl}/sessions/$sessionId/quiz/$questionId',
+    );
 
     final response = await http.delete(
       uri,
-      headers: {
-        'Authorization': 'Bearer $token',
-      },
+      headers: {'Authorization': 'Bearer $token'},
     );
 
     if (response.statusCode != 200 && response.statusCode != 204) {
