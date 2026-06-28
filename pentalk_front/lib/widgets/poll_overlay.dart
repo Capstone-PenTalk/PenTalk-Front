@@ -9,12 +9,14 @@ class PollOverlay extends StatelessWidget {
   final PollState pollState;
   final int remainingSeconds;
   final Function(dynamic optionId) onAnswer;
+  final VoidCallback? onDismiss;
 
   const PollOverlay({
     Key? key,
     required this.pollState,
     required this.remainingSeconds,
     required this.onAnswer,
+    this.onDismiss,
   }) : super(key: key);
 
   @override
@@ -71,6 +73,12 @@ class PollOverlay extends StatelessWidget {
                     // 타이머 (duration 있을 때만)
                     if (pollState.hasDuration && pollState.isActive)
                       _TimerBadge(seconds: remainingSeconds),
+                    // 답변 완료 후 닫기 버튼
+                    if (pollState.isAnswered && onDismiss != null)
+                      GestureDetector(
+                        onTap: onDismiss,
+                        child: const Icon(Icons.close, color: Colors.white, size: 20),
+                      ),
                   ],
                 ),
               ),

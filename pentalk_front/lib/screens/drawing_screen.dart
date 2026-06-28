@@ -29,6 +29,7 @@ import '../services/pdf_export_service.dart';
 import '../services/pdf_file_service.dart';
 import 'student_home_screen.dart';
 import 'teacher_home_screen.dart';
+import 'quiz_screen.dart';
 
 class DrawingScreen extends StatefulWidget {
   final String materialTitle;
@@ -78,6 +79,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// PDF export 진행 중 여부
   /// true일 때 뒤로가기 차단 (PopScope)
   bool _isExporting = false;
+
+  /// 학생이 이해도 체크에 답변 후 팝업을 수동으로 닫은 상태
+  bool _pollOverlayDismissed = false;
 
   bool get _usesNativeTeacherDrawing =>
       AppConfig.enableNativeTeacherDrawing &&
@@ -391,6 +395,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     // poll:start → PollProvider 상태 업데이트 → 오버레이 자동 표시
     socketService.onPollStart = (data) {
+      setState(() => _pollOverlayDismissed = false);
       final pollData = PollStartData.fromJson(data);
       pollProvider.onPollStart(pollData);
       debugPrint('Poll started, showing overlay');
@@ -558,9 +563,26 @@ class _DrawingScreenState extends State<DrawingScreen> {
       SessionEndedDialog.showStudentNotification(
         context,
         message: message,
-        onConfirm: () async {
-          await _handleExportPdf();
-          if (mounted) _cleanupAndGoHome();
+        onConfirm: () {
+          final sessionId =
+              _drawingProvider.roomId ?? widget.roomId ?? widget.sessionId;
+          debugPrint('🎯 QuizScreen sessionId: $sessionId (roomId=${_drawingProvider.roomId}, widgetRoomId=${widget.roomId}, widgetSessionId=${widget.sessionId})');
+          if (sessionId == null) {
+            debugPrint('❌ sessionId is null, skipping quiz');
+            _cleanupAndGoHome();
+            return;
+          }
+          QuizScreen.show(
+            context,
+            sessionId: sessionId,
+            onPassed: () async {
+              await _handleExportPdf();
+              if (mounted) _cleanupAndGoHome();
+            },
+            onClose: () {
+              if (mounted) _cleanupAndGoHome();
+            },
+          );
         },
       );
     }
@@ -856,6 +878,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           actions: [
             if (!widget.isReadOnly) ...[
+              // 교사 전용: 세션 종료 (맨 앞에 배치)
+              if (widget.isTeacher)
+                IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: _endSession,
+                  tooltip: '세션 종료',
+                  color: Colors.red,
+                ),
+
               if (_hasPagedDocument) ...[
                 IconButton(
                   icon: const Icon(Icons.chevron_left),
@@ -890,21 +921,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
               // 교사용 컨트롤
               if (widget.isTeacher) ...[
-                // 교사 전용: 이해도 체크 버튼
-                Consumer<PollProvider>(
-                  builder: (context, pollProvider, _) {
-                    final isActive = pollProvider.state.isActive;
-                    return IconButton(
-                      icon: Icon(
-                        isActive ? Icons.poll : Icons.poll_outlined,
-                        color: isActive ? Colors.amber : Colors.black87,
-                      ),
-                      onPressed: isActive ? _handleEndPoll : _handleStartPoll,
-                      tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
-                    );
-                  },
-                ),
-
                 if (_shareableSessionId != null)
                   IconButton(
                     icon: const Icon(Icons.qr_code_2),
@@ -920,6 +936,19 @@ class _DrawingScreenState extends State<DrawingScreen> {
                   icon: const Icon(Icons.delete_outline),
                   onPressed: _handleClear,
                   tooltip: '전체 지우기',
+                ),
+                Consumer<PollProvider>(
+                  builder: (context, pollProvider, _) {
+                    final isActive = pollProvider.state.isActive;
+                    return IconButton(
+                      icon: Icon(
+                        isActive ? Icons.poll : Icons.poll_outlined,
+                        color: isActive ? Colors.amber : Colors.black87,
+                      ),
+                      onPressed: isActive ? _handleEndPoll : _handleStartPoll,
+                      tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
+                    );
+                  },
                 ),
               ],
 
@@ -960,14 +989,6 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         tooltip: 'PDF 내보내기',
                       ),
 
-              // 교사 전용: 세션 종료
-              if (widget.isTeacher)
-                IconButton(
-                  icon: const Icon(Icons.logout),
-                  onPressed: _endSession,
-                  tooltip: '세션 종료',
-                  color: Colors.red,
-                ),
             ],
           ],
         ),
@@ -1022,13 +1043,16 @@ class _DrawingScreenState extends State<DrawingScreen> {
                     Consumer<PollProvider>(
                       builder: (context, pollProvider, _) {
                         final state = pollProvider.state;
-                        if (!state.isActive && !state.isAnswered) {
+                        if ((!state.isActive && !state.isAnswered) || _pollOverlayDismissed) {
                           return const SizedBox.shrink();
                         }
                         return PollOverlay(
                           pollState: state,
                           remainingSeconds: pollProvider.remainingSeconds,
                           onAnswer: _handlePollAnswer,
+                          onDismiss: state.isAnswered
+                              ? () => setState(() => _pollOverlayDismissed = true)
+                              : null,
                         );
                       },
                     ),
