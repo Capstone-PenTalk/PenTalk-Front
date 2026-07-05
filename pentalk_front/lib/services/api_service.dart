@@ -981,6 +981,7 @@ class ApiService {
     required String sessionId,
     required String questionId,
     required String answer,
+    bool isRetryStart = false,
   }) async {
     final token = await AuthService.getToken();
     final uri = Uri.parse(
@@ -993,7 +994,11 @@ class ApiService {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({'questionId': questionId, 'answer': answer}),
+      body: jsonEncode({
+        'questionId': questionId,
+        'answer': answer,
+        'isRetryStart': isRetryStart,
+      }),
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {

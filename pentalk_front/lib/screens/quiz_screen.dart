@@ -70,6 +70,11 @@ class _QuizScreenState extends State<QuizScreen> {
             builder: (context, provider, _) {
               return switch (provider.status) {
                 QuizStatus.idle || QuizStatus.loading => const _LoadingView(),
+                QuizStatus.error => _ErrorView(
+                  message: provider.errorMessage ?? '퀴즈를 불러오지 못했습니다',
+                  onRetry: () => provider.loadQuestionsForStudent(widget.sessionId),
+                  onClose: widget.onClose,
+                ),
                 QuizStatus.noQuestions => _NoQuestionsView(onClose: widget.onClose),
                 QuizStatus.ready => _QuizFormView(
                   provider: provider,
@@ -777,6 +782,60 @@ class _AnswerChip extends StatelessWidget {
           fontSize: 12,
           color: color[700],
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+// ── 에러 뷰 ─────────────────────────────────────────────────
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  final VoidCallback onClose;
+
+  const _ErrorView({
+    required this.message,
+    required this.onRetry,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+            const SizedBox(height: 20),
+            const Text(
+              '퀴즈를 불러오지 못했습니다',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('다시 시도'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: onClose,
+              child: Text('닫기', style: TextStyle(color: Colors.grey[600])),
+            ),
+          ],
         ),
       ),
     );
