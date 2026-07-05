@@ -19,6 +19,9 @@ class QuizProvider extends ChangeNotifier {
   /// questionId → 제출 결과
   final Map<String, QuizSubmitResult> _results = {};
 
+  /// 다음 submitAll()이 재응시 시작인지 여부 (resetForRetry()에서 true로 설정)
+  bool _isRetryAttempt = false;
+
   // ── Getters ───────────────────────────────────────────────
   List<QuizQuestion> get questions =>
       List.unmodifiable(_questions..sort((a, b) => a.order.compareTo(b.order)));
@@ -52,11 +55,14 @@ class QuizProvider extends ChangeNotifier {
 
   // ── 학생: 문항 로드 ──────────────────────────────────────
   Future<void> loadQuestionsForStudent(String sessionId) async {
+    debugPrint('🎯 Quiz load: sessionId=$sessionId');
     _setStatus(QuizStatus.loading);
 
     try {
       final questions =
       await ApiService.getQuizQuestions(sessionId: sessionId);
+
+      debugPrint('✅ Quiz loaded: ${questions.length}문제');
 
       if (questions.isEmpty) {
         _questions = [];
@@ -67,9 +73,9 @@ class QuizProvider extends ChangeNotifier {
       _questions = questions;
       _setStatus(QuizStatus.ready);
     } catch (e) {
-      _errorMessage = '퀴즈를 불러오지 못했습니다';
-      _setStatus(QuizStatus.idle);
-      debugPrint('QuizProvider.loadQuestionsForStudent error: $e');
+      debugPrint('❌ Quiz load error: $e');
+      _errorMessage = '퀴즈를 불러오지 못했습니다\n$e';
+      _setStatus(QuizStatus.error);
     }
   }
 
@@ -86,14 +92,30 @@ class QuizProvider extends ChangeNotifier {
 
     _setStatus(QuizStatus.submitting);
 
+    // 재응시 시작 여부는 이번 제출의 첫 문항에서만 표시하고 즉시 소비한다
+    final isRetryAttempt = _isRetryAttempt;
+    _isRetryAttempt = false;
+
     try {
       // 문항 순서대로 순차 제출
-      for (final question in _questions) {
+      for (int i = 0; i < _questions.length; i++) {
+        final question = _questions[i];
         final answer = _studentAnswers[question.id]!;
+        debugPrint(
+          '📝 Submitting quiz answer: questionId=${question.id}, '
+          'myAnswer=$answer, teacherAnswer(local)=${question.answer}, '
+          'isRetryStart=${i == 0 && isRetryAttempt}',
+        );
         final result = await ApiService.submitQuizAnswer(
           sessionId: sessionId,
           questionId: question.id,
           answer: answer,
+          isRetryStart: i == 0 && isRetryAttempt,
+        );
+        debugPrint(
+          '📩 Quiz submit result: questionId=${result.questionId}, '
+          'isCorrect=${result.isCorrect}, submittedAnswer=${result.submittedAnswer}, '
+          'correctAnswer=${result.correctAnswer}',
         );
         _results[question.id] = result;
       }
@@ -114,6 +136,7 @@ class QuizProvider extends ChangeNotifier {
     _studentAnswers.clear();
     _results.clear();
     _errorMessage = null;
+    _isRetryAttempt = true;
     _setStatus(QuizStatus.ready);
   }
 
