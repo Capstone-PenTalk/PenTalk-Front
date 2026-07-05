@@ -145,6 +145,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                       builder: (context) => SessionDetailScreen(
                         sessionId: session.id,
                         classId: session.classId,
+                        password: session.password,
                       ),
                     ),
                   );

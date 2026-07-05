@@ -212,6 +212,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                       builder: (_) => SessionDetailScreen(
                         sessionId: session.id,
                         classId: session.classId,
+                        password: session.password,
                       ),
                     ),
                   );

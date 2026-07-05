@@ -287,6 +287,8 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
       final response = await ApiService.createSession(
         classId: widget.classId!.trim(),
         materialId: widget.material.id,
+        maxParticipants: 30,
+        password: '0000',
       );
 
       if (!response.success || response.data == null) {
