@@ -42,39 +42,38 @@ class _MaterialLibraryScreenState extends State<MaterialLibraryScreen> {
     });
 
     try {
-      final classIds = widget.isTeacher
-          ? context
-                .read<SessionProvider>()
-                .sessions
-                .map((s) => s.classId)
-                .whereType<String>()
-                .toSet()
-          : context
-                .read<StudentSessionProvider>()
-                .sessions
-                .map((s) => s.classId)
-                .whereType<String>()
-                .toSet();
+      // classId → sessionId (같은 classId가 여러 세션에 걸쳐 있으면 가장 먼저 발견된 세션 사용)
+      // sessionId는 ClassMember가 아닌 세션 참여자(QR/직접입력 입장)의 조회 권한 확인에 필요
+      final classIdToSessionId = <String, String>{};
+      if (widget.isTeacher) {
+        for (final s in context.read<SessionProvider>().sessions) {
+          final classId = s.classId;
+          if (classId == null || classId.isEmpty) continue;
+          classIdToSessionId.putIfAbsent(classId, () => s.id);
+        }
+      } else {
+        for (final s in context.read<StudentSessionProvider>().sessions) {
+          final classId = s.classId;
+          if (classId == null || classId.isEmpty) continue;
+          classIdToSessionId.putIfAbsent(classId, () => s.id);
+        }
+      }
 
       debugPrint(
         '📚 Material library: role=${widget.isTeacher ? "teacher" : "student"}, '
-        'classIds=$classIds',
+        'classIdToSessionId=$classIdToSessionId',
       );
-      if (!widget.isTeacher) {
-        final rawSessions = context.read<StudentSessionProvider>().sessions;
-        debugPrint(
-          '📚 StudentSessionProvider.sessions: '
-          '${rawSessions.map((s) => "(id=${s.id}, classId=${s.classId})").toList()}',
-        );
-      }
 
       final collected = <MaterialUploadResponse>[];
-      for (final classId in classIds) {
+      for (final entry in classIdToSessionId.entries) {
         try {
-          final items = await ApiService.getMaterials(classId: classId);
+          final items = await ApiService.getMaterials(
+            classId: entry.key,
+            sessionId: entry.value,
+          );
           collected.addAll(items);
         } catch (e) {
-          debugPrint('⚠️ 자료 조회 실패 (classId=$classId): $e');
+          debugPrint('⚠️ 자료 조회 실패 (classId=${entry.key}): $e');
         }
       }
 

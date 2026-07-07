@@ -50,7 +50,10 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
     materialProvider.setLoading(true);
 
     try {
-      final materials = await ApiService.getMaterials(classId: classId);
+      final materials = await ApiService.getMaterials(
+        classId: classId,
+        sessionId: widget.sessionId,
+      );
       if (!mounted) return;
 
       materialProvider.setMaterials(
