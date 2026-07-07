@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import '../models/student_session_model.dart';
+import '../theme/app_colors.dart';
 
 class StudentSessionCard extends StatelessWidget {
   final StudentSessionModel session;
@@ -15,9 +16,11 @@ class StudentSessionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 2,
+      color: AppColors.surface,
+      elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: AppColors.border),
       ),
       child: InkWell(
         onTap: onTap,
@@ -33,6 +36,7 @@ class StudentSessionCard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -41,7 +45,7 @@ class StudentSessionCard extends StatelessWidget {
                   const Icon(
                     Icons.person_outline,
                     size: 16,
-                    color: Colors.grey,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
@@ -49,7 +53,7 @@ class StudentSessionCard extends StatelessWidget {
                       session.teacherName,
                       style: const TextStyle(
                         fontSize: 14,
-                        color: Colors.grey,
+                        color: AppColors.textSecondary,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -62,14 +66,14 @@ class StudentSessionCard extends StatelessWidget {
                   const Icon(
                     Icons.folder_outlined,
                     size: 16,
-                    color: Colors.grey,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     '자료 ${session.materials.length}개',
                     style: const TextStyle(
                       fontSize: 14,
-                      color: Colors.grey,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                 ],

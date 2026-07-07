@@ -13,6 +13,7 @@ import '../services/deep_link_service.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/pdf_file_service.dart';
+import '../theme/app_colors.dart';
 import 'package:intl/intl.dart';
 import 'drawing_screen.dart';
 
@@ -24,6 +25,10 @@ class MaterialDetailScreen extends StatefulWidget {
   final String? joinUrl;
   final bool isTeacher;
   final String? classId;
+
+  /// 복습 퀴즈 통과 여부 (null이면 퀴즈와 무관한 일반 자료 열람)
+  /// true: 통과 · 필기 가능 배지 / false: 미통과 · 읽기 전용 배지 + 잠금
+  final bool? quizPassed;
 
   static const String _demoClassId = String.fromEnvironment(
     'PENTALK_DEMO_CLASS_ID',
@@ -56,6 +61,7 @@ class MaterialDetailScreen extends StatefulWidget {
     this.joinUrl,
     this.isTeacher = false,
     this.classId,
+    this.quizPassed,
   }) : super(key: key);
 
   @override
@@ -96,17 +102,19 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   Color _getMaterialIconColor() {
     switch (widget.material.type) {
       case FileMaterialType.pdf:
-        return Colors.red;
+        return AppColors.danger;
       case FileMaterialType.image:
-        return Colors.blue;
+        return AppColors.primary;
       case FileMaterialType.video:
         return Colors.purple;
       case FileMaterialType.document:
-        return Colors.green;
+        return AppColors.success;
       case FileMaterialType.other:
-        return Colors.grey;
+        return AppColors.textSecondary;
     }
   }
+
+  bool get _isLocked => widget.quizPassed == false;
 
   String _formatDate(DateTime date) {
     return DateFormat('yyyy년 MM월 dd일 HH:mm').format(date);
@@ -144,7 +152,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('다운로드 실패: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('다운로드 실패: $e'), backgroundColor: AppColors.danger),
       );
     } finally {
       if (mounted) {
@@ -392,6 +400,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('자료 상세'),
         actions: [
@@ -408,11 +417,14 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primary,
+                  ),
                 ),
               ),
             )
-          else
+          else if (!_isLocked)
             IconButton(
               icon: const Icon(Icons.download),
               onPressed: _handleDownload,
@@ -424,11 +436,54 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.quizPassed != null)
+              Container(
+                width: double.infinity,
+                color: widget.quizPassed!
+                    ? const Color(0xFFE7F5EA)
+                    : AppColors.border,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.quizPassed! ? Icons.check_circle : Icons.lock_outline,
+                      size: 16,
+                      color: widget.quizPassed!
+                          ? AppColors.success
+                          : AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      widget.quizPassed! ? '통과 · 필기 가능' : '미통과 · 읽기 전용',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                        color: widget.quizPassed!
+                            ? AppColors.success
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                    if (_isLocked) ...[
+                      const Spacer(),
+                      const Text(
+                        '복습 퀴즈를 통과하면 다시 필기할 수 있어요',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
-                color: _getMaterialIconColor().withOpacity(0.1),
+                color: _getMaterialIconColor().withOpacity(0.08),
               ),
               child: Column(
                 children: [
@@ -436,11 +491,11 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                     width: 120,
                     height: 120,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.surface,
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
+                          color: Colors.black.withOpacity(0.08),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -449,7 +504,9 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                     child: Icon(
                       _getMaterialIcon(),
                       size: 64,
-                      color: _getMaterialIconColor(),
+                      color: _isLocked
+                          ? AppColors.textSecondary
+                          : _getMaterialIconColor(),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -457,7 +514,9 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                     widget.material.type.name.toUpperCase(),
                     style: TextStyle(
                       fontSize: 14,
-                      color: _getMaterialIconColor(),
+                      color: _isLocked
+                          ? AppColors.textSecondary
+                          : _getMaterialIconColor(),
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.2,
                     ),
@@ -474,7 +533,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                     '제목',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey,
+                      color: AppColors.textSecondary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -484,12 +543,17 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 24),
                   Card(
                     elevation: 0,
-                    color: Colors.grey[100],
+                    color: AppColors.surface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: AppColors.border),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -528,7 +592,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                       '설명',
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.grey,
+                        color: AppColors.textSecondary,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -537,12 +601,17 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        color: AppColors.surface,
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
                       ),
                       child: Text(
                         widget.material.description!,
-                        style: const TextStyle(fontSize: 15, height: 1.5),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          height: 1.5,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -552,10 +621,14 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () => _handleStartDrawing(context),
+                          onPressed: _isLocked
+                              ? null
+                              : () => _handleStartDrawing(context),
                           icon: const Icon(Icons.edit),
                           label: Text(widget.isTeacher ? '판서 시작' : '내 필기 시작'),
                           style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -572,6 +645,8 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                               icon: const Icon(Icons.visibility_outlined),
                               label: const Text('미리보기'),
                               style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(color: AppColors.primary),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 16,
                                 ),
@@ -584,7 +659,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: _isDownloading
+                              onPressed: _isLocked || _isDownloading
                                   ? null
                                   : _handleDownload,
                               icon: _isDownloading
@@ -602,6 +677,8 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                                   : const Icon(Icons.download),
                               label: Text(_isDownloading ? '저장 중...' : '다운로드'),
                               style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 16,
                                 ),
@@ -627,7 +704,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
   Widget _buildInfoRow(IconData icon, String label, String value) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: Colors.grey[600]),
+        Icon(icon, size: 20, color: AppColors.textSecondary),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -635,7 +712,10 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
             children: [
               Text(
                 label,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -643,6 +723,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ],

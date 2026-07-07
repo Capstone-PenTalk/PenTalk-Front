@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../providers/student_session_provider.dart';
 import '../services/auth_service.dart';
 import '../widgets/student_session_card.dart';
+import '../theme/app_colors.dart';
 import 'material_list_screen.dart';
+import 'material_library_screen.dart';
 import 'login_screen.dart';
 import 'qr_scan_screen.dart';
 
@@ -17,6 +19,7 @@ class StudentHomeScreen extends StatefulWidget {
 class _StudentHomeScreenState extends State<StudentHomeScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
+  int _tabIndex = 0;
 
   @override
   void initState() {
@@ -51,6 +54,38 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
+      body: IndexedStack(
+        index: _tabIndex,
+        children: [
+          _buildHomeTab(),
+          const MaterialLibraryScreen(isTeacher: false),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (i) => setState(() => _tabIndex = i),
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.primaryLight,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.home, color: AppColors.primary),
+            label: '홈',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.folder, color: AppColors.primary),
+            label: '자료실',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text(
           '서예영 님의 공간',
@@ -58,7 +93,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.account_circle),
+            icon: const Icon(Icons.account_circle, color: AppColors.primary),
             onPressed: _handleSwitchRole,
             tooltip: '역할 변경',
           ),
@@ -76,13 +111,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
               _initializeTabController(provider.subjects);
 
               return Container(
-                color: Theme.of(context).colorScheme.surface,
+                color: AppColors.surface,
                 child: TabBar(
                   controller: _tabController,
                   isScrollable: true,
-                  labelColor: Theme.of(context).primaryColor,
-                  unselectedLabelColor: Colors.grey,
-                  indicatorColor: Theme.of(context).primaryColor,
+                  labelColor: AppColors.primary,
+                  unselectedLabelColor: AppColors.textSecondary,
+                  indicatorColor: AppColors.primary,
                   labelStyle: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -103,7 +138,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
             child: Consumer<StudentSessionProvider>(
               builder: (context, provider, child) {
                 if (provider.isLoading && provider.sessions.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  );
                 }
 
                 if (provider.errorMessage != null) {
@@ -114,7 +151,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                         const Icon(
                           Icons.error_outline,
                           size: 64,
-                          color: Colors.red,
+                          color: AppColors.danger,
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -127,6 +164,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                           onPressed: () {
                             provider.loadMySessions();
                           },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                          ),
                           child: const Text('다시 시도'),
                         ),
                       ],
@@ -139,25 +179,25 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.school_outlined,
                           size: 80,
-                          color: Colors.grey[400],
+                          color: AppColors.textSecondary,
                         ),
                         const SizedBox(height: 16),
-                        Text(
+                        const Text(
                           '참여한 세션이 없습니다',
                           style: TextStyle(
                             fontSize: 18,
-                            color: Colors.grey[600],
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
+                        const Text(
                           '교사가 공유한 QR 코드나 링크로 세션에 참여하세요',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey[500],
+                            color: AppColors.textSecondary,
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -195,9 +235,11 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
         if (index == 0) {
           // + 버튼 카드 (세션 추가용)
           return Card(
-            elevation: 2,
+            color: AppColors.surface,
+            elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: AppColors.border),
             ),
             child: InkWell(
               onTap: () {
@@ -207,8 +249,8 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                 );
               },
               borderRadius: BorderRadius.circular(12),
-              child: Center(
-                child: Icon(Icons.add, size: 48, color: Colors.grey[600]),
+              child: const Center(
+                child: Icon(Icons.add, size: 48, color: AppColors.primary),
               ),
             ),
           );

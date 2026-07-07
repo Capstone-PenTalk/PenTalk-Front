@@ -53,22 +53,26 @@ class StudentSessionProvider extends ChangeNotifier {
   }
 
   // 내가 참여한 세션 목록 불러오기
+  // 주의: addJoinedSession()으로 이미 기록된 실제 참여 세션은
+  // 여기서 덮어쓰지 않는다 (홈 화면 재진입 시마다 호출되므로).
   Future<void> loadMySessions() async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      _sessions = [
-        StudentSessionModel(
-          id: _fallbackClassId,
-          title: 'seed-class-01 테스트 수업',
-          classId: _fallbackClassId,
-          teacherName: 'teacher1',
-          subject: '공유 세션',
-          joinedAt: DateTime.now(),
-        ),
-      ];
+      if (_sessions.isEmpty) {
+        _sessions = [
+          StudentSessionModel(
+            id: _fallbackClassId,
+            title: 'seed-class-01 테스트 수업',
+            classId: _fallbackClassId,
+            teacherName: 'teacher1',
+            subject: '공유 세션',
+            joinedAt: DateTime.now(),
+          ),
+        ];
+      }
 
       _isLoading = false;
       notifyListeners();

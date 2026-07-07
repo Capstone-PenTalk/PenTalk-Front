@@ -19,6 +19,11 @@ class SocketService {
   bool _isRoomJoined = false;
   final List<Map<String, dynamic>> _pendingEmits = [];
 
+  // 인증 실패 시 캐시 토큰 갱신 후 1회 재연결하기 위한 상태
+  String? _lastServerUrl;
+  bool _authRetryInProgress = false;
+  bool _hasRetriedAuth = false;
+
   Function(DrawEvent)? onDrawEventReceived;
   Function(String)? onUserJoined;
   Function(String)? onUserLeft;
@@ -56,6 +61,7 @@ class SocketService {
     String? classId,
     String? materialId,
     int? pageNumber,
+    bool isInternalRetry = false,
     }) async {
     try {
       _currentUserId = userId;
@@ -66,6 +72,8 @@ class SocketService {
       _currentIsTeacher = isTeacher;
       _isRoomJoined = false;
       _pendingEmits.clear();
+      _lastServerUrl = serverUrl;
+      if (!isInternalRetry) _hasRetriedAuth = false;
 
       final normalizedUrl = _normalizeServerUrl(serverUrl);
       debugPrint('[socket] Connecting to $normalizedUrl');
@@ -126,6 +134,7 @@ class SocketService {
     required Uri uri,
     required String userId,
     required String role,
+    bool forceRefresh = false,
   }) async {
     final effectivePort = (uri.hasPort && uri.port > 0)
         ? uri.port
@@ -135,10 +144,16 @@ class SocketService {
     ].join(':');
 
     final prefs = await SharedPreferences.getInstance();
-    final cachedToken = prefs.getString(storageKey);
-    if (cachedToken != null && cachedToken.isNotEmpty) {
-      debugPrint('[socket][auth] using cached token role=$role userId=$userId');
-      return cachedToken;
+
+    if (forceRefresh) {
+      await prefs.remove(storageKey);
+      debugPrint('[socket][auth] cleared cached token role=$role userId=$userId');
+    } else {
+      final cachedToken = prefs.getString(storageKey);
+      if (cachedToken != null && cachedToken.isNotEmpty) {
+        debugPrint('[socket][auth] using cached token role=$role userId=$userId');
+        return cachedToken;
+      }
     }
 
     final authUri = Uri(
@@ -155,7 +170,61 @@ class SocketService {
     final token = decoded['token']?.toString() ?? '';
     if (token.isEmpty) throw Exception('dev-login token missing');
     await prefs.setString(storageKey, token);
+    debugPrint('[socket][auth] fetched fresh token role=$role userId=$userId');
     return token;
+  }
+
+  /// 캐시된 토큰이 서버에서 거부(UNAUTHORIZED)됐을 때 1회 한정으로
+  /// 토큰을 새로 발급받아 재연결한다.
+  bool _isAuthError(dynamic error) {
+    final text = error is Map ? error['message']?.toString() : error?.toString();
+    if (text == null) return false;
+    final normalized = text.toUpperCase();
+    return normalized.contains('UNAUTHORIZED') ||
+        normalized.contains('INVALID_TOKEN') ||
+        normalized.contains('JWT');
+  }
+
+  Future<void> _retryConnectionWithFreshToken() async {
+    final serverUrl = _lastServerUrl;
+    final userId = _currentUserId;
+    final roomId = _currentRoomId;
+    if (serverUrl == null || userId == null || roomId == null) return;
+    if (_authRetryInProgress || _hasRetriedAuth) return;
+
+    _authRetryInProgress = true;
+    _hasRetriedAuth = true;
+    debugPrint('[socket][auth] retrying connection with fresh token');
+
+    try {
+      final normalizedUrl = _normalizeServerUrl(serverUrl);
+      final uri = Uri.parse(normalizedUrl);
+      final role = _currentIsTeacher ? 'teacher' : 'student';
+      await _getOrCreateDevToken(
+        uri: uri,
+        userId: userId,
+        role: role,
+        forceRefresh: true,
+      );
+
+      _socket?.dispose();
+      _socket = null;
+
+      await connect(
+        serverUrl: serverUrl,
+        userId: userId,
+        roomId: roomId,
+        isTeacher: _currentIsTeacher,
+        classId: _currentClassId,
+        materialId: _currentMaterialId,
+        pageNumber: _currentPageNumber,
+        isInternalRetry: true,
+      );
+    } catch (e) {
+      debugPrint('[socket][auth] retry failed: $e');
+    } finally {
+      _authRetryInProgress = false;
+    }
   }
 
   void _setupEventListeners() {
@@ -180,10 +249,14 @@ class SocketService {
 
     _socket!.on('connect_error', (error) {
       debugPrint('[socket][error] connect_error: $error');
+      if (_isAuthError(error)) {
+        _retryConnectionWithFreshToken();
+      }
       onError?.call(error);
     });
 
     _socket!.on('draw:append', (data) {
+      debugPrint('[socket][recv] draw:append from=${data is Map ? data['userId'] : null}');
       try {
         onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
       } catch (e) {
@@ -254,7 +327,12 @@ class SocketService {
       onError?.call(error);
     });
 
-    _socket!.on('error', (error) => onError?.call(error));
+    _socket!.on('error', (error) {
+      if (_isAuthError(error)) {
+        _retryConnectionWithFreshToken();
+      }
+      onError?.call(error);
+    });
 
     // Poll 이벤트
     _socket!.on('poll:start', (data) {
@@ -301,6 +379,7 @@ class SocketService {
 
     // Presence 이벤트
     _socket!.on('presence:state', (data) {
+      debugPrint('[socket][recv] presence:state: $data');
       if (data is! Map) return;
       final usersList = data['users'];
       if (usersList is! List) return;
@@ -310,6 +389,7 @@ class SocketService {
           .toList());
     });
     _socket!.on('presence:join', (data) {
+      debugPrint('[socket][recv] presence:join: $data');
       if (data is! Map) return;
       try {
         onPresenceJoin?.call(Participant.fromJson(Map<String, dynamic>.from(data)));
@@ -318,6 +398,7 @@ class SocketService {
       }
     });
     _socket!.on('presence:leave', (data) {
+      debugPrint('[socket][recv] presence:leave: $data');
       if (data is! Map) return;
       final userId = data['userId'] as String?;
       final role = data['role'] as String?;
