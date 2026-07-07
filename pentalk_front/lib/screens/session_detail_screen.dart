@@ -193,7 +193,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     materialProvider.setLoading(true);
 
     try {
-      final materials = await ApiService.getMaterials(classId: classId);
+      final materials = await ApiService.getMaterials(
+        classId: classId,
+        sessionId: _effectiveSessionId ?? widget.sessionId,
+      );
       if (!mounted) return;
 
       materialProvider.setMaterials(
