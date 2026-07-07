@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/drawing_provider.dart';
 import '../utils/pen_style_constants.dart';
+import '../theme/app_colors.dart';
 
 /// ===============================
 /// 색상 팔레트 바 (AppBar용)
@@ -18,7 +19,11 @@ class ColorPaletteBar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // 색상 아이콘 (인디케이터)
-            const Icon(Icons.palette, size: 18, color: Colors.grey),
+            const Icon(
+              Icons.palette,
+              size: 18,
+              color: AppColors.textSecondary,
+            ),
             const SizedBox(width: 4),
 
             // 색상 버튼들
@@ -48,7 +53,7 @@ class ColorPaletteBar extends StatelessWidget {
                         boxShadow: isSelected
                             ? [
                           BoxShadow(
-                            color: Colors.blue.withOpacity(0.5),
+                            color: AppColors.primary.withOpacity(0.5),
                             blurRadius: 4,
                             spreadRadius: 1,
                           )

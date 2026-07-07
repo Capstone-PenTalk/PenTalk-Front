@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../models/poll_model.dart';
+import '../theme/app_colors.dart';
 
 /// ===============================
-/// 교사용 실시간 집계 결과 시트
-/// 화면 우측에 고정 표시
+/// 교사용 실시간 집계 결과 패널
+/// 판서 화면 좌측 고정 패널로 표시
 /// ===============================
 class PollResultSheet extends StatelessWidget {
   final PollState pollState;
@@ -17,237 +20,266 @@ class PollResultSheet extends StatelessWidget {
     required this.onClose,
   }) : super(key: key);
 
+  static const List<Color> _segmentColors = [
+    AppColors.primary,
+    AppColors.accent,
+    Color(0xFF9CA3AF),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final result = pollState.resultData;
     final options = pollState.pollData?.options ?? [];
     final total = result?.total ?? 0;
+    final ratios = options
+        .map((option) => result?.ratioFor(option.id) ?? 0.0)
+        .toList();
 
-    return Positioned(
-      right: 16,
-      top: 16,
-      child: Container(
-        width: 280,
-        constraints: const BoxConstraints(maxHeight: 480),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 16,
-              spreadRadius: 1,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 헤더
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-              decoration: BoxDecoration(
-                color: Colors.blue[600],
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-              ),
-              child: Row(
+    return Container(
+      color: AppColors.surface,
+      child: SafeArea(
+        left: false,
+        right: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  const Icon(Icons.bar_chart, color: Colors.white, size: 18),
-                  const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      '이해도 집계',
+                      '현재 이해도 체크',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ),
-                  // 타이머
                   if (pollState.hasDuration && pollState.isActive)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: remainingSeconds <= 5
-                            ? Colors.red
-                            : Colors.white.withOpacity(0.25),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${remainingSeconds}s',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  // 종료 표시
-                  if (pollState.isEnded)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.25),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        '종료',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  // 닫기 버튼 (종료 시만)
+                    _TimerChip(seconds: remainingSeconds),
                   if (pollState.isEnded)
                     IconButton(
-                      icon: const Icon(Icons.close,
-                          color: Colors.white, size: 18),
+                      icon: const Icon(
+                        Icons.close,
+                        size: 18,
+                        color: AppColors.textSecondary,
+                      ),
                       onPressed: onClose,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
+                        minWidth: 28,
+                        minHeight: 28,
                       ),
                     ),
                 ],
               ),
-            ),
-
-            // 질문
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Text(
+              const SizedBox(height: 4),
+              Text(
                 pollState.pollData?.question ?? '',
                 style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-            ),
+              const SizedBox(height: 14),
 
-            // 응답자 수
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Icon(Icons.people_outline,
-                      size: 14, color: Colors.grey[500]),
-                  const SizedBox(width: 4),
-                  Text(
-                    '응답 $total명',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[500],
+              Center(
+                child: SizedBox(
+                  width: 110,
+                  height: 110,
+                  child: CustomPaint(
+                    painter: DonutChartPainter(
+                      ratios: ratios,
+                      colors: _segmentColors,
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$total명',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const Text(
+                            '응답',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // 선택지별 막대 그래프
-            if (options.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Column(
-                  children: options.map((option) {
-                    final count = result?.countFor(option.id) ?? 0;
-                    final ratio = result?.ratioFor(option.id) ?? 0.0;
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _ResultBar(
-                        text: option.text,
-                        count: count,
-                        ratio: ratio,
-                        total: total,
-                      ),
-                    );
-                  }).toList(),
                 ),
               ),
-          ],
+              const SizedBox(height: 14),
+
+              if (options.isNotEmpty)
+                Column(
+                  children: List.generate(options.length, (i) {
+                    final option = options[i];
+                    final count = result?.countFor(option.id) ?? 0;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _LegendRow(
+                        color: _segmentColors[i % _segmentColors.length],
+                        text: option.text,
+                        count: count,
+                      ),
+                    );
+                  }),
+                ),
+
+              const SizedBox(height: 8),
+              if (pollState.isActive)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: onClose,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: const Text(
+                      '이해도체크 종료',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _ResultBar extends StatelessWidget {
+class _LegendRow extends StatelessWidget {
+  final Color color;
   final String text;
   final int count;
-  final double ratio;
-  final int total;
 
-  const _ResultBar({
+  const _LegendRow({
+    required this.color,
     required this.text,
     required this.count,
-    required this.ratio,
-    required this.total,
   });
 
   @override
   Widget build(BuildContext context) {
-    final percent = (ratio * 100).toStringAsFixed(0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.black87,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '$count명 ($percent%)',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: 10,
-            backgroundColor: Colors.grey[100],
-            valueColor: AlwaysStoppedAnimation<Color>(
-              _barColor(ratio),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: AppColors.textPrimary,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
+        ),
+        Text(
+          '$count명',
+          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
         ),
       ],
     );
   }
+}
 
-  Color _barColor(double ratio) {
-    if (ratio >= 0.7) return Colors.green;
-    if (ratio >= 0.4) return Colors.blue;
-    return Colors.orange;
+class _TimerChip extends StatelessWidget {
+  final int seconds;
+
+  const _TimerChip({required this.seconds});
+
+  @override
+  Widget build(BuildContext context) {
+    final isUrgent = seconds <= 5;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isUrgent ? AppColors.danger : AppColors.primaryLight,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '${seconds}s',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: isUrgent ? Colors.white : AppColors.primary,
+        ),
+      ),
+    );
   }
+}
+
+/// ===============================
+/// 도넛차트 페인터 (외부 패키지 없이 CustomPaint로 구현)
+/// ===============================
+class DonutChartPainter extends CustomPainter {
+  final List<double> ratios;
+  final List<Color> colors;
+  final double strokeWidth;
+
+  DonutChartPainter({
+    required this.ratios,
+    required this.colors,
+    this.strokeWidth = 14,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide - strokeWidth) / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    canvas.drawArc(
+      rect,
+      0,
+      2 * math.pi,
+      false,
+      Paint()
+        ..color = Colors.grey.shade200
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth,
+    );
+
+    double start = -math.pi / 2;
+    for (var i = 0; i < ratios.length; i++) {
+      final sweep = ratios[i] * 2 * math.pi;
+      if (sweep <= 0) continue;
+      canvas.drawArc(
+        rect,
+        start,
+        sweep,
+        false,
+        Paint()
+          ..color = colors[i % colors.length]
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth,
+      );
+      start += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant DonutChartPainter oldDelegate) =>
+      oldDelegate.ratios != ratios || oldDelegate.colors != colors;
 }

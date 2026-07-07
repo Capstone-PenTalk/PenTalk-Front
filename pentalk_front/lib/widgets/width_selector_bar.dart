@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/drawing_provider.dart';
 import '../utils/pen_style_constants.dart';
+import '../theme/app_colors.dart';
 
 /// ===============================
 /// 굵기 선택 바 (AppBar용)
@@ -18,7 +19,11 @@ class WidthSelectorBar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // 굵기 아이콘 (인디케이터)
-            const Icon(Icons.line_weight, size: 18, color: Colors.grey),
+            const Icon(
+              Icons.line_weight,
+              size: 18,
+              color: AppColors.textSecondary,
+            ),
             const SizedBox(width: 4),
 
             // 굵기 버튼들
@@ -43,11 +48,13 @@ class WidthSelectorBar extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? Colors.blue.withOpacity(0.2)
+                            ? AppColors.primary.withOpacity(0.15)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
-                          color: isSelected ? Colors.blue : Colors.grey[300]!,
+                          color: isSelected
+                              ? AppColors.primary
+                              : Colors.grey[300]!,
                           width: isSelected ? 2 : 1,
                         ),
                       ),
@@ -69,8 +76,12 @@ class WidthSelectorBar extends StatelessWidget {
                             name,
                             style: TextStyle(
                               fontSize: 9,
-                              color: isSelected ? Colors.blue : Colors.grey[600],
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              color: isSelected
+                                  ? AppColors.primary
+                                  : Colors.grey[600],
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                         ],
