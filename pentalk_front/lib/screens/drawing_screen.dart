@@ -6,12 +6,14 @@ import 'package:provider/provider.dart';
 import '../models/document_source.dart';
 import '../models/student_session_model.dart';
 import '../models/poll_model.dart';
+import '../models/question_model.dart';
 import '../config/app_config.dart';
 import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../providers/participants_provider.dart';
 import '../providers/poll_provider.dart';
+import '../providers/question_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
 import '../widgets/session_ended_dialog.dart';
 import '../widgets/participants_button.dart';
@@ -23,6 +25,8 @@ import '../widgets/poll_result_sheet.dart';
 import '../widgets/poll_start_dialog.dart';
 import '../widgets/qr_view.dart';
 import '../widgets/quiz_editor_widget.dart';
+import '../widgets/questions_panel.dart';
+import '../widgets/question_ask_dialog.dart';
 import '../services/api_service.dart';
 import '../services/deep_link_service.dart';
 import '../services/pdf_document_service.dart';
@@ -85,6 +89,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// 학생이 이해도 체크에 답변 후 팝업을 수동으로 닫은 상태
   bool _pollOverlayDismissed = false;
 
+  /// 교사: 질문 패널 표시 여부 (로컬 UI 토글)
+  bool _showQuestionsPanel = false;
+
   bool get _usesNativeTeacherDrawing =>
       AppConfig.enableNativeTeacherDrawing &&
       !kIsWeb &&
@@ -109,6 +116,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       _setupSessionEndedListener();
       _setupPresenceCallbacks();
       _setupPollCallbacks();
+      _setupQuestionCallbacks();
     });
   }
 
@@ -590,6 +598,57 @@ class _DrawingScreenState extends State<DrawingScreen> {
     debugPrint('Presence callbacks setup completed');
   }
 
+  /// ===============================
+  /// 질문하기(Q&A) 콜백 설정
+  /// 교사: 새 질문 수신 / 학생: 전송 확인
+  /// ===============================
+  void _setupQuestionCallbacks() {
+    final socketService = _drawingProvider.socketService;
+
+    if (widget.isTeacher) {
+      final questionProvider = context.read<QuestionProvider>();
+
+      socketService.onQuestionNew = (data) {
+        questionProvider.addQuestion(QuestionModel.fromJson(data));
+      };
+
+      socketService.onQuestionListResult = (data) {
+        final questions = data
+            .whereType<Map>()
+            .map((e) => QuestionModel.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        questionProvider.setQuestions(questions);
+      };
+
+      // 재입장 시 기존에 쌓인 질문 목록 요청
+      socketService.requestQuestionList();
+    } else {
+      socketService.onQuestionAck = (data) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('질문이 전송됐습니다')));
+      };
+    }
+
+    debugPrint('Question callbacks setup completed');
+  }
+
+  /// ===============================
+  /// 학생: 질문하기 다이얼로그
+  /// ===============================
+  void _openAskQuestionDialog() {
+    QuestionAskDialog.show(
+      context,
+      onSend: (content) {
+        _drawingProvider.socketService.askQuestion(
+          content: content,
+          isAnonymous: true,
+        );
+      },
+    );
+  }
+
   void _handleSessionEnded(Map<String, dynamic> data) {
     final message = data['message'] as String? ?? '교사가 수업을 종료했습니다';
 
@@ -627,6 +686,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void _cleanupAndGoHome() {
     _drawingProvider.disconnectSocket();
     _drawingProvider.clear();
+    if (widget.isTeacher) {
+      context.read<QuestionProvider>().clear();
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => widget.isTeacher
@@ -879,6 +941,27 @@ class _DrawingScreenState extends State<DrawingScreen> {
                 label: '복습퀴즈',
                 isActive: false,
                 onTap: _openQuizEditor,
+              ),
+            if (widget.isTeacher)
+              Consumer<QuestionProvider>(
+                builder: (context, questionProvider, _) {
+                  return _SidebarNavItem(
+                    icon: Icons.chat_bubble_outline,
+                    label: '질문들',
+                    isActive: _showQuestionsPanel,
+                    badgeCount: questionProvider.unreadCount,
+                    onTap: () => setState(
+                      () => _showQuestionsPanel = !_showQuestionsPanel,
+                    ),
+                  );
+                },
+              ),
+            if (!widget.isTeacher)
+              _SidebarNavItem(
+                icon: Icons.chat_bubble_outline,
+                label: '질문하기',
+                isActive: false,
+                onTap: _openAskQuestionDialog,
               ),
             const SizedBox(height: 4),
             const ParticipantsButton(),
@@ -1169,6 +1252,20 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         );
                       },
                     ),
+
+                  // 교사: 질문 수신함 좌측 고정 패널
+                  if (widget.isTeacher && _showQuestionsPanel)
+                    SizedBox(
+                      width: 170,
+                      child: Consumer<QuestionProvider>(
+                        builder: (context, questionProvider, _) {
+                          return QuestionsPanel(
+                            questions: questionProvider.questions,
+                            onDismiss: questionProvider.dismiss,
+                          );
+                        },
+                      ),
+                    ),
                 ],
               ),
         floatingActionButton: widget.isReadOnly
@@ -1388,6 +1485,7 @@ class _SidebarNavItem extends StatelessWidget {
   final String label;
   final bool isActive;
   final bool isDanger;
+  final int? badgeCount;
   final VoidCallback onTap;
 
   const _SidebarNavItem({
@@ -1396,6 +1494,7 @@ class _SidebarNavItem extends StatelessWidget {
     required this.isActive,
     required this.onTap,
     this.isDanger = false,
+    this.badgeCount,
   });
 
   @override
@@ -1413,14 +1512,46 @@ class _SidebarNavItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: isActive ? AppColors.primaryLight : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, size: 18, color: color),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? AppColors.primaryLight
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 18, color: color),
+                ),
+                if (badgeCount != null && badgeCount! > 0)
+                  Positioned(
+                    top: -3,
+                    right: -3,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      constraints: const BoxConstraints(minWidth: 14),
+                      decoration: const BoxDecoration(
+                        color: AppColors.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        badgeCount! > 9 ? '9+' : '$badgeCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 2),
             Text(
