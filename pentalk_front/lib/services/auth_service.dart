@@ -12,6 +12,8 @@ class AuthService {
   static const String _tokenKey = 'jwt_token';
   static const String _userIdKey = 'user_id';
   static const String _roleKey = 'user_role';
+  static const String _displayNameKey = 'display_name';
+  static const String _studentNumberKey = 'student_number';
 
   /// JWT 토큰 저장
   static Future<void> saveToken(String token) async {
@@ -46,6 +48,40 @@ class AuthService {
     return await _storage.read(key: _roleKey);
   }
 
+  /// 회원가입에서 입력한 프로필 저장
+  static Future<void> saveProfile({
+    required String displayName,
+    String? studentNumber,
+  }) async {
+    await _storage.write(key: _displayNameKey, value: displayName);
+    if (studentNumber != null) {
+      final userId = await getUserId();
+      final key = _studentNumberStorageKey(userId);
+      if (studentNumber.isEmpty) {
+        await _storage.delete(key: key);
+      } else {
+        await _storage.write(key: key, value: studentNumber);
+      }
+    }
+  }
+
+  static Future<String?> getDisplayName() async {
+    return await _storage.read(key: _displayNameKey);
+  }
+
+  static Future<String?> getStudentNumber() async {
+    final userId = await getUserId();
+    final stored = await _storage.read(key: _studentNumberStorageKey(userId));
+    return stored ?? await _storage.read(key: _studentNumberKey);
+  }
+
+  static String _studentNumberStorageKey(String? userId) {
+    final normalized = userId?.trim();
+    return normalized == null || normalized.isEmpty
+        ? _studentNumberKey
+        : '${_studentNumberKey}_$normalized';
+  }
+
   /// 로그인 여부 확인
   static Future<bool> isLoggedIn() async {
     final token = await getToken();
@@ -57,6 +93,8 @@ class AuthService {
     await _storage.delete(key: _tokenKey);
     await _storage.delete(key: _userIdKey);
     await _storage.delete(key: _roleKey);
+    await _storage.delete(key: _displayNameKey);
+    await _storage.delete(key: _studentNumberKey);
     debugPrint('✅ Logged out (secure)');
   }
 

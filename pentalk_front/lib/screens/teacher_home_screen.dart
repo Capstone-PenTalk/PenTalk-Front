@@ -33,9 +33,13 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   }
 
   Future<void> _loadUserName() async {
+    final displayName = await AuthService.getDisplayName();
     final userId = await AuthService.getUserId();
-    if (mounted && userId != null) {
-      setState(() => _userName = userId);
+    final resolvedName = displayName?.trim().isNotEmpty == true
+        ? displayName!.trim()
+        : userId;
+    if (mounted && resolvedName != null) {
+      setState(() => _userName = resolvedName);
     }
   }
 

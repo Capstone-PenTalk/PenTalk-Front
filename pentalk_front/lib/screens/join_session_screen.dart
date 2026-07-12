@@ -254,7 +254,7 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
     }
 
     setState(() => _message = '학생 계정으로 접속하는 중...');
-    final loginResponse = await ApiService.login(
+    final loginResponse = await ApiService.devLogin(
       userId: 'student1',
       role: 'student',
     );

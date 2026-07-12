@@ -409,7 +409,7 @@ class ApiService {
   }
 
   static Future<String?> _ensureTeacherToken() async {
-    final response = await login(userId: 'teacher1', role: 'teacher');
+    final response = await devLogin(userId: 'teacher1', role: 'teacher');
     if (!response.success || response.data == null) {
       throw Exception(response.message ?? '교사 인증 토큰 발급 실패');
     }
@@ -426,7 +426,7 @@ class ApiService {
   /// ===============================
   /// 로그인 (POST /auth/dev-login)
   /// ===============================
-  static Future<ApiResponse<LoginResponse>> login({
+  static Future<ApiResponse<LoginResponse>> devLogin({
     required String userId,
     required String role,
   }) async {
@@ -480,6 +480,242 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('❌ Login error: $e');
+      return ApiResponse<LoginResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  /// ===============================
+  /// 아이디 중복 확인 (GET /auth/check-id)
+  /// ===============================
+  static Future<ApiResponse<bool>> checkLoginId(String loginId) async {
+    try {
+      final uri = Uri.parse(
+        '$baseUrl/auth/check-id',
+      ).replace(queryParameters: {'loginId': loginId});
+      final response = await http
+          .get(uri)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Check ID timeout'),
+          );
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return ApiResponse<bool>(
+          success: true,
+          data: data['available'] == true,
+        );
+      }
+      return ApiResponse<bool>(
+        success: false,
+        error: data['code']?.toString() ?? 'CHECK_ID_FAILED',
+        message: data['message']?.toString() ?? '아이디 확인에 실패했습니다.',
+      );
+    } catch (e) {
+      return ApiResponse<bool>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  /// ===============================
+  /// 로그인 (POST /auth/login)
+  /// ===============================
+  static Future<ApiResponse<LoginResponse>> login({
+    required String loginId,
+    required String password,
+  }) {
+    return _requestAuth(
+      path: '/auth/login',
+      body: {'loginId': loginId, 'password': password},
+      successStatus: 200,
+    );
+  }
+
+  /// ===============================
+  /// 회원가입 (POST /auth/signup)
+  /// ===============================
+  static Future<ApiResponse<LoginResponse>> signup({
+    required String loginId,
+    required String password,
+    required String name,
+    required String role,
+    String? studentNumber,
+  }) {
+    final body = <String, String>{
+      'loginId': loginId,
+      'password': password,
+      'name': name,
+      'role': role,
+    };
+    final normalizedStudentNumber = studentNumber?.trim();
+    if (role == 'student' &&
+        normalizedStudentNumber != null &&
+        normalizedStudentNumber.isNotEmpty) {
+      body['studentNumber'] = normalizedStudentNumber;
+    }
+    return _requestAuth(path: '/auth/signup', body: body, successStatus: 201);
+  }
+
+  /// ===============================
+  /// 소셜 로그인 코드 교환 (POST /auth/exchange)
+  /// ===============================
+  static Future<ApiResponse<OAuthExchangeResponse>> exchangeOAuthCode(
+    String code,
+  ) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/auth/exchange'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'code': code}),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('OAuth exchange timeout'),
+          );
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != 200) {
+        return ApiResponse<OAuthExchangeResponse>(
+          success: false,
+          error: data['code']?.toString() ?? 'EXCHANGE_FAILED',
+          message: data['message']?.toString() ?? '소셜 로그인에 실패했습니다.',
+        );
+      }
+
+      final parsed = OAuthExchangeResponse.fromJson(data);
+      if (parsed.token.isEmpty || parsed.user.userId.isEmpty) {
+        return ApiResponse<OAuthExchangeResponse>(
+          success: false,
+          error: 'INVALID_RESPONSE',
+          message: '서버 소셜 로그인 응답 형식이 올바르지 않습니다.',
+        );
+      }
+      if (!parsed.requiresRoleSelection && parsed.user.role == null) {
+        return ApiResponse<OAuthExchangeResponse>(
+          success: false,
+          error: 'INVALID_RESPONSE',
+          message: '역할이 확정된 사용자 응답에 역할 정보가 없습니다.',
+        );
+      }
+
+      return ApiResponse<OAuthExchangeResponse>(success: true, data: parsed);
+    } catch (e) {
+      return ApiResponse<OAuthExchangeResponse>(
+        success: false,
+        error: 'NETWORK_ERROR',
+        message: e.toString(),
+      );
+    }
+  }
+
+  /// ===============================
+  /// 소셜 신규 사용자 역할 확정 (PATCH /auth/role)
+  /// ===============================
+  static Future<ApiResponse<LoginResponse>> setOAuthRole({
+    required String setupToken,
+    required String role,
+    String? studentNumber,
+  }) {
+    final body = <String, String>{'role': role};
+    final normalizedStudentNumber = studentNumber?.trim();
+    if (role == 'student' &&
+        normalizedStudentNumber != null &&
+        normalizedStudentNumber.isNotEmpty) {
+      body['studentNumber'] = normalizedStudentNumber;
+    }
+    return _requestAuth(
+      path: '/auth/role',
+      body: body,
+      successStatus: 200,
+      method: _AuthMethod.patch,
+      authToken: setupToken,
+    );
+  }
+
+  /// ===============================
+  /// 학생 학번 수정/보완 (PATCH /auth/profile)
+  /// ===============================
+  static Future<ApiResponse<LoginResponse>> updateStudentNumber(
+    String studentNumber,
+  ) {
+    return _requestAuth(
+      path: '/auth/profile',
+      body: {'studentNumber': studentNumber.trim()},
+      successStatus: 200,
+      method: _AuthMethod.patch,
+      useSavedToken: true,
+    );
+  }
+
+  static Future<ApiResponse<LoginResponse>> _requestAuth({
+    required String path,
+    required Map<String, String> body,
+    required int successStatus,
+    _AuthMethod method = _AuthMethod.post,
+    String? authToken,
+    bool useSavedToken = false,
+  }) async {
+    try {
+      final savedToken = useSavedToken ? await AuthService.getToken() : null;
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        if (authToken != null && authToken.isNotEmpty)
+          'Authorization': 'Bearer $authToken',
+        if (savedToken != null && savedToken.isNotEmpty)
+          'Authorization': 'Bearer $savedToken',
+      };
+      final uri = Uri.parse('$baseUrl$path');
+      final encodedBody = jsonEncode(body);
+      final request = method == _AuthMethod.patch
+          ? http.patch(uri, headers: headers, body: encodedBody)
+          : http.post(uri, headers: headers, body: encodedBody);
+      final response = await request.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutException('Auth request timeout'),
+      );
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != successStatus) {
+        return ApiResponse<LoginResponse>(
+          success: false,
+          error: data['code']?.toString() ?? 'AUTH_FAILED',
+          message: data['message']?.toString() ?? '인증에 실패했습니다.',
+        );
+      }
+
+      final user = data['user'] is Map
+          ? Map<String, dynamic>.from(data['user'] as Map)
+          : <String, dynamic>{};
+      final token = data['token']?.toString() ?? '';
+      final userId = user['id']?.toString() ?? '';
+      final role = user['role']?.toString() ?? '';
+      if (token.isEmpty || userId.isEmpty || role.isEmpty) {
+        return ApiResponse<LoginResponse>(
+          success: false,
+          error: 'INVALID_RESPONSE',
+          message: '서버 인증 응답에 필수 정보가 없습니다.',
+        );
+      }
+
+      return ApiResponse<LoginResponse>(
+        success: true,
+        data: LoginResponse(
+          token: token,
+          userId: userId,
+          role: role,
+          loginId: user['loginId']?.toString(),
+          name: user['name']?.toString(),
+          email: user['email']?.toString(),
+          studentNumber: user['studentNumber']?.toString(),
+          requiresProfileCompletion: data['requiresProfileCompletion'] == true,
+        ),
+      );
+    } catch (e) {
       return ApiResponse<LoginResponse>(
         success: false,
         error: 'NETWORK_ERROR',
@@ -1137,13 +1373,82 @@ class LoginResponse {
   final String token;
   final String userId;
   final String role;
+  final String? loginId;
+  final String? name;
+  final String? email;
+  final String? studentNumber;
+  final bool requiresProfileCompletion;
 
   LoginResponse({
     required this.token,
     required this.userId,
     required this.role,
+    this.loginId,
+    this.name,
+    this.email,
+    this.studentNumber,
+    this.requiresProfileCompletion = false,
   });
 }
+
+class OAuthExchangeResponse {
+  final bool requiresRoleSelection;
+  final String token;
+  final AuthUser user;
+  final bool? requiresProfileCompletion;
+
+  const OAuthExchangeResponse({
+    required this.requiresRoleSelection,
+    required this.token,
+    required this.user,
+    this.requiresProfileCompletion,
+  });
+
+  factory OAuthExchangeResponse.fromJson(Map<String, dynamic> json) {
+    final user = json['user'] is Map
+        ? AuthUser.fromJson(Map<String, dynamic>.from(json['user'] as Map))
+        : const AuthUser(userId: '');
+    return OAuthExchangeResponse(
+      requiresRoleSelection: json['requiresRoleSelection'] == true,
+      token: json['token']?.toString() ?? '',
+      user: user,
+      requiresProfileCompletion: json.containsKey('requiresProfileCompletion')
+          ? json['requiresProfileCompletion'] == true
+          : null,
+    );
+  }
+}
+
+class AuthUser {
+  final String userId;
+  final String? loginId;
+  final String? name;
+  final String? email;
+  final String? role;
+  final String? studentNumber;
+
+  const AuthUser({
+    required this.userId,
+    this.loginId,
+    this.name,
+    this.email,
+    this.role,
+    this.studentNumber,
+  });
+
+  factory AuthUser.fromJson(Map<String, dynamic> json) {
+    return AuthUser(
+      userId: json['id']?.toString() ?? '',
+      loginId: json['loginId']?.toString(),
+      name: json['name']?.toString(),
+      email: json['email']?.toString(),
+      role: json['role']?.toString(),
+      studentNumber: json['studentNumber']?.toString(),
+    );
+  }
+}
+
+enum _AuthMethod { post, patch }
 
 class WhiteboardData {
   final String sessionId;

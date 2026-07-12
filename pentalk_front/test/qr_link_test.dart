@@ -8,21 +8,21 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 void main() {
   test('default server URL points at the configured backend', () {
-    expect(AppConfig.apiBaseUrl, 'http://3.36.74.3:3000');
+    expect(AppConfig.apiBaseUrl, 'https://api.pentalkedu.com');
     expect(
       AppConfig.resolveSocketUrl(isTeacher: true),
-      'http://3.36.74.3:3000',
+      'https://api.pentalkedu.com',
     );
     expect(
       AppConfig.resolveSocketUrl(isTeacher: false),
-      'http://3.36.74.3:3000',
+      'https://api.pentalkedu.com',
     );
   });
 
   test('join web link uses the configured backend by default', () {
     expect(
       DeepLinkService().generateJoinWebLink('session-123'),
-      'http://3.36.74.3:3000/join/session-123',
+      'https://api.pentalkedu.com/join/session-123',
     );
     expect(
       DeepLinkService().generateJoinWebLink(
@@ -30,7 +30,7 @@ void main() {
         classId: 'seed-class-01',
         materialId: 'material-456',
       ),
-      'http://3.36.74.3:3000/join/session-123?classId=seed-class-01&materialId=material-456',
+      'https://api.pentalkedu.com/join/session-123?classId=seed-class-01&materialId=material-456',
     );
   });
 
@@ -38,7 +38,7 @@ void main() {
     final service = DeepLinkService();
 
     expect(
-      service.parseJoinSessionId('http://3.36.74.3:3000/join/session-123'),
+      service.parseJoinSessionId('https://api.pentalkedu.com/join/session-123'),
       'session-123',
     );
     expect(
@@ -51,13 +51,13 @@ void main() {
     );
     expect(
       service.parseJoinClassId(
-        'http://3.36.74.3:3000/join/session-123?classId=seed-class-01&materialId=material-456',
+        'https://api.pentalkedu.com/join/session-123?classId=seed-class-01&materialId=material-456',
       ),
       'seed-class-01',
     );
     expect(
       service.parseJoinMaterialId(
-        'http://3.36.74.3:3000/join/session-123?classId=seed-class-01&materialId=material-456',
+        'https://api.pentalkedu.com/join/session-123?classId=seed-class-01&materialId=material-456',
       ),
       'material-456',
     );
@@ -113,7 +113,7 @@ void main() {
   testWidgets('QrView renders a QR image with the provided URL', (
     tester,
   ) async {
-    const url = 'http://3.36.74.3:3000/join/session-123';
+    const url = 'https://api.pentalkedu.com/join/session-123';
 
     await tester.pumpWidget(
       const MaterialApp(
