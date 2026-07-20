@@ -6,7 +6,9 @@ import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../widgets/session_card.dart';
 import '../widgets/create_session_dialog.dart';
+import '../theme/app_colors.dart';
 import 'session_detail_screen.dart';
+import 'material_library_screen.dart';
 import 'login_screen.dart';
 
 /// ===============================
@@ -22,6 +24,7 @@ class TeacherHomeScreen extends StatefulWidget {
 
 class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   String _userName = '선생님';
+  int _tabIndex = 0;
 
   @override
   void initState() {
@@ -86,6 +89,35 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
+      body: IndexedStack(
+        index: _tabIndex,
+        children: [_buildHomeTab(), const MaterialLibraryScreen(isTeacher: true)],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (i) => setState(() => _tabIndex = i),
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.primaryLight,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.home, color: AppColors.primary),
+            label: '홈',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.folder, color: AppColors.primary),
+            label: '자료실',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
           '$_userName 님의 수업',
@@ -99,12 +131,15 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               tooltip: '로컬 PDF 테스트',
             ),
           IconButton(
-            icon: const Icon(Icons.add_circle_outline),
+            icon: const Icon(
+              Icons.add_circle_outline,
+              color: AppColors.primary,
+            ),
             onPressed: _showCreateSessionDialog,
             tooltip: '새 세션 만들기',
           ),
           IconButton(
-            icon: const Icon(Icons.account_circle),
+            icon: const Icon(Icons.account_circle, color: AppColors.primary),
             onPressed: _handleLogout,
             tooltip: '로그아웃',
           ),
@@ -113,7 +148,9 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       body: Consumer<SessionProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading && provider.sessions.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            );
           }
 
           if (provider.errorMessage != null) {
@@ -121,7 +158,11 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                  const Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: AppColors.danger,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     provider.errorMessage!,
@@ -131,6 +172,9 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: provider.loadSessions,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                    ),
                     child: const Text('다시 시도'),
                   ),
                 ],
@@ -143,20 +187,33 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.folder_open, size: 80, color: Colors.grey[400]),
+                  const Icon(
+                    Icons.folder_open,
+                    size: 80,
+                    color: AppColors.textSecondary,
+                  ),
                   const SizedBox(height: 16),
-                  Text(
+                  const Text(
                     '아직 생성된 세션이 없습니다',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: AppColors.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
+                  const Text(
                     '우측 상단 + 버튼을 눌러 새 세션을 생성하세요',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
                     onPressed: _showCreateSessionDialog,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                    ),
                     icon: const Icon(Icons.add),
                     label: const Text('새 세션 만들기'),
                   ),
@@ -177,24 +234,26 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
             itemBuilder: (context, index) {
               if (index == 0) {
                 return Card(
-                  elevation: 2,
+                  color: AppColors.surface,
+                  elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: AppColors.border),
                   ),
                   child: InkWell(
                     onTap: _showCreateSessionDialog,
                     borderRadius: BorderRadius.circular(12),
-                    child: Center(
+                    child: const Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.add, size: 48, color: Colors.grey[600]),
-                          const SizedBox(height: 8),
+                          Icon(Icons.add, size: 48, color: AppColors.primary),
+                          SizedBox(height: 8),
                           Text(
                             '새 세션',
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.grey[600],
+                              color: AppColors.primary,
                             ),
                           ),
                         ],
@@ -216,6 +275,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                       builder: (_) => SessionDetailScreen(
                         sessionId: session.id,
                         classId: session.classId,
+                        password: session.password,
                       ),
                     ),
                   );
@@ -233,7 +293,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('삭제 실패: $e'),
-                          backgroundColor: Colors.red,
+                          backgroundColor: AppColors.danger,
                         ),
                       );
                     }

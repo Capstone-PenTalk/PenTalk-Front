@@ -97,6 +97,7 @@ enum QuizStatus {
   failed,            // 미통과 (60% 미만)
   dailyLimitExceeded,// 하루 2회 초과 (429)
   noQuestions,       // 등록된 문항 없음
+  error,             // 로드 실패
 }
 
 /// 하루 2회 초과 예외

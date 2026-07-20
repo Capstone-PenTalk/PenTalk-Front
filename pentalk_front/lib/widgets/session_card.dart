@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/session_model.dart';
+import '../theme/app_colors.dart';
 import 'qr_view.dart';
 import 'package:intl/intl.dart';
 
@@ -34,8 +35,12 @@ class SessionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppColors.surface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: AppColors.border),
+      ),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -53,13 +58,17 @@ class SessionCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   if (onDelete != null)
                     IconButton(
-                      icon: const Icon(Icons.more_vert),
+                      icon: const Icon(
+                        Icons.more_vert,
+                        color: AppColors.textSecondary,
+                      ),
                       onPressed: () {
                         _showOptionsMenu(context);
                       },
@@ -72,24 +81,27 @@ class SessionCard extends StatelessWidget {
                   const Icon(
                     Icons.people_outline,
                     size: 16,
-                    color: Colors.grey,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     '최대 ${session.maxParticipants}명',
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                   const SizedBox(width: 16),
                   if (session.password != null) ...[
                     const Icon(
                       Icons.lock_outline,
                       size: 16,
-                      color: Colors.grey,
+                      color: AppColors.accent,
                     ),
                     const SizedBox(width: 4),
                     const Text(
                       '비밀번호 설정됨',
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                      style: TextStyle(fontSize: 14, color: AppColors.accent),
                     ),
                   ],
                 ],
@@ -100,17 +112,23 @@ class SessionCard extends StatelessWidget {
                   const Icon(
                     Icons.folder_outlined,
                     size: 16,
-                    color: Colors.grey,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     '파일 ${session.files.length}개',
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                   const Spacer(),
                   Text(
                     _formatDate(session.createdAt),
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),
@@ -142,8 +160,11 @@ class SessionCard extends StatelessWidget {
                   },
                 ),
               ListTile(
-                leading: const Icon(Icons.delete, color: Colors.red),
-                title: const Text('세션 삭제', style: TextStyle(color: Colors.red)),
+                leading: const Icon(Icons.delete, color: AppColors.danger),
+                title: const Text(
+                  '세션 삭제',
+                  style: TextStyle(color: AppColors.danger),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _confirmDelete(context);
@@ -242,7 +263,9 @@ class SessionCard extends StatelessWidget {
                 Navigator.pop(context);
                 onDelete?.call();
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+              ),
               child: const Text('삭제'),
             ),
           ],

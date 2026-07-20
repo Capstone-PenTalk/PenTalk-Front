@@ -10,9 +10,11 @@ import 'providers/personal_drawing_provider.dart';
 import 'providers/participants_provider.dart';
 import 'providers/material_provider.dart';
 import 'providers/quiz_provider.dart';
+import 'providers/question_provider.dart';
 import 'screens/join_session_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/deep_link_service.dart';
+import 'theme/app_colors.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,18 +42,28 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PollProvider()),
         ChangeNotifierProvider(create: (_) => MaterialProvider()),
         ChangeNotifierProvider(create: (_) => QuizProvider()),
+        ChangeNotifierProvider(create: (_) => QuestionProvider()),
       ],
       child: MaterialApp(
         title: '하이브리드 교실',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          primarySwatch: Colors.blue,
           useMaterial3: true,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.blue,
+            seedColor: AppColors.primary,
             brightness: Brightness.light,
           ),
-          appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0),
+          scaffoldBackgroundColor: AppColors.background,
+          appBarTheme: const AppBarTheme(
+            centerTitle: false,
+            elevation: 0,
+            backgroundColor: AppColors.surface,
+            foregroundColor: AppColors.textPrimary,
+          ),
+          textTheme: const TextTheme().apply(
+            bodyColor: AppColors.textPrimary,
+            displayColor: AppColors.textPrimary,
+          ),
         ),
 
         onGenerateInitialRoutes: (initialRoute) {

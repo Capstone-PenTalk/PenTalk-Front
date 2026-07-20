@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/quiz_model.dart';
 import '../providers/quiz_provider.dart';
+import '../theme/app_colors.dart';
 
 /// ===============================
 /// 교사용 복습 퀴즈 관리 위젯
@@ -84,7 +85,7 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('오류: $e'),
-                  backgroundColor: Colors.red,
+                  backgroundColor: AppColors.danger,
                 ),
               );
             }
@@ -110,7 +111,7 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style:
-            ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
             child: const Text('삭제'),
           ),
         ],
@@ -132,7 +133,7 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('삭제 실패: $e'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.danger,
             ),
           );
         }
@@ -157,12 +158,13 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
               child: Row(
                 children: [
                   const Icon(Icons.quiz_outlined,
-                      size: 22, color: Colors.blue),
+                      size: 22, color: AppColors.primary),
                   const SizedBox(width: 8),
                   const Text(
                     '복습 퀴즈',
                     style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
+                        fontSize: 18, fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary),
                   ),
                   const Spacer(),
                   // 문항 수 뱃지
@@ -172,7 +174,7 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
                     decoration: BoxDecoration(
                       color: questions.length >= 3
                           ? Colors.grey[200]
-                          : Colors.blue[50],
+                          : AppColors.primaryLight,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -182,7 +184,7 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
                         fontWeight: FontWeight.bold,
                         color: questions.length >= 3
                             ? Colors.grey[600]
-                            : Colors.blue[700],
+                            : AppColors.primary,
                       ),
                     ),
                   ),
@@ -191,7 +193,7 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
                   if (provider.canAddQuestion)
                     IconButton(
                       icon: const Icon(Icons.add_circle_outline),
-                      color: Colors.blue,
+                      color: AppColors.primary,
                       tooltip: '문항 추가',
                       onPressed: _showAddDialog,
                     ),
@@ -300,7 +302,7 @@ class _QuestionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final answer = question.answer ?? '?';
-    final answerColor = answer == 'O' ? Colors.green : Colors.red;
+    final answerColor = answer == 'O' ? AppColors.success : AppColors.danger;
 
     return ListTile(
       contentPadding:
@@ -308,16 +310,16 @@ class _QuestionTile extends StatelessWidget {
       leading: Container(
         width: 36,
         height: 36,
-        decoration: BoxDecoration(
-          color: Colors.blue[50],
+        decoration: const BoxDecoration(
+          color: AppColors.primaryLight,
           shape: BoxShape.circle,
         ),
         child: Center(
           child: Text(
             '${question.order}',
-            style: TextStyle(
+            style: const TextStyle(
               fontWeight: FontWeight.bold,
-              color: Colors.blue[700],
+              color: AppColors.primary,
             ),
           ),
         ),
@@ -344,7 +346,7 @@ class _QuestionTile extends StatelessWidget {
                 '정답: $answer',
                 style: TextStyle(
                   fontSize: 12,
-                  color: answerColor[700],
+                  color: answerColor,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -363,7 +365,7 @@ class _QuestionTile extends StatelessWidget {
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 20),
-            color: Colors.red[400],
+            color: AppColors.danger,
             onPressed: onDelete,
             tooltip: '삭제',
           ),
@@ -429,7 +431,7 @@ class _QuestionEditDialogState extends State<_QuestionEditDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('저장 실패: $e'),
-              backgroundColor: Colors.red),
+              backgroundColor: AppColors.danger),
         );
       }
     } finally {
@@ -476,7 +478,7 @@ class _QuestionEditDialogState extends State<_QuestionEditDialog> {
                 child: _OxSelectButton(
                   label: 'O',
                   isSelected: _selectedAnswer == 'O',
-                  color: Colors.green,
+                  color: AppColors.success,
                   onTap: () => setState(() => _selectedAnswer = 'O'),
                 ),
               ),
@@ -485,7 +487,7 @@ class _QuestionEditDialogState extends State<_QuestionEditDialog> {
                 child: _OxSelectButton(
                   label: 'X',
                   isSelected: _selectedAnswer == 'X',
-                  color: Colors.red,
+                  color: AppColors.danger,
                   onTap: () => setState(() => _selectedAnswer = 'X'),
                 ),
               ),

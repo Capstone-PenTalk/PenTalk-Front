@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/quiz_model.dart';
 import '../providers/quiz_provider.dart';
+import '../theme/app_colors.dart';
 
 /// ===============================
 /// 학생용 복습 퀴즈 화면
@@ -64,12 +65,17 @@ class _QuizScreenState extends State<QuizScreen> {
     return PopScope(
       canPop: false, // 뒤로가기 비활성화 (퀴즈 중간 이탈 방지)
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F7FA),
+        backgroundColor: AppColors.background,
         body: SafeArea(
           child: Consumer<QuizProvider>(
             builder: (context, provider, _) {
               return switch (provider.status) {
                 QuizStatus.idle || QuizStatus.loading => const _LoadingView(),
+                QuizStatus.error => _ErrorView(
+                  message: provider.errorMessage ?? '퀴즈를 불러오지 못했습니다',
+                  onRetry: () => provider.loadQuestionsForStudent(widget.sessionId),
+                  onClose: widget.onClose,
+                ),
                 QuizStatus.noQuestions => _NoQuestionsView(onClose: widget.onClose),
                 QuizStatus.ready => _QuizFormView(
                   provider: provider,
@@ -127,9 +133,12 @@ class _LoadingView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(),
+          const CircularProgressIndicator(color: AppColors.primary),
           const SizedBox(height: 20),
-          Text(message, style: const TextStyle(fontSize: 16, color: Colors.grey)),
+          Text(
+            message,
+            style: const TextStyle(fontSize: 16, color: AppColors.textSecondary),
+          ),
         ],
       ),
     );
@@ -150,21 +159,26 @@ class _NoQuestionsView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.quiz_outlined, size: 72, color: Colors.grey[400]),
+            const Icon(
+              Icons.quiz_outlined,
+              size: 72,
+              color: AppColors.textSecondary,
+            ),
             const SizedBox(height: 20),
-            Text(
+            const Text(
               '등록된 퀴즈가 없습니다',
-              style: TextStyle(fontSize: 20, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 20, color: AppColors.textPrimary),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               '교사가 퀴즈를 등록하지 않았습니다.\nPDF를 바로 다운로드할 수 있습니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 32),
             ElevatedButton(
               onPressed: onClose,
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: const Text('닫기'),
             ),
           ],
@@ -174,61 +188,68 @@ class _NoQuestionsView extends StatelessWidget {
   }
 }
 
-// ── 퀴즈 폼 뷰 ───────────────────────────────────────────────
-class _QuizFormView extends StatelessWidget {
+// ── 퀴즈 폼 뷰 (한 문제씩 진행) ─────────────────────────────
+class _QuizFormView extends StatefulWidget {
   final QuizProvider provider;
   final VoidCallback onSubmit;
 
   const _QuizFormView({required this.provider, required this.onSubmit});
 
   @override
+  State<_QuizFormView> createState() => _QuizFormViewState();
+}
+
+class _QuizFormViewState extends State<_QuizFormView> {
+  int _currentIndex = 0;
+
+  @override
   Widget build(BuildContext context) {
-    final questions = provider.questions;
+    final questions = widget.provider.questions;
+    final currentQuestion = questions[_currentIndex];
+    final isLast = _currentIndex == questions.length - 1;
+    final hasAnswer =
+        widget.provider.studentAnswers.containsKey(currentQuestion.id);
 
     return Column(
       children: [
-        // 헤더
-        _QuizHeader(totalCount: questions.length),
-
-        // 문항 목록
+        _QuizProgressHeader(
+          current: _currentIndex + 1,
+          total: questions.length,
+        ),
         Expanded(
-          child: SingleChildScrollView(
+          child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                for (int i = 0; i < questions.length; i++) ...[
-                  _QuestionCard(
-                    index: i,
-                    question: questions[i],
-                    selectedAnswer: provider.studentAnswers[questions[i].id],
-                    onAnswerSelected: (answer) =>
-                        provider.setAnswer(questions[i].id, answer),
-                  ),
-                  if (i < questions.length - 1) const SizedBox(height: 16),
-                ],
-                const SizedBox(height: 24),
-              ],
+            child: _QuestionCard(
+              index: _currentIndex,
+              question: currentQuestion,
+              selectedAnswer: widget.provider.studentAnswers[currentQuestion.id],
+              onAnswerSelected: (answer) =>
+                  widget.provider.setAnswer(currentQuestion.id, answer),
             ),
           ),
         ),
-
-        // 제출 버튼
-        _SubmitBar(
-          answeredCount: provider.studentAnswers.length,
-          totalCount: questions.length,
-          canSubmit: provider.allAnswered,
-          onSubmit: onSubmit,
+        _NavBar(
+          canProceed: hasAnswer,
+          isLast: isLast,
+          onNext: () {
+            if (isLast) {
+              widget.onSubmit();
+            } else {
+              setState(() => _currentIndex++);
+            }
+          },
         ),
       ],
     );
   }
 }
 
-// ── 퀴즈 헤더 ────────────────────────────────────────────────
-class _QuizHeader extends StatelessWidget {
-  final int totalCount;
+// ── 퀴즈 진행바 헤더 ──────────────────────────────────────────
+class _QuizProgressHeader extends StatelessWidget {
+  final int current;
+  final int total;
 
-  const _QuizHeader({required this.totalCount});
+  const _QuizProgressHeader({required this.current, required this.total});
 
   @override
   Widget build(BuildContext context) {
@@ -236,10 +257,10 @@ class _QuizHeader extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -249,34 +270,36 @@ class _QuizHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(20),
+              const Text(
+                '복습 퀴즈',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
                 ),
-                child: Text(
-                  '복습 퀴즈',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue[700],
-                  ),
+              ),
+              Text(
+                '$current / $total 문항',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'PDF를 받으려면 퀴즈를 통과하세요',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$totalCount문제 중 ${(totalCount * 0.6).ceil()}문제 이상 맞히면 통과!',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: current / total,
+              minHeight: 6,
+              backgroundColor: AppColors.border,
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                AppColors.primary,
+              ),
+            ),
           ),
         ],
       ),
@@ -301,12 +324,14 @@ class _QuestionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -324,8 +349,8 @@ class _QuestionCard extends StatelessWidget {
                 Container(
                   width: 28,
                   height: 28,
-                  decoration: BoxDecoration(
-                    color: Colors.blue[600],
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
                     shape: BoxShape.circle,
                   ),
                   child: Center(
@@ -347,6 +372,7 @@ class _QuestionCard extends StatelessWidget {
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       height: 1.5,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -361,7 +387,7 @@ class _QuestionCard extends StatelessWidget {
                   child: _OxButton(
                     label: 'O',
                     isSelected: selectedAnswer == 'O',
-                    color: Colors.green,
+                    color: AppColors.success,
                     onTap: () => onAnswerSelected('O'),
                   ),
                 ),
@@ -370,7 +396,7 @@ class _QuestionCard extends StatelessWidget {
                   child: _OxButton(
                     label: 'X',
                     isSelected: selectedAnswer == 'X',
-                    color: Colors.red,
+                    color: AppColors.danger,
                     onTap: () => onAnswerSelected('X'),
                   ),
                 ),
@@ -403,10 +429,10 @@ class _OxButton extends StatelessWidget {
       duration: const Duration(milliseconds: 180),
       height: 56,
       decoration: BoxDecoration(
-        color: isSelected ? color.withOpacity(0.12) : Colors.grey[50],
+        color: isSelected ? color.withOpacity(0.12) : AppColors.background,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isSelected ? color : Colors.grey[300]!,
+          color: isSelected ? color : AppColors.border,
           width: isSelected ? 2.5 : 1,
         ),
       ),
@@ -428,18 +454,16 @@ class _OxButton extends StatelessWidget {
   }
 }
 
-// ── 제출 바 ──────────────────────────────────────────────────
-class _SubmitBar extends StatelessWidget {
-  final int answeredCount;
-  final int totalCount;
-  final bool canSubmit;
-  final VoidCallback onSubmit;
+// ── 하단 네비게이션 바 (다음 문항 / 제출하기) ──────────────
+class _NavBar extends StatelessWidget {
+  final bool canProceed;
+  final bool isLast;
+  final VoidCallback onNext;
 
-  const _SubmitBar({
-    required this.answeredCount,
-    required this.totalCount,
-    required this.canSubmit,
-    required this.onSubmit,
+  const _NavBar({
+    required this.canProceed,
+    required this.isLast,
+    required this.onNext,
   });
 
   @override
@@ -447,10 +471,10 @@ class _SubmitBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -461,28 +485,28 @@ class _SubmitBar extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!canSubmit)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+            if (!canProceed)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
                 child: Text(
-                  '$answeredCount / $totalCount 문제 답변 완료',
+                  '답을 선택해주세요',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 ),
               ),
             ElevatedButton(
-              onPressed: canSubmit ? onSubmit : null,
+              onPressed: canProceed ? onNext : null,
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                backgroundColor: Colors.blue[600],
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 disabledBackgroundColor: Colors.grey[200],
               ),
               child: Text(
-                canSubmit ? '제출하기' : '모든 문제에 답해주세요',
+                isLast ? '제출하기' : '다음 문항',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -524,7 +548,7 @@ class _ResultView extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: passed ? Colors.green[600] : Colors.orange[600],
+            color: passed ? AppColors.success : AppColors.accent,
           ),
           child: Column(
             children: [
@@ -589,10 +613,10 @@ class _ResultView extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surface,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.06),
+                color: Colors.black.withOpacity(0.05),
                 blurRadius: 8,
                 offset: const Offset(0, -2),
               ),
@@ -614,7 +638,7 @@ class _ResultView extends StatelessWidget {
                     ),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.green[600],
+                      backgroundColor: AppColors.success,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -626,7 +650,7 @@ class _ResultView extends StatelessWidget {
                     onPressed: onRetry,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.blue[600],
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -641,9 +665,9 @@ class _ResultView extends StatelessWidget {
                   const SizedBox(height: 8),
                   TextButton(
                     onPressed: onClose,
-                    child: Text(
+                    child: const Text(
                       '나중에 하기',
-                      style: TextStyle(color: Colors.grey[600]),
+                      style: TextStyle(color: AppColors.textSecondary),
                     ),
                   ),
                 ],
@@ -671,12 +695,12 @@ class _ResultCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCorrect = result?.isCorrect ?? false;
-    final color = isCorrect ? Colors.green : Colors.red;
+    final color = isCorrect ? AppColors.success : AppColors.danger;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: color.withOpacity(0.3),
@@ -684,7 +708,7 @@ class _ResultCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withOpacity(0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -718,6 +742,7 @@ class _ResultCard extends StatelessWidget {
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     height: 1.4,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -763,7 +788,7 @@ class _AnswerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isCorrect ? Colors.green : Colors.red;
+    final color = isCorrect ? AppColors.success : AppColors.danger;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -775,8 +800,64 @@ class _AnswerChip extends StatelessWidget {
         '$label: $value',
         style: TextStyle(
           fontSize: 12,
-          color: color[700],
+          color: color,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+// ── 에러 뷰 ─────────────────────────────────────────────────
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  final VoidCallback onClose;
+
+  const _ErrorView({
+    required this.message,
+    required this.onRetry,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: AppColors.danger),
+            const SizedBox(height: 20),
+            const Text(
+              '퀴즈를 불러오지 못했습니다',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('다시 시도'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: onClose,
+              child: const Text('닫기', style: TextStyle(color: AppColors.textSecondary)),
+            ),
+          ],
         ),
       ),
     );
@@ -801,37 +882,39 @@ class _DailyLimitView extends StatelessWidget {
             Container(
               width: 80,
               height: 80,
-              decoration: BoxDecoration(
-                color: Colors.orange[50],
+              decoration: const BoxDecoration(
+                color: AppColors.accentLight,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.hourglass_empty,
                 size: 40,
-                color: Colors.orange[600],
+                color: AppColors.accent,
               ),
             ),
             const SizedBox(height: 24),
             const Text(
               '오늘 응시 횟수 초과',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
             ),
             const SizedBox(height: 12),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, color: Colors.grey[600], height: 1.5),
+              style: const TextStyle(fontSize: 15, color: AppColors.textSecondary, height: 1.5),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               '내일 자정 이후 다시 도전할 수 있습니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 32),
             OutlinedButton(
               onPressed: onClose,
               style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
                 padding: const EdgeInsets.symmetric(
                     horizontal: 32, vertical: 14),
                 shape: RoundedRectangleBorder(

@@ -6,12 +6,14 @@ import 'package:provider/provider.dart';
 import '../models/document_source.dart';
 import '../models/student_session_model.dart';
 import '../models/poll_model.dart';
+import '../models/question_model.dart';
 import '../config/app_config.dart';
 import '../native_drawing.dart';
 import '../providers/drawing_provider.dart';
 import '../providers/personal_drawing_provider.dart';
 import '../providers/participants_provider.dart';
 import '../providers/poll_provider.dart';
+import '../providers/question_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
 import '../widgets/session_ended_dialog.dart';
 import '../widgets/participants_button.dart';
@@ -22,11 +24,15 @@ import '../widgets/poll_overlay.dart';
 import '../widgets/poll_result_sheet.dart';
 import '../widgets/poll_start_dialog.dart';
 import '../widgets/qr_view.dart';
+import '../widgets/quiz_editor_widget.dart';
+import '../widgets/questions_panel.dart';
+import '../widgets/question_ask_dialog.dart';
 import '../services/api_service.dart';
 import '../services/deep_link_service.dart';
 import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/pdf_file_service.dart';
+import '../theme/app_colors.dart';
 import 'student_home_screen.dart';
 import 'teacher_home_screen.dart';
 import 'quiz_screen.dart';
@@ -83,6 +89,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   /// 학생이 이해도 체크에 답변 후 팝업을 수동으로 닫은 상태
   bool _pollOverlayDismissed = false;
 
+  /// 교사: 질문 패널 표시 여부 (로컬 UI 토글)
+  bool _showQuestionsPanel = false;
+
   bool get _usesNativeTeacherDrawing =>
       AppConfig.enableNativeTeacherDrawing &&
       !kIsWeb &&
@@ -107,6 +116,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       _setupSessionEndedListener();
       _setupPresenceCallbacks();
       _setupPollCallbacks();
+      _setupQuestionCallbacks();
     });
   }
 
@@ -450,6 +460,40 @@ class _DrawingScreenState extends State<DrawingScreen> {
     _drawingProvider.socketService.sendPollEnd(pollState.pollData!.pollId);
   }
 
+  /// ===============================
+  /// 교사: 복습 퀴즈 관리 (모달 바텀시트)
+  /// ===============================
+  void _openQuizEditor() {
+    final sessionId = _shareableSessionId;
+    if (sessionId == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('세션 정보가 없어 퀴즈를 관리할 수 없습니다.')));
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.85,
+        builder: (context, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.only(top: 8),
+          child: QuizEditorWidget(
+            key: ValueKey(sessionId),
+            sessionId: sessionId,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showQrCodeDialog() {
     final sessionId = _shareableSessionId;
     if (sessionId == null) {
@@ -554,6 +598,57 @@ class _DrawingScreenState extends State<DrawingScreen> {
     debugPrint('Presence callbacks setup completed');
   }
 
+  /// ===============================
+  /// 질문하기(Q&A) 콜백 설정
+  /// 교사: 새 질문 수신 / 학생: 전송 확인
+  /// ===============================
+  void _setupQuestionCallbacks() {
+    final socketService = _drawingProvider.socketService;
+
+    if (widget.isTeacher) {
+      final questionProvider = context.read<QuestionProvider>();
+
+      socketService.onQuestionNew = (data) {
+        questionProvider.addQuestion(QuestionModel.fromJson(data));
+      };
+
+      socketService.onQuestionListResult = (data) {
+        final questions = data
+            .whereType<Map>()
+            .map((e) => QuestionModel.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        questionProvider.setQuestions(questions);
+      };
+
+      // 재입장 시 기존에 쌓인 질문 목록 요청
+      socketService.requestQuestionList();
+    } else {
+      socketService.onQuestionAck = (data) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('질문이 전송됐습니다')));
+      };
+    }
+
+    debugPrint('Question callbacks setup completed');
+  }
+
+  /// ===============================
+  /// 학생: 질문하기 다이얼로그
+  /// ===============================
+  void _openAskQuestionDialog() {
+    QuestionAskDialog.show(
+      context,
+      onSend: (content) {
+        _drawingProvider.socketService.askQuestion(
+          content: content,
+          isAnonymous: true,
+        );
+      },
+    );
+  }
+
   void _handleSessionEnded(Map<String, dynamic> data) {
     final message = data['message'] as String? ?? '교사가 수업을 종료했습니다';
 
@@ -591,6 +686,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void _cleanupAndGoHome() {
     _drawingProvider.disconnectSocket();
     _drawingProvider.clear();
+    if (widget.isTeacher) {
+      context.read<QuestionProvider>().clear();
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => widget.isTeacher
@@ -817,6 +915,218 @@ class _DrawingScreenState extends State<DrawingScreen> {
     super.dispose();
   }
 
+  Widget _buildSidebar() {
+    return Container(
+      width: 64,
+      color: AppColors.surface,
+      child: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 8),
+            if (widget.isTeacher)
+              Consumer<PollProvider>(
+                builder: (context, pollProvider, _) {
+                  final isActive = pollProvider.state.isActive;
+                  return _SidebarNavItem(
+                    icon: isActive ? Icons.poll : Icons.poll_outlined,
+                    label: '이해도체크',
+                    isActive: isActive,
+                    onTap: isActive ? _handleEndPoll : _handleStartPoll,
+                  );
+                },
+              ),
+            if (widget.isTeacher)
+              _SidebarNavItem(
+                icon: Icons.quiz_outlined,
+                label: '복습퀴즈',
+                isActive: false,
+                onTap: _openQuizEditor,
+              ),
+            if (widget.isTeacher)
+              Consumer<QuestionProvider>(
+                builder: (context, questionProvider, _) {
+                  return _SidebarNavItem(
+                    icon: Icons.chat_bubble_outline,
+                    label: '질문들',
+                    isActive: _showQuestionsPanel,
+                    badgeCount: questionProvider.unreadCount,
+                    onTap: () => setState(
+                      () => _showQuestionsPanel = !_showQuestionsPanel,
+                    ),
+                  );
+                },
+              ),
+            if (!widget.isTeacher)
+              _SidebarNavItem(
+                icon: Icons.chat_bubble_outline,
+                label: '질문하기',
+                isActive: false,
+                onTap: _openAskQuestionDialog,
+              ),
+            const SizedBox(height: 4),
+            const ParticipantsButton(),
+            const Spacer(),
+            _SidebarNavItem(
+              icon: Icons.logout,
+              label: '나가기',
+              isActive: false,
+              isDanger: true,
+              onTap: widget.isTeacher
+                  ? _endSession
+                  : () => Navigator.maybePop(context),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Container(
+      height: 44,
+      color: AppColors.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _documentSource != null
+                  ? '${widget.materialTitle} (${_documentSource!.currentPage}/${_documentSource!.pageCount})'
+                  : widget.materialTitle,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: AppColors.textPrimary,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (widget.isReadOnly)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 4,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.accentLight,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.accent, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.visibility,
+                    size: 16,
+                    color: AppColors.accent,
+                  ),
+                  const SizedBox(width: 4),
+                  const Text(
+                    '읽기 전용',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_hasPagedDocument) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              onPressed: _isPreparingDocument ? null : _goToPreviousPage,
+              tooltip: '이전 페이지',
+            ),
+            Text(
+              '${_documentSource!.currentPage}/${_documentSource!.pageCount}',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              onPressed: _isPreparingDocument ? null : _goToNextPage,
+              tooltip: '다음 페이지',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolbar() {
+    return Container(
+      color: AppColors.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            if (!_usesNativeTeacherDrawing) ...[
+              const ColorPaletteBar(),
+              const SizedBox(width: 12),
+              const WidthSelectorBar(),
+              const SizedBox(width: 12),
+            ],
+            if (widget.isTeacher) ...[
+              if (_shareableSessionId != null)
+                IconButton(
+                  icon: const Icon(Icons.qr_code_2),
+                  onPressed: _showQrCodeDialog,
+                  tooltip: 'QR 코드 공유',
+                ),
+              IconButton(
+                icon: const Icon(Icons.undo),
+                onPressed: _handleUndo,
+                tooltip: '실행 취소',
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _handleClear,
+                tooltip: '전체 지우기',
+              ),
+            ] else ...[
+              IconButton(
+                icon: const Icon(Icons.undo),
+                onPressed: _handleStudentUndo,
+                tooltip: '내 필기 실행 취소',
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _handleStudentClear,
+                tooltip: '내 필기 전체 지우기',
+              ),
+              _isExporting
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.picture_as_pdf),
+                      onPressed: _handleExportPdf,
+                      tooltip: 'PDF 내보내기',
+                    ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // export 중 뒤로가기 차단
@@ -833,231 +1143,98 @@ class _DrawingScreenState extends State<DrawingScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _documentSource != null
-                      ? '${widget.materialTitle} (${_documentSource!.currentPage}/${_documentSource!.pageCount})'
-                      : widget.materialTitle,
-                ),
-              ),
-              if (widget.isReadOnly)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.orange[100],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange, width: 1),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.visibility,
-                        size: 16,
-                        color: Colors.orange[800],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '읽기 전용',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange[800],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          actions: [
-            if (!widget.isReadOnly) ...[
-              // 교사 전용: 세션 종료 (맨 앞에 배치)
-              if (widget.isTeacher)
-                IconButton(
-                  icon: const Icon(Icons.logout),
-                  onPressed: _endSession,
-                  tooltip: '세션 종료',
-                  color: Colors.red,
-                ),
-
-              if (_hasPagedDocument) ...[
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: _isPreparingDocument ? null : _goToPreviousPage,
-                  tooltip: '이전 페이지',
-                ),
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Text(
-                      '${_documentSource!.currentPage}/${_documentSource!.pageCount}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: _isPreparingDocument ? null : _goToNextPage,
-                  tooltip: '다음 페이지',
-                ),
-              ],
-
-              if (!_usesNativeTeacherDrawing) ...[
-                const ColorPaletteBar(),
-                const SizedBox(width: 8),
-                const WidthSelectorBar(),
-                const SizedBox(width: 8),
-              ],
-
-              // 교사용 컨트롤
-              if (widget.isTeacher) ...[
-                if (_shareableSessionId != null)
-                  IconButton(
-                    icon: const Icon(Icons.qr_code_2),
-                    onPressed: _showQrCodeDialog,
-                    tooltip: 'QR 코드 공유',
-                  ),
-                IconButton(
-                  icon: const Icon(Icons.undo),
-                  onPressed: _handleUndo,
-                  tooltip: '실행 취소',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: _handleClear,
-                  tooltip: '전체 지우기',
-                ),
-                Consumer<PollProvider>(
-                  builder: (context, pollProvider, _) {
-                    final isActive = pollProvider.state.isActive;
-                    return IconButton(
-                      icon: Icon(
-                        isActive ? Icons.poll : Icons.poll_outlined,
-                        color: isActive ? Colors.amber : Colors.black87,
-                      ),
-                      onPressed: isActive ? _handleEndPoll : _handleStartPoll,
-                      tooltip: isActive ? '이해도 체크 종료' : '이해도 체크 시작',
-                    );
-                  },
-                ),
-              ],
-
-              if (!widget.isTeacher) ...[
-                IconButton(
-                  icon: const Icon(Icons.undo),
-                  onPressed: _handleStudentUndo,
-                  tooltip: '내 필기 실행 취소',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: _handleStudentClear,
-                  tooltip: '내 필기 전체 지우기',
-                ),
-              ],
-
-              const ParticipantsButton(),
-
-              // 학생 전용: PDF 내보내기 버튼
-              if (!widget.isTeacher)
-                _isExporting
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16),
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        ),
-                      )
-                    : IconButton(
-                        icon: const Icon(Icons.picture_as_pdf),
-                        onPressed: _handleExportPdf,
-                        tooltip: 'PDF 내보내기',
-                      ),
-
-            ],
-          ],
-        ),
+        backgroundColor: AppColors.background,
         body: (_isConnecting || _isPreparingDocument)
             ? const Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(),
+                    CircularProgressIndicator(color: AppColors.primary),
                     SizedBox(height: 16),
                     Text('문서 및 실시간 연결 준비 중...'),
                   ],
                 ),
               )
-            : Stack(
+            : Row(
                 children: [
-                  DrawingCanvasWidget(
-                    isTeacher: widget.isTeacher,
-                    enableTouchInput: true, // 👈 추가 (터치 입력 켜기)
-                    showMyStrokes: true, // 👈 추가 (내 필기 보이기)
-                  ),
+                  if (!widget.isReadOnly) _buildSidebar(),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _buildTopBar(),
+                        if (!widget.isReadOnly) _buildToolbar(),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              DrawingCanvasWidget(
+                                isTeacher: widget.isTeacher,
+                                enableTouchInput: true, // 👈 추가 (터치 입력 켜기)
+                                showMyStrokes: true, // 👈 추가 (내 필기 보이기)
+                              ),
 
-                  if (_hasPagedDocument)
-                    Positioned(
-                      bottom: 14,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.72),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Text(
-                            '${_documentSource!.currentPage} / ${_documentSource!.pageCount}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
+                              if (_hasPagedDocument)
+                                Positioned(
+                                  bottom: 14,
+                                  left: 0,
+                                  right: 0,
+                                  child: Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.72),
+                                        borderRadius: BorderRadius.circular(
+                                          18,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '${_documentSource!.currentPage} / ${_documentSource!.pageCount}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                              // 학생: 이해도 체크 팝업 (캔버스 중앙)
+                              if (!widget.isTeacher)
+                                Positioned.fill(
+                                  child: Consumer<PollProvider>(
+                                    builder: (context, pollProvider, _) {
+                                      final state = pollProvider.state;
+                                      if ((!state.isActive &&
+                                              !state.isAnswered) ||
+                                          _pollOverlayDismissed) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return PollOverlay(
+                                        pollState: state,
+                                        remainingSeconds:
+                                            pollProvider.remainingSeconds,
+                                        onAnswer: _handlePollAnswer,
+                                        onDismiss: state.isAnswered
+                                            ? () => setState(
+                                                () => _pollOverlayDismissed =
+                                                    true,
+                                              )
+                                            : null,
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                      ),
+                      ],
                     ),
+                  ),
 
-                  // 학생: 이해도 체크 오버레이
-                  if (!widget.isTeacher)
-                    Consumer<PollProvider>(
-                      builder: (context, pollProvider, _) {
-                        final state = pollProvider.state;
-                        if ((!state.isActive && !state.isAnswered) || _pollOverlayDismissed) {
-                          return const SizedBox.shrink();
-                        }
-                        return PollOverlay(
-                          pollState: state,
-                          remainingSeconds: pollProvider.remainingSeconds,
-                          onAnswer: _handlePollAnswer,
-                          onDismiss: state.isAnswered
-                              ? () => setState(() => _pollOverlayDismissed = true)
-                              : null,
-                        );
-                      },
-                    ),
-
-                  // 교사: 실시간 집계 결과 표시
+                  // 교사: 실시간 집계 결과 좌측 고정 패널
                   if (widget.isTeacher)
                     Consumer<PollProvider>(
                       builder: (context, pollProvider, _) {
@@ -1065,12 +1242,29 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         if (!state.isActive && !state.isEnded) {
                           return const SizedBox.shrink();
                         }
-                        return PollResultSheet(
-                          pollState: state,
-                          remainingSeconds: pollProvider.remainingSeconds,
-                          onClose: () => pollProvider.reset(),
+                        return SizedBox(
+                          width: 170,
+                          child: PollResultSheet(
+                            pollState: state,
+                            remainingSeconds: pollProvider.remainingSeconds,
+                            onClose: () => pollProvider.reset(),
+                          ),
                         );
                       },
+                    ),
+
+                  // 교사: 질문 수신함 좌측 고정 패널
+                  if (widget.isTeacher && _showQuestionsPanel)
+                    SizedBox(
+                      width: 170,
+                      child: Consumer<QuestionProvider>(
+                        builder: (context, questionProvider, _) {
+                          return QuestionsPanel(
+                            questions: questionProvider.questions,
+                            onDismiss: questionProvider.dismiss,
+                          );
+                        },
+                      ),
                     ),
                 ],
               ),
@@ -1089,7 +1283,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                           provider.setDrawingMode(!provider.isDrawingMode);
                         },
                         backgroundColor: provider.isDrawingMode
-                            ? Colors.blue
+                            ? AppColors.primary
                             : Colors.grey,
                         tooltip: provider.isDrawingMode
                             ? '이동 모드로 전환'
@@ -1106,7 +1300,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: provider.isDrawingMode
-                              ? Colors.blue.withOpacity(0.9)
+                              ? AppColors.primary.withOpacity(0.9)
                               : Colors.grey.withOpacity(0.9),
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -1155,7 +1349,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                           );
                         },
                         backgroundColor: drawingProvider.isDrawingMode
-                            ? Colors.blue
+                            ? AppColors.primary
                             : Colors.grey,
                         tooltip: drawingProvider.isDrawingMode
                             ? '이동 모드로 전환'
@@ -1174,7 +1368,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: drawingProvider.isDrawingMode
-                              ? Colors.blue.withOpacity(0.9)
+                              ? AppColors.primary.withOpacity(0.9)
                               : Colors.grey.withOpacity(0.9),
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -1280,5 +1474,98 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     if (confirmed != true) return;
     await context.read<PersonalDrawingProvider>().clearCurrentPage();
+  }
+}
+
+/// ===============================
+/// 판서 화면 좌측 사이드바 내비게이션 아이템
+/// ===============================
+class _SidebarNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final bool isDanger;
+  final int? badgeCount;
+  final VoidCallback onTap;
+
+  const _SidebarNavItem({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+    this.isDanger = false,
+    this.badgeCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDanger
+        ? AppColors.danger
+        : isActive
+        ? AppColors.primary
+        : AppColors.textSecondary;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? AppColors.primaryLight
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 18, color: color),
+                ),
+                if (badgeCount != null && badgeCount! > 0)
+                  Positioned(
+                    top: -3,
+                    right: -3,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      constraints: const BoxConstraints(minWidth: 14),
+                      decoration: const BoxDecoration(
+                        color: AppColors.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        badgeCount! > 9 ? '9+' : '$badgeCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

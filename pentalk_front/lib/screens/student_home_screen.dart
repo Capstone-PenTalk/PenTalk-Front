@@ -17,30 +17,12 @@ class StudentHomeScreen extends StatefulWidget {
 class _StudentHomeScreenState extends State<StudentHomeScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
-  String _userName = '학생';
-  String? _studentNumber;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<StudentSessionProvider>().loadMySessions();
-      _loadProfile();
-    });
-  }
-
-  Future<void> _loadProfile() async {
-    final displayName = await AuthService.getDisplayName();
-    final userId = await AuthService.getUserId();
-    final studentNumber = await AuthService.getStudentNumber();
-    if (!mounted) return;
-    setState(() {
-      _userName = displayName?.trim().isNotEmpty == true
-          ? displayName!.trim()
-          : (userId ?? '학생');
-      _studentNumber = studentNumber?.trim().isNotEmpty == true
-          ? studentNumber!.trim()
-          : null;
     });
   }
 
@@ -70,19 +52,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '$_userName 님의 공간',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            if (_studentNumber != null)
-              Text(
-                '학번 $_studentNumber',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-          ],
+        title: const Text(
+          '서예영 님의 공간',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(

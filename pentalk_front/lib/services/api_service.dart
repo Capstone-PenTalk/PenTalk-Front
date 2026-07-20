@@ -1006,18 +1006,28 @@ class ApiService {
   }
 
   /// ===============================
-  /// 자료 목록 조회 (GET /materials?classId=)
+  /// 자료 목록 조회 (GET /materials?classId=&sessionId=)
+  /// sessionId: ClassMember가 아닌 세션 참여자(QR/직접입력 입장)의 조회 권한 확인용
   /// ===============================
   static Future<List<MaterialUploadResponse>> getMaterials({
     required String classId,
+    String? sessionId,
   }) async {
     final token = await AuthService.getToken();
 
-    debugPrint('📥 GET /materials?classId=$classId');
+    final queryParams = {
+      'classId': classId,
+      if (sessionId != null && sessionId.isNotEmpty) 'sessionId': sessionId,
+    };
+    final uri = Uri.parse(
+      '$baseUrl/materials',
+    ).replace(queryParameters: queryParams);
+
+    debugPrint('📥 GET $uri');
 
     final response = await http
         .get(
-          Uri.parse('$baseUrl/materials?classId=$classId'),
+          uri,
           headers: {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -1217,6 +1227,7 @@ class ApiService {
     required String sessionId,
     required String questionId,
     required String answer,
+    bool isRetryStart = false,
   }) async {
     final token = await AuthService.getToken();
     final uri = Uri.parse(
@@ -1229,7 +1240,11 @@ class ApiService {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({'questionId': questionId, 'answer': answer}),
+      body: jsonEncode({
+        'questionId': questionId,
+        'answer': answer,
+        'isRetryStart': isRetryStart,
+      }),
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {

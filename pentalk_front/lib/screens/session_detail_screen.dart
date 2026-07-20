@@ -20,6 +20,7 @@ class SessionDetailScreen extends StatefulWidget {
   final String? classId; // 자료 업로드에 필요
   final bool localOnly;
   final String? titleOverride;
+  final String? password; // 교사가 세션 생성 시 설정한 비밀번호
 
   const SessionDetailScreen({
     Key? key,
@@ -27,6 +28,7 @@ class SessionDetailScreen extends StatefulWidget {
     this.classId,
     this.localOnly = false,
     this.titleOverride,
+    this.password,
   }) : super(key: key);
 
   @override
@@ -124,6 +126,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         classId: classId,
         materialId: material.id,
         title: material.title,
+        maxParticipants: 30,
+        password: widget.password ?? '0000',
       );
       if (!response.success || response.data == null) {
         throw Exception(response.message ?? '실시간 세션 생성에 실패했습니다.');
@@ -189,7 +193,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     materialProvider.setLoading(true);
 
     try {
-      final materials = await ApiService.getMaterials(classId: classId);
+      final materials = await ApiService.getMaterials(
+        classId: classId,
+        sessionId: _effectiveSessionId ?? widget.sessionId,
+      );
       if (!mounted) return;
 
       materialProvider.setMaterials(
@@ -254,8 +261,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       // 자료 업로드 전에 항상 새 세션 생성 (세션-자료 연결 보장)
       if (_canUseRemoteMaterials) {
         debugPrint('🆕 Creating new session before material upload...');
+        final fileNameForTitle = file.path.split(RegExp(r'[\\/]')).last;
         final sessionResponse = await ApiService.createSession(
           classId: widget.classId!,
+          title: fileNameForTitle,
+          maxParticipants: 30,
+          password: widget.password ?? '0000',
         );
         if (sessionResponse.success && sessionResponse.data != null) {
           setState(() {
@@ -487,9 +498,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                             if (footerIndex == 1) {
                               return const Divider(thickness: 1);
                             }
-                            if (_looksLikeRealtimeSessionId(widget.sessionId))
+                            final quizSessionId =
+                                _effectiveSessionId ?? widget.sessionId;
+                            if (_looksLikeRealtimeSessionId(quizSessionId))
                               return QuizEditorWidget(
-                                sessionId: widget.sessionId,
+                                key: ValueKey(quizSessionId),
+                                sessionId: quizSessionId,
                               );
                             return const SizedBox.shrink();
                           }
