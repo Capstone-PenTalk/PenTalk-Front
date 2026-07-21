@@ -269,11 +269,13 @@ class SocketService {
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
       onDrawEventReceived?.call(
-        DrawEvent.fromJson({
-          'e': 'cl',
-          'sId': 0,
-          ...payload,
-        }),
+        DrawEvent.fromJson(
+          {
+            if (!payload.containsKey('e')) 'e': 'cl',
+            if (!payload.containsKey('sId')) 'sId': 0,
+            ...payload,
+          },
+        ),
       );
     });
 
@@ -442,19 +444,51 @@ class SocketService {
     );
   }
 
-  void sendUndo(int strokeId) {
-    // 서버 스펙에는 undo 이벤트가 없어 네트워크 송신하지 않음.
-    debugPrint('[socket][send] skipped undo(not in server spec) sId=$strokeId');
+  void sendUndo({
+    required int strokeId,
+    required String materialId,
+    required int pageNumber,
+  }) {
+    final payload = {
+      'e': DrawEventType.undo.code,
+      'sId': strokeId,
+      'materialId': materialId,
+      'pageNumber': pageNumber,
+    };
+    _emitOrQueue(
+      'draw:clear',
+      payload,
+      summary: 'draw:clear payload=${jsonEncode(payload)}',
+    );
+  }
+
+  void sendEraser({
+    required int strokeId,
+    required String materialId,
+    required int pageNumber,
+  }) {
+    final payload = {
+      'e': DrawEventType.eraser.code,
+      'sId': strokeId,
+      'materialId': materialId,
+      'pageNumber': pageNumber,
+    };
+    _emitOrQueue(
+      'draw:clear',
+      payload,
+      summary: 'draw:clear payload=${jsonEncode(payload)}',
+    );
   }
 
   void sendClearAll({
-    required String? materialId,
-    required int? pageNumber,
+    required String materialId,
+    required int pageNumber,
     required String scope,
   }) {
     final payload = {
-      if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
-      if (pageNumber != null) 'pageNumber': pageNumber,
+      'e': DrawEventType.clearAll.code,
+      'materialId': materialId,
+      'pageNumber': pageNumber,
       'scope': scope,
     };
     _emitOrQueue(

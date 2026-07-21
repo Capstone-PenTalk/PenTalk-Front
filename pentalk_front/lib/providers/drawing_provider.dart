@@ -418,21 +418,31 @@ class DrawingProvider extends ChangeNotifier {
           _socketService.sendDrawEvent(scopedEvent);
           break;
         case DrawEventType.undo:
-          _socketService.sendUndo(scopedEvent.strokeId);
+          if (_activeMaterialId != null && _activePageNumber != null) {
+            _socketService.sendUndo(
+              strokeId: scopedEvent.strokeId,
+              materialId: _activeMaterialId!,
+              pageNumber: _activePageNumber!,
+            );
+          }
           break;
         case DrawEventType.eraser:
-          _socketService.sendClearAll(
-            materialId: _activeMaterialId,
-            pageNumber: _activePageNumber,
-            scope: 'page',
-          );
+          if (_activeMaterialId != null && _activePageNumber != null) {
+            _socketService.sendEraser(
+              strokeId: scopedEvent.strokeId,
+              materialId: _activeMaterialId!,
+              pageNumber: _activePageNumber!,
+            );
+          }
           break;
         case DrawEventType.clearAll:
-          _socketService.sendClearAll(
-            materialId: _activeMaterialId,
-            pageNumber: _activePageNumber,
-            scope: 'page',
-          );
+          if (_activeMaterialId != null && _activePageNumber != null) {
+            _socketService.sendClearAll(
+              materialId: _activeMaterialId!,
+              pageNumber: _activePageNumber!,
+              scope: 'page',
+            );
+          }
           break;
       }
     }
@@ -794,8 +804,15 @@ class DrawingProvider extends ChangeNotifier {
 
     _handleMyUndo(event);
 
-    if (_isSocketConnected && _userId != null) {
-      _socketService.sendUndo(strokeId);
+    if (_isSocketConnected &&
+        _userId != null &&
+        _activeMaterialId != null &&
+        _activePageNumber != null) {
+      _socketService.sendUndo(
+        strokeId: strokeId,
+        materialId: _activeMaterialId!,
+        pageNumber: _activePageNumber!,
+      );
     }
   }
 
@@ -848,10 +865,14 @@ class DrawingProvider extends ChangeNotifier {
     _othersActiveStrokes.clear();
     notifyListeners();
 
-    if (_isTeacher && _isSocketConnected && _userId != null) {
+    if (_isTeacher &&
+        _isSocketConnected &&
+        _userId != null &&
+        _activeMaterialId != null &&
+        _activePageNumber != null) {
       _socketService.sendClearAll(
-        materialId: _activeMaterialId,
-        pageNumber: _activePageNumber,
+        materialId: _activeMaterialId!,
+        pageNumber: _activePageNumber!,
         scope: 'page',
       );
     }
