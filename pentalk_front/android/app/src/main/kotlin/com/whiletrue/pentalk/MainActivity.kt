@@ -199,11 +199,12 @@ class MainActivity : FlutterActivity() {
                     }
                     bitmap.recycle()
 
+                    // 메타데이터는 실제 렌더링된 이미지 크기를 반환한다 (원본 PDF 페이지 크기가 아님)
                     return mapOf(
                         "pageNumber" to pageNumber,
                         "imagePath" to imageFile.absolutePath,
-                        "width" to page.width.toDouble(),
-                        "height" to page.height.toDouble(),
+                        "width" to width.toDouble(),
+                        "height" to height.toDouble(),
                     )
                 }
             }

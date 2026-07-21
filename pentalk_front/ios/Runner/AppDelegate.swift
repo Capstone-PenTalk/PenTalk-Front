@@ -244,10 +244,17 @@ import UIKit
     }
 
     let bounds = page.bounds(for: .mediaBox)
-    let scale = targetWidth > 0 && bounds.width > 0 ? targetWidth / bounds.width : 1
+    // PDF 페이지 회전(90/270도)이 있으면 mediaBox의 width/height가
+    // 실제 화면에 그려지는 방향과 반대로 나온다. draw(with:to:)는 회전을
+    // 자동 반영해서 그리므로, 캔버스 크기 쪽에서도 미리 가로/세로를 맞춰줘야
+    // Android(회전 반영된 값 사용)와 렌더링 결과(종횡비)가 일치한다.
+    let isSideways = page.rotation == 90 || page.rotation == 270
+    let sourceWidth = isSideways ? bounds.height : bounds.width
+    let sourceHeight = isSideways ? bounds.width : bounds.height
+    let scale = targetWidth > 0 && sourceWidth > 0 ? targetWidth / sourceWidth : 1
     let renderSize = CGSize(
-      width: max(1, bounds.width * scale),
-      height: max(1, bounds.height * scale)
+      width: max(1, sourceWidth * scale),
+      height: max(1, sourceHeight * scale)
     )
 
     let renderer = UIGraphicsImageRenderer(size: renderSize)
@@ -274,8 +281,9 @@ import UIKit
     return [
       "pageNumber": pageNumber,
       "imagePath": imageUrl.path,
-      "width": bounds.width,
-      "height": bounds.height,
+      // 메타데이터는 실제 렌더링된 이미지 크기를 반환한다 (원본 PDF 크기가 아님)
+      "width": renderSize.width,
+      "height": renderSize.height,
     ]
   }
 
