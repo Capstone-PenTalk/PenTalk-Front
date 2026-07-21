@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 class AppConfig {
   static const String _serverUrlOverride = String.fromEnvironment(
     'PENTALK_SERVER_URL',
-    defaultValue: 'http://3.36.74.3:3000',
+    defaultValue: 'https://api.pentalkedu.com',
   );
   static const String _apiUrlOverride = String.fromEnvironment(
     'PENTALK_API_URL',
@@ -69,6 +69,8 @@ class AppConfig {
   static bool get enableNativeTeacherDrawing =>
       _enableNativeTeacherDrawingOverride;
   static bool get enableAutoLogin => _enableAutoLoginOverride;
+  static String get googleOAuthStartUrl => '$apiBaseUrl/auth/google';
+  static String get kakaoOAuthStartUrl => '$apiBaseUrl/auth/kakao';
   static bool get hasExplicitServerUrlConfig =>
       _serverUrlOverride.trim().isNotEmpty ||
       _apiUrlOverride.trim().isNotEmpty ||

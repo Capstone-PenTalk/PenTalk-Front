@@ -12,7 +12,7 @@ import 'providers/material_provider.dart';
 import 'providers/quiz_provider.dart';
 import 'providers/question_provider.dart';
 import 'screens/join_session_screen.dart';
-import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
 import 'services/deep_link_service.dart';
 import 'theme/app_colors.dart';
 
@@ -84,7 +84,7 @@ class MyApp extends StatelessWidget {
           return [
             MaterialPageRoute(
               settings: const RouteSettings(name: '/'),
-              builder: (_) => const SplashScreen(),
+              builder: (_) => const LoginScreen(),
             ),
           ];
         },
@@ -104,7 +104,7 @@ class MyApp extends StatelessWidget {
           if (settings.name == '/') {
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => const SplashScreen(),
+              builder: (_) => const LoginScreen(),
             );
           }
           return null;

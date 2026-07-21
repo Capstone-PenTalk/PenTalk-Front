@@ -67,7 +67,7 @@ class _SplashScreenState extends State<SplashScreen> {
           return;
         }
         setState(() => _statusMessage = '로그인 갱신 중...');
-        final loginResponse = await ApiService.login(
+        final loginResponse = await ApiService.devLogin(
           userId: normalizedUserId,
           role: role,
         );
