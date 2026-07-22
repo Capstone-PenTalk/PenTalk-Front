@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,7 +31,6 @@ import '../widgets/questions_panel.dart';
 import '../widgets/question_ask_dialog.dart';
 import '../services/api_service.dart';
 import '../services/deep_link_service.dart';
-import '../services/pdf_document_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/pdf_file_service.dart';
 import '../theme/app_colors.dart';
@@ -53,6 +54,7 @@ class DrawingScreen extends StatefulWidget {
   final String? materialId; // 팀원 추가: 자료 ID
   final String? classId; // 팀원 추가: 클래스 ID
   final List<MaterialModel> materials;
+  final List<DocumentPageSource> documentPages;
 
   const DrawingScreen({
     Key? key,
@@ -68,6 +70,7 @@ class DrawingScreen extends StatefulWidget {
     this.isReadOnly = false,
     this.sessionId,
     this.materials = const [],
+    this.documentPages = const [],
   }) : super(key: key);
 
   @override
@@ -111,6 +114,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void initState() {
     super.initState();
     _drawingProvider = context.read<DrawingProvider>();
+    _drawingProvider.onRoomJoinedPayload = _handleRoomJoinedPayload;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeDrawing();
       _setupSessionEndedListener();
@@ -123,13 +127,37 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _initializeDrawing() async {
     final provider = _drawingProvider;
 
-    if (widget.isPdfDocument &&
-        widget.backgroundUrl != null &&
-        widget.backgroundUrl!.isNotEmpty &&
-        widget.materialId != null &&
-        widget.materialId!.isNotEmpty) {
-      await _preparePdfDocument();
+    if (widget.isPdfDocument) {
+      debugPrint(
+        '[drawing] init pdf materialId=${widget.materialId} '
+        'documentPages=${widget.documentPages.length}',
+      );
+      final initialized = await _prepareServerRenderedDocument(
+        pages: widget.documentPages,
+      );
+      if (!initialized) {
+        provider.clearPdfPageSize();
+        provider.setBackgroundUrl(null);
+        if (widget.materialId != null && widget.materialId!.isNotEmpty) {
+          provider.updatePageContext(
+            materialId: widget.materialId!,
+            pageNumber: 1,
+          );
+          await _syncNativePageContext(
+            materialId: widget.materialId!,
+            pageNumber: 1,
+          );
+          await _loadPersonalPageIfNeeded(
+            _personalPageKeyFor(materialId: widget.materialId!, pageNumber: 1),
+          );
+        } else {
+          await _loadPersonalPageIfNeeded(
+            _personalPageKeyForTitle(widget.materialTitle),
+          );
+        }
+      }
     } else {
+      provider.clearPdfPageSize();
       provider.setBackgroundUrl(widget.backgroundUrl);
       if (widget.materialId != null && widget.materialId!.isNotEmpty) {
         provider.updatePageContext(
@@ -161,64 +189,56 @@ class _DrawingScreenState extends State<DrawingScreen> {
     }
   }
 
-  Future<void> _preparePdfDocument() async {
-    final materialId = widget.materialId!;
-    final backgroundUrl = widget.backgroundUrl!;
+  Future<bool> _prepareServerRenderedDocument({
+    required List<DocumentPageSource> pages,
+    String? materialIdOverride,
+  }) async {
+    final materialId = materialIdOverride?.trim().isNotEmpty == true
+        ? materialIdOverride!.trim()
+        : widget.materialId?.trim();
+    if (materialId == null || materialId.isEmpty || pages.isEmpty) {
+      debugPrint(
+        '[drawing] prepare skipped materialId=$materialId pages=${pages.length}',
+      );
+      return false;
+    }
+
+    final normalizedPages = pages
+        .where((page) => (page.imagePath?.trim().isNotEmpty ?? false))
+        .toList();
+    if (normalizedPages.isEmpty) {
+      debugPrint('[drawing] prepare skipped no imageUrl pages=${pages.length}');
+      return false;
+    }
 
     setState(() => _isPreparingDocument = true);
     try {
-      final document = await PdfDocumentService.openDocument(
+      final pageNumbers = normalizedPages
+          .map((page) => page.pageNumber)
+          .toSet();
+      final currentPage = _documentSource?.materialId == materialId
+          ? _documentSource?.currentPage
+          : null;
+      final initialPage =
+          currentPage != null && pageNumbers.contains(currentPage)
+          ? currentPage
+          : pageNumbers.contains(1)
+          ? 1
+          : normalizedPages.first.pageNumber;
+      final document = DocumentSource(
         materialId: materialId,
-        pdfUrl: backgroundUrl,
+        pdfUrl: widget.backgroundUrl ?? '',
+        localPdfPath: '',
+        pageCount: normalizedPages.length,
+        currentPage: initialPage,
+        pages: normalizedPages,
       );
-      final firstPage = await PdfDocumentService.renderPage(
+      await _applyDocumentPage(
         document: document,
-        pageNumber: document.currentPage,
+        pageNumber: initialPage,
+        persistCurrentDraft: false,
       );
-      final hydratedDocument = document.copyWith(
-        pages: document.pages.map((page) {
-          return page.pageNumber == firstPage.pageNumber ? firstPage : page;
-        }).toList(),
-      );
-
-      _documentSource = hydratedDocument;
-      _drawingProvider.updatePageContext(
-        materialId: materialId,
-        pageNumber: firstPage.pageNumber,
-      );
-      await _syncNativePageContext(
-        materialId: materialId,
-        pageNumber: firstPage.pageNumber,
-      );
-      await _switchTeacherPageDraft(
-        hydratedDocument.pageKeyFor(firstPage.pageNumber),
-      );
-      _drawingProvider.setBackgroundUrl(firstPage.imagePath ?? backgroundUrl);
-      _drawingProvider.setPdfPageSize(
-        width: firstPage.width,
-        height: firstPage.height,
-      );
-      await _loadPersonalPageIfNeeded(
-        _personalPageKeyFor(
-          materialId: hydratedDocument.materialId,
-          pageNumber: firstPage.pageNumber,
-        ),
-      );
-      await _restoreCurrentTeacherPage();
-    } catch (e) {
-      debugPrint('Failed to prepare PDF document: $e');
-      _drawingProvider.setBackgroundUrl(backgroundUrl);
-      await _loadPersonalPageIfNeeded(
-        _personalPageKeyForTitle(widget.materialTitle),
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('PDF 렌더링 준비 실패: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      return true;
     } finally {
       if (mounted) {
         setState(() => _isPreparingDocument = false);
@@ -339,43 +359,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
 
     setState(() => _isPreparingDocument = true);
     try {
-      await _captureCurrentTeacherPage();
-      final renderedPage = await PdfDocumentService.renderPage(
-        document: document,
-        pageNumber: pageNumber,
-      );
-
-      final updatedDocument = document.copyWith(
-        currentPage: pageNumber,
-        pages: document.pages.map((page) {
-          return page.pageNumber == pageNumber ? renderedPage : page;
-        }).toList(),
-      );
-
-      _documentSource = updatedDocument;
-      _drawingProvider.updatePageContext(
-        materialId: updatedDocument.materialId,
-        pageNumber: pageNumber,
-      );
-      await _syncNativePageContext(
-        materialId: updatedDocument.materialId,
-        pageNumber: pageNumber,
-      );
-      await _switchTeacherPageDraft(updatedDocument.pageKeyFor(pageNumber));
-      _drawingProvider.setBackgroundUrl(
-        renderedPage.imagePath ?? _drawingProvider.backgroundUrl,
-      );
-      _drawingProvider.setPdfPageSize(
-        width: renderedPage.width,
-        height: renderedPage.height,
-      );
-      await _loadPersonalPageIfNeeded(
-        _personalPageKeyFor(
-          materialId: updatedDocument.materialId,
-          pageNumber: pageNumber,
-        ),
-      );
-      await _restoreCurrentTeacherPage();
+      await _applyDocumentPage(document: document, pageNumber: pageNumber);
     } catch (e) {
       debugPrint('Failed to change PDF page: $e');
       if (!mounted) return;
@@ -390,6 +374,82 @@ class _DrawingScreenState extends State<DrawingScreen> {
         setState(() => _isPreparingDocument = false);
       }
     }
+  }
+
+  Future<void> _applyDocumentPage({
+    required DocumentSource document,
+    required int pageNumber,
+    bool persistCurrentDraft = true,
+  }) async {
+    DocumentPageSource? selectedPage;
+    for (final page in document.pages) {
+      if (page.pageNumber == pageNumber) {
+        selectedPage = page;
+        break;
+      }
+    }
+    if (selectedPage == null) {
+      throw Exception('선택한 페이지를 찾을 수 없습니다.');
+    }
+
+    if (persistCurrentDraft) {
+      await _captureCurrentTeacherPage();
+    }
+
+    final updatedDocument = document.copyWith(currentPage: pageNumber);
+    _documentSource = updatedDocument;
+    _drawingProvider.updatePageContext(
+      materialId: updatedDocument.materialId,
+      pageNumber: pageNumber,
+    );
+    await _syncNativePageContext(
+      materialId: updatedDocument.materialId,
+      pageNumber: pageNumber,
+    );
+    await _switchTeacherPageDraft(updatedDocument.pageKeyFor(pageNumber));
+    _drawingProvider.setBackgroundUrl(selectedPage.imagePath);
+    _drawingProvider.setPdfPageSize(
+      width: selectedPage.width,
+      height: selectedPage.height,
+    );
+    await _loadPersonalPageIfNeeded(
+      _personalPageKeyFor(
+        materialId: updatedDocument.materialId,
+        pageNumber: pageNumber,
+      ),
+    );
+    await _restoreCurrentTeacherPage();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _handleRoomJoinedPayload(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final materialRaw = data['material'];
+    if (materialRaw is! Map) return;
+
+    final joinedMaterial = SessionJoinMaterial.fromJson(
+      Map<String, dynamic>.from(materialRaw),
+    );
+    if (joinedMaterial.type.toLowerCase() != 'pdf') {
+      return;
+    }
+    if (joinedMaterial.id.isEmpty || joinedMaterial.pages.isEmpty) {
+      debugPrint('[drawing] join_success material has no pages');
+      return;
+    }
+    debugPrint(
+      '[drawing] join_success materialId=${joinedMaterial.id} '
+      'pages=${joinedMaterial.pages.length}',
+    );
+
+    unawaited(
+      _prepareServerRenderedDocument(
+        pages: joinedMaterial.pages,
+        materialIdOverride: joinedMaterial.id,
+      ),
+    );
   }
 
   void _setupSessionEndedListener() {
@@ -466,9 +526,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
   void _openQuizEditor() {
     final sessionId = _shareableSessionId;
     if (sessionId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('세션 정보가 없어 퀴즈를 관리할 수 없습니다.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('세션 정보가 없어 퀴즈를 관리할 수 없습니다.')),
+      );
       return;
     }
 
@@ -661,7 +721,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
         onConfirm: () {
           final sessionId =
               _drawingProvider.roomId ?? widget.roomId ?? widget.sessionId;
-          debugPrint('🎯 QuizScreen sessionId: $sessionId (roomId=${_drawingProvider.roomId}, widgetRoomId=${widget.roomId}, widgetSessionId=${widget.sessionId})');
+          debugPrint(
+            '🎯 QuizScreen sessionId: $sessionId (roomId=${_drawingProvider.roomId}, widgetRoomId=${widget.roomId}, widgetSessionId=${widget.sessionId})',
+          );
           if (sessionId == null) {
             debugPrint('❌ sessionId is null, skipping quiz');
             _cleanupAndGoHome();
@@ -912,6 +974,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
   @override
   void dispose() {
     _drawingProvider.disconnectSocket();
+    _drawingProvider.onRoomJoinedPayload = null;
     super.dispose();
   }
 
@@ -1004,10 +1067,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
           ),
           if (widget.isReadOnly)
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 4,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: AppColors.accentLight,
                 borderRadius: BorderRadius.circular(12),
@@ -1185,9 +1245,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
                                       ),
                                       decoration: BoxDecoration(
                                         color: Colors.black.withOpacity(0.72),
-                                        borderRadius: BorderRadius.circular(
-                                          18,
-                                        ),
+                                        borderRadius: BorderRadius.circular(18),
                                       ),
                                       child: Text(
                                         '${_documentSource!.currentPage} / ${_documentSource!.pageCount}',

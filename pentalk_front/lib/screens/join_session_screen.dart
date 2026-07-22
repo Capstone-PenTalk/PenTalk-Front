@@ -182,12 +182,8 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
       final materialType = material == null
           ? FileMaterialType.pdf
           : FileMaterialType.fromString(material.type);
-      var backgroundUrl = material?.url.trim() ?? '';
-      if (backgroundUrl.isEmpty && materialType == FileMaterialType.pdf) {
-        backgroundUrl = await ApiService.getMaterialDownloadUrl(
-          materialId: selectedMaterialId,
-        );
-      }
+      final backgroundUrl = material?.url.trim() ?? '';
+      final documentPages = material?.pages ?? const [];
       final currentUserId = await AuthService.getUserId();
 
       if (!mounted) return;
@@ -199,6 +195,7 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
             backgroundUrl: backgroundUrl.isEmpty ? null : backgroundUrl,
             isPdfDocument: materialType == FileMaterialType.pdf,
             materialId: selectedMaterialId,
+            documentPages: documentPages,
             classId: trimmedClassId,
             isTeacher: false,
             serverUrl: AppConfig.resolveSocketUrl(isTeacher: false),
@@ -214,6 +211,7 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
                 sizeInBytes: 0,
                 uploadedAt: DateTime.now(),
                 type: materialType,
+                pages: documentPages,
               ),
             ],
           ),

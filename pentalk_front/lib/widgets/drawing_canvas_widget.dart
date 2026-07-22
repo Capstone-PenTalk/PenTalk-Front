@@ -40,7 +40,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
   final List<DrawPoint> _currentPoints = [];
 
   // 배경 이미지 크기 (로드되면 설정됨)
-  Size? _backgroundImageSize;
+  Size? _decodedImageSize;
 
   // InteractiveViewer 컨트롤러
   final TransformationController _transformationController =
@@ -105,9 +105,18 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
             !kIsWeb &&
             defaultTargetPlatform == TargetPlatform.iOS &&
             widget.isTeacher;
+        final pdfPageSize = context.select<DrawingProvider, Size?>((provider) {
+          final width = provider.pdfWidth;
+          final height = provider.pdfHeight;
+          if (width == null || height == null || width <= 0 || height <= 0) {
+            return null;
+          }
+          return Size(width, height);
+        });
+        final contentSize = pdfPageSize ?? _decodedImageSize;
         final backgroundScaler = CoordinateScaler(
           canvasSize: canvasSize,
-          contentSize: _backgroundImageSize,
+          contentSize: contentSize,
           fit: BoxFit.contain,
         );
         final contentRect = backgroundScaler.contentRect;
@@ -139,9 +148,13 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                     RepaintBoundary(
                       child: _BackgroundLayer(
                         canvasSize: canvasSize,
+                        contentSize: contentSize,
                         onImageLoaded: (size) {
+                          if (_decodedImageSize == size) {
+                            return;
+                          }
                           setState(() {
-                            _backgroundImageSize = size;
+                            _decodedImageSize = size;
                           });
                         },
                       ),
@@ -153,7 +166,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                     RepaintBoundary(
                       child: _OthersDrawingLayer(
                         canvasSize: canvasSize,
-                        backgroundImageSize: _backgroundImageSize,
+                        contentSize: contentSize,
                         scale: _currentScale,
                       ),
                     ),
@@ -165,7 +178,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                       RepaintBoundary(
                         child: _MyDrawingLayer(
                           canvasSize: canvasSize,
-                          backgroundImageSize: _backgroundImageSize,
+                          contentSize: contentSize,
                           scale: _currentScale,
                         ),
                       ),
@@ -177,7 +190,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                       RepaintBoundary(
                         child: _PersonalDrawingLayer(
                           canvasSize: canvasSize,
-                          backgroundImageSize: _backgroundImageSize,
+                          contentSize: contentSize,
                           scale: _currentScale,
                         ),
                       ),
@@ -194,7 +207,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                         child: _NativeTeacherInputLayer(
                           isDrawingEnabled: isDrawingMode,
                           renderSize: contentRect.size,
-                          contentSize: _backgroundImageSize,
+                          contentSize: contentSize,
                         ),
                       ),
 
@@ -204,7 +217,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                         !useNativeTeacherInput)
                       _TouchInputLayer(
                         canvasSize: canvasSize,
-                        backgroundImageSize: _backgroundImageSize,
+                        contentSize: contentSize,
                         currentStrokeId: _currentStrokeId,
                         currentPoints: _currentPoints,
                         transformationController: _transformationController,
@@ -217,7 +230,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                     if (!widget.isTeacher && isDrawingMode)
                       _PersonalTouchInputLayer(
                         canvasSize: canvasSize,
-                        backgroundImageSize: _backgroundImageSize,
+                        contentSize: contentSize,
                         currentStrokeId: _currentStrokeId,
                         currentPoints: _currentPoints,
                         transformationController: _transformationController,
@@ -247,7 +260,7 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
             // ====================================
             // 레이어 7: 디버그 정보 (개발용)
             // ====================================
-            if (_backgroundImageSize != null)
+            if (_decodedImageSize != null)
               Positioned(
                 bottom: 8,
                 left: 8,
@@ -259,7 +272,9 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                   ),
                   child: Text(
                     'Canvas: ${canvasSize.width.toInt()}x${canvasSize.height.toInt()}\n'
-                    'Image: ${_backgroundImageSize!.width.toInt()}x${_backgroundImageSize!.height.toInt()}\n'
+                    'Page: ${(contentSize ?? _decodedImageSize)!.width.toInt()}x${(contentSize ?? _decodedImageSize)!.height.toInt()}\n'
+                    'Decoded: ${_decodedImageSize!.width.toInt()}x${_decodedImageSize!.height.toInt()}\n'
+                    'Content: ${contentRect.width.toInt()}x${contentRect.height.toInt()}\n'
                     'Zoom: ${_currentScale.toStringAsFixed(2)}x',
                     style: const TextStyle(
                       color: Colors.white,
@@ -438,10 +453,12 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
 /// ===============================
 class _BackgroundLayer extends StatelessWidget {
   final Size canvasSize;
+  final Size? contentSize;
   final Function(Size) onImageLoaded;
 
   const _BackgroundLayer({
     required this.canvasSize,
+    required this.contentSize,
     required this.onImageLoaded,
   });
 
@@ -454,66 +471,101 @@ class _BackgroundLayer extends StatelessWidget {
           final isRemote =
               backgroundUrl.startsWith('http://') ||
               backgroundUrl.startsWith('https://');
+          final contentRect = CoordinateScaler(
+            canvasSize: canvasSize,
+            contentSize: contentSize,
+            fit: BoxFit.contain,
+          ).contentRect;
           return SizedBox.expand(
-            child: isRemote || kIsWeb
-                ? Image.network(
-                    backgroundUrl,
-                    fit: BoxFit.contain,
-                    frameBuilder:
-                        (context, child, frame, wasSynchronouslyLoaded) {
-                          if (frame != null) {
-                            // 이미지 로드 완료 - 크기 측정
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _getImageSize(backgroundUrl).then((size) {
-                                if (size != null) {
-                                  onImageLoaded(size);
-                                }
-                              });
-                            });
-                          }
-                          return child;
-                        },
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.white,
-                        child: const Center(
-                          child: Icon(Icons.error, color: Colors.red, size: 48),
-                        ),
-                      );
-                    },
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Container(
-                        color: Colors.white,
-                        child: const Center(child: CircularProgressIndicator()),
-                      );
-                    },
-                  )
-                : Image.file(
-                    File(backgroundUrl),
-                    fit: BoxFit.contain,
-                    frameBuilder:
-                        (context, child, frame, wasSynchronouslyLoaded) {
-                          if (frame != null) {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _getImageSize(backgroundUrl).then((size) {
-                                if (size != null) {
-                                  onImageLoaded(size);
-                                }
-                              });
-                            });
-                          }
-                          return child;
-                        },
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.white,
-                        child: const Center(
-                          child: Icon(Icons.error, color: Colors.red, size: 48),
-                        ),
-                      );
-                    },
+            child: ColoredBox(
+              color: Colors.white,
+              child: Stack(
+                children: [
+                  Positioned.fromRect(
+                    rect: contentRect,
+                    child: isRemote || kIsWeb
+                        ? Image.network(
+                            backgroundUrl,
+                            fit: BoxFit.fill,
+                            webHtmlElementStrategy:
+                                WebHtmlElementStrategy.fallback,
+                            frameBuilder:
+                                (
+                                  context,
+                                  child,
+                                  frame,
+                                  wasSynchronouslyLoaded,
+                                ) {
+                                  if (frame != null) {
+                                    // 이미지 로드 완료 - 크기 측정.
+                                    // 좌표 기준은 서버 page size가 있으면 그 값을 우선 사용한다.
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          _getImageSize(backgroundUrl).then((
+                                            size,
+                                          ) {
+                                            if (size != null) {
+                                              onImageLoaded(size);
+                                            }
+                                          });
+                                        });
+                                  }
+                                  return child;
+                                },
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(
+                                child: Icon(
+                                  Icons.error,
+                                  color: Colors.red,
+                                  size: 48,
+                                ),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            },
+                          )
+                        : Image.file(
+                            File(backgroundUrl),
+                            fit: BoxFit.fill,
+                            frameBuilder:
+                                (
+                                  context,
+                                  child,
+                                  frame,
+                                  wasSynchronouslyLoaded,
+                                ) {
+                                  if (frame != null) {
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          _getImageSize(backgroundUrl).then((
+                                            size,
+                                          ) {
+                                            if (size != null) {
+                                              onImageLoaded(size);
+                                            }
+                                          });
+                                        });
+                                  }
+                                  return child;
+                                },
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(
+                                child: Icon(
+                                  Icons.error,
+                                  color: Colors.red,
+                                  size: 48,
+                                ),
+                              );
+                            },
+                          ),
                   ),
+                ],
+              ),
+            ),
           );
         }
 
@@ -565,12 +617,12 @@ class _BackgroundLayer extends StatelessWidget {
 /// ===============================
 class _OthersDrawingLayer extends StatelessWidget {
   final Size canvasSize;
-  final Size? backgroundImageSize;
+  final Size? contentSize;
   final double scale;
 
   const _OthersDrawingLayer({
     required this.canvasSize,
-    required this.backgroundImageSize,
+    required this.contentSize,
     required this.scale,
   });
 
@@ -584,7 +636,7 @@ class _OthersDrawingLayer extends StatelessWidget {
       builder: (context, strokes, child) {
         final scaler = CoordinateScaler(
           canvasSize: canvasSize,
-          contentSize: backgroundImageSize,
+          contentSize: contentSize,
           fit: BoxFit.contain,
         );
 
@@ -619,12 +671,12 @@ class _OthersDrawingLayer extends StatelessWidget {
 /// ===============================
 class _MyDrawingLayer extends StatelessWidget {
   final Size canvasSize;
-  final Size? backgroundImageSize;
+  final Size? contentSize;
   final double scale;
 
   const _MyDrawingLayer({
     required this.canvasSize,
-    required this.backgroundImageSize,
+    required this.contentSize,
     required this.scale,
   });
 
@@ -638,7 +690,7 @@ class _MyDrawingLayer extends StatelessWidget {
       builder: (context, strokes, child) {
         final scaler = CoordinateScaler(
           canvasSize: canvasSize,
-          contentSize: backgroundImageSize,
+          contentSize: contentSize,
           fit: BoxFit.contain,
         );
 
@@ -789,7 +841,7 @@ class _NativeTeacherInputLayerState extends State<_NativeTeacherInputLayer> {
 /// ===============================
 class _TouchInputLayer extends StatefulWidget {
   final Size canvasSize;
-  final Size? backgroundImageSize;
+  final Size? contentSize;
   final int? currentStrokeId;
   final List<DrawPoint> currentPoints;
   final TransformationController transformationController;
@@ -799,7 +851,7 @@ class _TouchInputLayer extends StatefulWidget {
 
   const _TouchInputLayer({
     required this.canvasSize,
-    required this.backgroundImageSize,
+    required this.contentSize,
     required this.currentStrokeId,
     required this.currentPoints,
     required this.transformationController,
@@ -842,7 +894,7 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
     if (_drawingPointer == event.pointer && widget.currentStrokeId != null) {
       final scaler = CoordinateScaler(
         canvasSize: widget.canvasSize,
-        contentSize: widget.backgroundImageSize,
+        contentSize: widget.contentSize,
         fit: BoxFit.contain,
       );
       final provider = context.read<DrawingProvider>();
@@ -869,7 +921,7 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
   Widget build(BuildContext context) {
     final scaler = CoordinateScaler(
       canvasSize: widget.canvasSize,
-      contentSize: widget.backgroundImageSize,
+      contentSize: widget.contentSize,
       fit: BoxFit.contain,
     );
 
@@ -972,12 +1024,12 @@ class _ZoomIndicator extends StatelessWidget {
 /// ===============================
 class _PersonalDrawingLayer extends StatelessWidget {
   final Size canvasSize;
-  final Size? backgroundImageSize;
+  final Size? contentSize;
   final double scale;
 
   const _PersonalDrawingLayer({
     required this.canvasSize,
-    required this.backgroundImageSize,
+    required this.contentSize,
     required this.scale,
   });
 
@@ -1001,7 +1053,7 @@ class _PersonalDrawingLayer extends StatelessWidget {
 
         final scaler = CoordinateScaler(
           canvasSize: canvasSize,
-          contentSize: backgroundImageSize,
+          contentSize: contentSize,
           fit: BoxFit.contain,
         );
 
@@ -1024,7 +1076,7 @@ class _PersonalDrawingLayer extends StatelessWidget {
 /// ===============================
 class _PersonalTouchInputLayer extends StatefulWidget {
   final Size canvasSize;
-  final Size? backgroundImageSize;
+  final Size? contentSize;
   final int? currentStrokeId;
   final List<DrawPoint> currentPoints;
   final TransformationController transformationController;
@@ -1042,7 +1094,7 @@ class _PersonalTouchInputLayer extends StatefulWidget {
 
   const _PersonalTouchInputLayer({
     required this.canvasSize,
-    required this.backgroundImageSize,
+    required this.contentSize,
     required this.currentStrokeId,
     required this.currentPoints,
     required this.transformationController,
@@ -1093,7 +1145,7 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
     if (_drawingPointer == event.pointer && widget.currentStrokeId != null) {
       final scaler = CoordinateScaler(
         canvasSize: widget.canvasSize,
-        contentSize: widget.backgroundImageSize,
+        contentSize: widget.contentSize,
         fit: BoxFit.contain,
       );
       final provider = context.read<PersonalDrawingProvider>();
@@ -1120,7 +1172,7 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
   Widget build(BuildContext context) {
     final scaler = CoordinateScaler(
       canvasSize: widget.canvasSize,
-      contentSize: widget.backgroundImageSize,
+      contentSize: widget.contentSize,
       fit: BoxFit.contain,
     );
 

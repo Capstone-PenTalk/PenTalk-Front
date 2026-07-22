@@ -4,6 +4,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
+import '../models/document_source.dart';
 import '../models/drawing_models.dart';
 import 'auth_service.dart';
 import '../models/quiz_model.dart';
@@ -970,11 +971,17 @@ class ApiService {
     );
 
     final response = await http.Response.fromStream(streamedResponse);
+    debugPrint(
+      'POST /materials/pdf response status=${response.statusCode} '
+      'bytes=${response.bodyBytes.length}',
+    );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final uploaded = MaterialUploadResponse.fromJson(data);
-      debugPrint('✅ Material uploaded: ${uploaded.id}');
+      debugPrint(
+        '✅ Material uploaded: ${uploaded.id} pages=${uploaded.pages.length}',
+      );
       return uploaded;
     }
 
@@ -1042,13 +1049,17 @@ class ApiService {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final items = data['items'] as List<dynamic>? ?? [];
       debugPrint('✅ Materials loaded: ${items.length}개');
-      return items
+      final materials = items
           .whereType<Map>()
           .map(
             (e) =>
                 MaterialUploadResponse.fromJson(Map<String, dynamic>.from(e)),
           )
           .toList();
+      debugPrint(
+        '✅ Materials pages: ${materials.map((m) => '${m.id}:${m.pages.length}').join(', ')}',
+      );
+      return materials;
     }
 
     String errorMessage = '자료 목록을 불러오지 못했습니다';
@@ -1541,23 +1552,36 @@ class SessionJoinMaterial {
   final String name;
   final String type;
   final String url;
+  final List<DocumentPageSource> pages;
 
   SessionJoinMaterial({
     required this.id,
     required this.name,
     required this.type,
     required this.url,
+    this.pages = const [],
   });
 
   factory SessionJoinMaterial.fromJson(Map<String, dynamic> json) {
+    final rawPages = json['pages'] as List<dynamic>? ?? const [];
     return SessionJoinMaterial(
-      id: json['id']?.toString().trim() ?? '',
+      id:
+          json['materialId']?.toString().trim() ??
+          json['id']?.toString().trim() ??
+          '',
       name: json['name']?.toString().trim() ?? '자료',
       type: json['type']?.toString().trim() ?? '',
       url:
           json['url']?.toString().trim() ??
           json['downloadUrl']?.toString().trim() ??
           '',
+      pages: rawPages
+          .whereType<Map>()
+          .map(
+            (page) =>
+                DocumentPageSource.fromJson(Map<String, dynamic>.from(page)),
+          )
+          .toList(),
     );
   }
 }
@@ -1636,6 +1660,8 @@ class MaterialUploadResponse {
   final String name;
   final String classId;
   final String createdAt;
+  final int sizeInBytes;
+  final List<DocumentPageSource> pages;
 
   MaterialUploadResponse({
     required this.id,
@@ -1644,6 +1670,8 @@ class MaterialUploadResponse {
     required this.name,
     required this.classId,
     required this.createdAt,
+    this.sizeInBytes = 0,
+    this.pages = const [],
   });
 
   factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
@@ -1683,14 +1711,32 @@ class MaterialUploadResponse {
               (value) => value.isNotEmpty,
               orElse: () => DateTime.now().toIso8601String(),
             );
+    final rawSize =
+        payload['sizeInBytes'] ??
+        payload['size'] ??
+        payload['fileSize'] ??
+        payload['fileSizeBytes'] ??
+        payload['bytes'];
+    final resolvedSize = rawSize is num
+        ? rawSize.toInt()
+        : int.tryParse(rawSize?.toString() ?? '') ?? 0;
+    final rawPages = payload['pages'] as List<dynamic>? ?? const [];
 
     return MaterialUploadResponse(
-      id: toStringValue(payload['id'], fallback: ''),
+      id: toStringValue(payload['materialId'] ?? payload['id'], fallback: ''),
       type: toStringValue(payload['type'], fallback: 'pdf'),
       url: resolvedUrl,
       name: resolvedName,
       classId: toStringValue(payload['classId'], fallback: ''),
       createdAt: resolvedCreatedAt,
+      sizeInBytes: resolvedSize,
+      pages: rawPages
+          .whereType<Map>()
+          .map(
+            (page) =>
+                DocumentPageSource.fromJson(Map<String, dynamic>.from(page)),
+          )
+          .toList(),
     );
   }
 

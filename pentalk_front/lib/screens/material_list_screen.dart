@@ -64,9 +64,10 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                 title: m.name,
                 fileName: m.name,
                 url: m.url,
-                sizeInBytes: 0,
+                sizeInBytes: m.sizeInBytes,
                 uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
                 type: FileMaterialType.pdf,
+                pages: m.pages,
               ),
             )
             .toList(),

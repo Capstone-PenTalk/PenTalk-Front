@@ -1,7 +1,9 @@
+import 'document_source.dart';
+
 class StudentSessionModel {
   final String id;
   final String title;
-  final String? classId;        // 자료 조회에 필요
+  final String? classId; // 자료 조회에 필요
   final String teacherName;
   final String subject;
   final DateTime joinedAt;
@@ -25,9 +27,13 @@ class StudentSessionModel {
       teacherName: json['teacherName'] as String,
       subject: json['subject'] as String,
       joinedAt: DateTime.parse(json['joinedAt'] as String),
-      materials: (json['materials'] as List<dynamic>?)
-          ?.map((material) => MaterialModel.fromJson(material as Map<String, dynamic>))
-          .toList() ??
+      materials:
+          (json['materials'] as List<dynamic>?)
+              ?.map(
+                (material) =>
+                    MaterialModel.fromJson(material as Map<String, dynamic>),
+              )
+              .toList() ??
           [],
     );
   }
@@ -74,6 +80,7 @@ class MaterialModel {
   final DateTime uploadedAt;
   final String? description;
   final FileMaterialType type;
+  final List<DocumentPageSource> pages;
 
   MaterialModel({
     required this.id,
@@ -84,9 +91,11 @@ class MaterialModel {
     required this.uploadedAt,
     this.description,
     required this.type,
+    this.pages = const [],
   });
 
   factory MaterialModel.fromJson(Map<String, dynamic> json) {
+    final rawPages = json['pages'] as List<dynamic>? ?? const [];
     return MaterialModel(
       id: json['id'] as String,
       title: json['title'] as String,
@@ -96,6 +105,13 @@ class MaterialModel {
       uploadedAt: DateTime.parse(json['uploadedAt'] as String),
       description: json['description'] as String?,
       type: FileMaterialType.fromString(json['type'] as String),
+      pages: rawPages
+          .whereType<Map>()
+          .map(
+            (page) =>
+                DocumentPageSource.fromJson(Map<String, dynamic>.from(page)),
+          )
+          .toList(),
     );
   }
 
@@ -109,6 +125,7 @@ class MaterialModel {
       'uploadedAt': uploadedAt.toIso8601String(),
       'description': description,
       'type': type.toString(),
+      'pages': pages.map((page) => page.toJson()).toList(),
     };
   }
 
@@ -181,7 +198,7 @@ enum Subject {
 
   static Subject fromString(String value) {
     return Subject.values.firstWhere(
-          (subject) => subject.displayName == value || subject.name == value,
+      (subject) => subject.displayName == value || subject.name == value,
       orElse: () => Subject.other,
     );
   }

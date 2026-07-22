@@ -40,6 +40,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   final LocalMaterialService _localMaterialService = LocalMaterialService();
   bool _isUploading = false;
   String? _realtimeSessionId;
+  int _materialsLoadSerial = 0;
 
   bool get _canUseRemoteMaterials =>
       !widget.localOnly &&
@@ -73,7 +74,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final userId = await AuthService.getUserId() ?? 'teacher';
     final resolvedBackgroundUrl = await _resolveMaterialBackgroundUrl(material);
     String? realtimeSessionId = connectRealtime ? _effectiveSessionId : null;
-    debugPrint('🎯 _navigateToDrawing: effectiveSessionId=$_effectiveSessionId, realtimeSessionId=$realtimeSessionId');
+    debugPrint(
+      '🎯 _navigateToDrawing: effectiveSessionId=$_effectiveSessionId, realtimeSessionId=$realtimeSessionId',
+    );
     if (connectRealtime && realtimeSessionId == null) {
       debugPrint('🆕 Creating new session in _navigateToDrawing...');
       realtimeSessionId = await _createRealtimeSessionForMaterial(material);
@@ -88,6 +91,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           materialTitle: material.title,
           backgroundUrl: resolvedBackgroundUrl,
           isPdfDocument: material.type == FileMaterialType.pdf,
+          documentPages: material.pages,
           isTeacher: true, // 교사 모드 켜기
           sessionId: realtimeSessionId,
           roomId: realtimeSessionId,
@@ -103,6 +107,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   Future<String> _resolveMaterialBackgroundUrl(MaterialModel material) async {
+    if (material.type == FileMaterialType.pdf && material.pages.isNotEmpty) {
+      return material.url;
+    }
+
     final isRemotePdf =
         _canUseRemoteMaterials &&
         material.type == FileMaterialType.pdf &&
@@ -176,7 +184,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   /// ===============================
   /// 자료 목록 로드
   /// ===============================
-  Future<void> _loadMaterials() async {
+  Future<void> _loadMaterials({String? sessionIdOverride}) async {
     final materialProvider = context.read<MaterialProvider>();
     if (!_canUseRemoteMaterials) {
       materialProvider.setMaterials(const []);
@@ -190,15 +198,31 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         : (kIsWeb ? Uri.base.queryParameters['classId'] : null);
     if (classId == null) return;
 
+    final loadSerial = ++_materialsLoadSerial;
+    final requestedSessionId =
+        sessionIdOverride ?? _effectiveSessionId ?? widget.sessionId;
+    debugPrint(
+      '📚 loadMaterials start serial=$loadSerial sessionId=$requestedSessionId',
+    );
     materialProvider.setLoading(true);
 
     try {
       final materials = await ApiService.getMaterials(
         classId: classId,
-        sessionId: _effectiveSessionId ?? widget.sessionId,
+        sessionId: requestedSessionId,
       );
-      if (!mounted) return;
+      if (!mounted || loadSerial != _materialsLoadSerial) {
+        debugPrint(
+          '📚 loadMaterials ignored stale serial=$loadSerial '
+          'current=$_materialsLoadSerial sessionId=$requestedSessionId',
+        );
+        return;
+      }
 
+      debugPrint(
+        '📚 loadMaterials apply serial=$loadSerial '
+        'sessionId=$requestedSessionId count=${materials.length}',
+      );
       materialProvider.setMaterials(
         materials
             .map(
@@ -207,18 +231,22 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                 title: m.name,
                 fileName: m.name,
                 url: m.url,
-                sizeInBytes: 0, // 서버 응답에 size 없음
+                sizeInBytes: m.sizeInBytes,
                 uploadedAt: DateTime.tryParse(m.createdAt) ?? DateTime.now(),
                 type: FileMaterialType.pdf,
+                pages: m.pages,
               ),
             )
             .toList(),
       );
     } catch (e) {
+      if (!mounted || loadSerial != _materialsLoadSerial) return;
       debugPrint('❌ Failed to load materials: $e');
       if (mounted) materialProvider.setError('자료 목록 로드 실패');
     } finally {
-      if (mounted) materialProvider.setLoading(false);
+      if (mounted && loadSerial == _materialsLoadSerial) {
+        materialProvider.setLoading(false);
+      }
     }
   }
 
@@ -254,12 +282,15 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
       setState(() => _isUploading = true);
 
-      debugPrint('📋 _handleFileUpload: '
-          'widgetSessionId=${widget.sessionId}, '
-          'canUseRemote=$_canUseRemoteMaterials');
+      debugPrint(
+        '📋 _handleFileUpload: '
+        'widgetSessionId=${widget.sessionId}, '
+        'canUseRemote=$_canUseRemoteMaterials',
+      );
 
-      // 자료 업로드 전에 항상 새 세션 생성 (세션-자료 연결 보장)
-      if (_canUseRemoteMaterials) {
+      // 기존 실시간 세션이 있으면 그 세션에 업로드해야 한다.
+      // 여기서 새 세션을 만들면 업로드와 조회 sessionId가 갈라진다.
+      if (_canUseRemoteMaterials && _effectiveSessionId == null) {
         debugPrint('🆕 Creating new session before material upload...');
         final fileNameForTitle = file.path.split(RegExp(r'[\\/]')).last;
         final sessionResponse = await ApiService.createSession(
@@ -272,6 +303,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           setState(() {
             _realtimeSessionId = sessionResponse.data!.sessionId;
           });
+          _materialsLoadSerial++;
           debugPrint('✅ New session created: $_realtimeSessionId');
         } else {
           debugPrint('❌ Session creation failed: ${sessionResponse.message}');
@@ -282,6 +314,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       final material = await _createMaterialForTesting(filePath: file.path);
       if (!mounted) return;
 
+      debugPrint(
+        '📄 Uploaded material ready id=${material.id} '
+        'pages=${material.pages.length}',
+      );
+      _materialsLoadSerial++;
       context.read<MaterialProvider>().addMaterial(material);
       await _navigateToDrawing(
         context,
@@ -325,12 +362,18 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
     final file = await _localMaterialService.importPdf(File(filePath));
     final resolvedSessionId = _effectiveSessionId ?? widget.sessionId;
-    debugPrint('🔗 uploadMaterial: classId=$classId, sessionId=$resolvedSessionId');
+    debugPrint(
+      '🔗 uploadMaterial: classId=$classId, sessionId=$resolvedSessionId',
+    );
     final uploaded = await ApiService.uploadMaterial(
       classId: classId,
       sessionId: resolvedSessionId,
       filePath: file.url,
       fileName: file.fileName,
+    );
+    debugPrint(
+      '📄 uploadMaterial parsed id=${uploaded.id} '
+      'pages=${uploaded.pages.length}',
     );
 
     return MaterialModel(
@@ -341,6 +384,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       sizeInBytes: file.sizeInBytes,
       uploadedAt: DateTime.tryParse(uploaded.createdAt) ?? DateTime.now(),
       type: FileMaterialType.pdf,
+      pages: uploaded.pages,
     );
   }
 

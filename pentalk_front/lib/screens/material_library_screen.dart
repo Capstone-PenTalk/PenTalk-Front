@@ -105,9 +105,10 @@ class _MaterialLibraryScreenState extends State<MaterialLibraryScreen> {
       title: item.name,
       fileName: item.name,
       url: item.url,
-      sizeInBytes: 0,
+      sizeInBytes: item.sizeInBytes,
       uploadedAt: DateTime.tryParse(item.createdAt) ?? DateTime.now(),
       type: FileMaterialType.fromString(item.type),
+      pages: item.pages,
     );
 
     Navigator.push(
