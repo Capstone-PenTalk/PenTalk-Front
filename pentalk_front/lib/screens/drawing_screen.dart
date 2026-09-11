@@ -419,6 +419,9 @@ class _DrawingScreenState extends State<DrawingScreen> {
         pageNumber: pageNumber,
       ),
     );
+    if (!widget.isTeacher) {
+      _drawingProvider.requestActivePageSync();
+    }
     await _restoreCurrentTeacherPage();
     if (mounted) {
       setState(() {});

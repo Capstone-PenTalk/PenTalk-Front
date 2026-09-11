@@ -489,8 +489,24 @@ class DrawingProvider extends ChangeNotifier {
     required String materialId,
     required int pageNumber,
   }) {
+    final didChangePage =
+        _activeMaterialId != materialId || _activePageNumber != pageNumber;
     _activeMaterialId = materialId;
     _activePageNumber = pageNumber;
+
+    if (didChangePage) {
+      _othersStrokes.clear();
+      _othersActiveStrokes.clear();
+      notifyListeners();
+    }
+  }
+
+  void requestActivePageSync({bool includeLastTick = false}) {
+    _socketService.requestSync(
+      lastTick: includeLastTick ? _lastTick : null,
+      materialId: _activeMaterialId,
+      pageNumber: _activePageNumber,
+    );
   }
 
   DrawEvent _decorateEventForActivePage(DrawEvent event) {
@@ -504,11 +520,11 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   bool _matchesActivePage(DrawEvent event) {
-    if (event.materialId == null || event.pageNumber == null) {
-      return true;
-    }
     if (_activeMaterialId == null || _activePageNumber == null) {
       return true;
+    }
+    if (event.materialId == null || event.pageNumber == null) {
+      return false;
     }
     return event.materialId == _activeMaterialId &&
         event.pageNumber == _activePageNumber;
@@ -950,7 +966,13 @@ class DrawingProvider extends ChangeNotifier {
 
     for (final strokeData in strokesData) {
       try {
-        final strokeId = strokeData['sId'] as int;
+        final event = DrawEvent.fromJson({
+          'e': strokeData['e'] ?? 'de',
+          ...strokeData,
+        });
+        if (!_matchesActivePage(event)) continue;
+
+        final strokeId = (strokeData['sId'] as num).toInt();
         final ptsData = strokeData['pts'] as List?;
         final points = <DrawPoint>[];
 
