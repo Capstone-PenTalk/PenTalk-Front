@@ -208,7 +208,7 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
                 title: selectedMaterialName,
                 fileName: selectedMaterialName,
                 url: backgroundUrl,
-                sizeInBytes: 0,
+                sizeInBytes: null,
                 uploadedAt: DateTime.now(),
                 type: materialType,
                 pages: documentPages,

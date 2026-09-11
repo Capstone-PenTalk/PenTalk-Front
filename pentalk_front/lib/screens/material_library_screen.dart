@@ -71,7 +71,9 @@ class _MaterialLibraryScreenState extends State<MaterialLibraryScreen> {
             classId: entry.key,
             sessionId: entry.value,
           );
-          collected.addAll(items);
+          collected.addAll(
+            items.map((item) => item.copyWith(accessSessionId: entry.value)),
+          );
         } catch (e) {
           debugPrint('⚠️ 자료 조회 실패 (classId=${entry.key}): $e');
         }
@@ -119,6 +121,7 @@ class _MaterialLibraryScreenState extends State<MaterialLibraryScreen> {
           sessionTitle: item.name,
           teacherName: '',
           classId: item.classId,
+          sessionId: item.accessSessionId,
           isTeacher: widget.isTeacher,
         ),
       ),

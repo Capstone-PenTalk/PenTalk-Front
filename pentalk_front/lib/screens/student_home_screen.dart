@@ -6,6 +6,8 @@ import '../widgets/student_session_card.dart';
 import 'material_list_screen.dart';
 import 'login_screen.dart';
 import 'qr_scan_screen.dart';
+import 'material_library_screen.dart';
+import '../theme/app_colors.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({Key? key}) : super(key: key);
@@ -17,6 +19,7 @@ class StudentHomeScreen extends StatefulWidget {
 class _StudentHomeScreenState extends State<StudentHomeScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
+  int _tabIndex = 0;
 
   @override
   void initState() {
@@ -51,6 +54,38 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
+      body: IndexedStack(
+        index: _tabIndex,
+        children: [
+          _buildHomeTab(),
+          const MaterialLibraryScreen(isTeacher: false),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (index) => setState(() => _tabIndex = index),
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.primaryLight,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.home, color: AppColors.primary),
+            label: '홈',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.folder, color: AppColors.primary),
+            label: '자료실',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text(
           '서예영 님의 공간',
@@ -58,9 +93,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.account_circle),
+            icon: const Icon(Icons.account_circle, color: AppColors.primary),
             onPressed: _handleSwitchRole,
-            tooltip: '역할 변경',
+            tooltip: '로그아웃',
           ),
         ],
       ),

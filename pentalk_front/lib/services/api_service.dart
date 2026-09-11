@@ -1080,14 +1080,23 @@ class ApiService {
   /// ===============================
   static Future<String> getMaterialDownloadUrl({
     required String materialId,
+    String? sessionId,
   }) async {
     final token = await AuthService.getToken();
+    final trimmedSessionId = sessionId?.trim();
+    final uri = Uri.parse('$baseUrl/materials/$materialId/download-url')
+        .replace(
+          queryParameters:
+              trimmedSessionId != null && trimmedSessionId.isNotEmpty
+              ? {'sessionId': trimmedSessionId}
+              : null,
+        );
 
-    debugPrint('📥 GET /materials/$materialId/download-url');
+    debugPrint('📥 GET $uri');
 
     final response = await http
         .get(
-          Uri.parse('$baseUrl/materials/$materialId/download-url'),
+          uri,
           headers: {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -1660,8 +1669,9 @@ class MaterialUploadResponse {
   final String name;
   final String classId;
   final String createdAt;
-  final int sizeInBytes;
+  final int? sizeInBytes;
   final List<DocumentPageSource> pages;
+  final String? accessSessionId;
 
   MaterialUploadResponse({
     required this.id,
@@ -1670,9 +1680,34 @@ class MaterialUploadResponse {
     required this.name,
     required this.classId,
     required this.createdAt,
-    this.sizeInBytes = 0,
+    this.sizeInBytes,
     this.pages = const [],
+    this.accessSessionId,
   });
+
+  MaterialUploadResponse copyWith({
+    String? id,
+    String? type,
+    String? url,
+    String? name,
+    String? classId,
+    String? createdAt,
+    int? sizeInBytes,
+    List<DocumentPageSource>? pages,
+    String? accessSessionId,
+  }) {
+    return MaterialUploadResponse(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      url: url ?? this.url,
+      name: name ?? this.name,
+      classId: classId ?? this.classId,
+      createdAt: createdAt ?? this.createdAt,
+      sizeInBytes: sizeInBytes ?? this.sizeInBytes,
+      pages: pages ?? this.pages,
+      accessSessionId: accessSessionId ?? this.accessSessionId,
+    );
+  }
 
   factory MaterialUploadResponse.fromJson(Map<String, dynamic> json) {
     final payload = _unwrapMaterialPayload(json);
@@ -1717,9 +1752,11 @@ class MaterialUploadResponse {
         payload['fileSize'] ??
         payload['fileSizeBytes'] ??
         payload['bytes'];
-    final resolvedSize = rawSize is num
+    final resolvedSize = rawSize == null
+        ? null
+        : rawSize is num
         ? rawSize.toInt()
-        : int.tryParse(rawSize?.toString() ?? '') ?? 0;
+        : int.tryParse(rawSize.toString());
     final rawPages = payload['pages'] as List<dynamic>? ?? const [];
 
     return MaterialUploadResponse(

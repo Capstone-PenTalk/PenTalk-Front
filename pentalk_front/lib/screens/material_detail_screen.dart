@@ -171,6 +171,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     if (isRemoteMaterial) {
       final downloadUrl = await ApiService.getMaterialDownloadUrl(
         materialId: material.id,
+        sessionId: widget.sessionId,
       );
       final response = await http.get(Uri.parse(downloadUrl));
       if (response.statusCode != 200) {
@@ -365,7 +366,10 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
 
     if (!isRemotePdf) return material.url;
 
-    return ApiService.getMaterialDownloadUrl(materialId: material.id);
+    return ApiService.getMaterialDownloadUrl(
+      materialId: material.id,
+      sessionId: widget.sessionId,
+    );
   }
 
   String? _resolveServerUrl(bool isTeacher) {

@@ -76,7 +76,7 @@ class MaterialModel {
   final String title;
   final String fileName;
   final String url;
-  final int sizeInBytes;
+  final int? sizeInBytes;
   final DateTime uploadedAt;
   final String? description;
   final FileMaterialType type;
@@ -87,7 +87,7 @@ class MaterialModel {
     required this.title,
     required this.fileName,
     required this.url,
-    required this.sizeInBytes,
+    this.sizeInBytes,
     required this.uploadedAt,
     this.description,
     required this.type,
@@ -101,7 +101,7 @@ class MaterialModel {
       title: json['title'] as String,
       fileName: json['fileName'] as String,
       url: json['url'] as String,
-      sizeInBytes: json['sizeInBytes'] as int,
+      sizeInBytes: (json['sizeInBytes'] as num?)?.toInt(),
       uploadedAt: DateTime.parse(json['uploadedAt'] as String),
       description: json['description'] as String?,
       type: FileMaterialType.fromString(json['type'] as String),
@@ -130,12 +130,16 @@ class MaterialModel {
   }
 
   String get formattedSize {
-    if (sizeInBytes < 1024) {
-      return '$sizeInBytes B';
-    } else if (sizeInBytes < 1024 * 1024) {
-      return '${(sizeInBytes / 1024).toStringAsFixed(1)} KB';
+    final size = sizeInBytes;
+    if (size == null || size <= 0) {
+      return '크기 정보 없음';
+    }
+    if (size < 1024) {
+      return '$size B';
+    } else if (size < 1024 * 1024) {
+      return '${(size / 1024).toStringAsFixed(1)} KB';
     } else {
-      return '${(sizeInBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
   }
 }

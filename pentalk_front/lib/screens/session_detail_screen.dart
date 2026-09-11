@@ -118,7 +118,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
     if (!isRemotePdf) return material.url;
 
-    return ApiService.getMaterialDownloadUrl(materialId: material.id);
+    return ApiService.getMaterialDownloadUrl(
+      materialId: material.id,
+      sessionId: _effectiveSessionId ?? widget.sessionId,
+    );
   }
 
   Future<String?> _createRealtimeSessionForMaterial(

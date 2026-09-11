@@ -16,6 +16,7 @@ import '../providers/personal_drawing_provider.dart';
 import '../providers/participants_provider.dart';
 import '../providers/poll_provider.dart';
 import '../providers/question_provider.dart';
+import '../providers/quiz_provider.dart';
 import '../widgets/drawing_canvas_widget.dart';
 import '../widgets/session_ended_dialog.dart';
 import '../widgets/participants_button.dart';
@@ -799,6 +800,20 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _endSession() async {
     if (!widget.isTeacher) return;
 
+    final sessionId = widget.roomId ?? widget.sessionId;
+    if (sessionId == null || sessionId.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('세션 정보가 없어 종료할 수 없습니다.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final canEnd = await _ensureRequiredQuizCountBeforeEnd(sessionId.trim());
+    if (!mounted || !canEnd) return;
+
     final confirmed = await SessionEndedDialog.showEndConfirmation(context);
     if (!mounted) return;
     if (!confirmed) return;
@@ -806,7 +821,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
     SessionEndedDialog.showEndingProgress(context);
 
     try {
-      final response = await ApiService.endSession(sessionId: widget.roomId!);
+      final response = await ApiService.endSession(sessionId: sessionId.trim());
 
       if (!mounted) return;
       Navigator.pop(context); // 로딩 팝업 닫기
@@ -828,6 +843,38 @@ class _DrawingScreenState extends State<DrawingScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('오류: $e'), backgroundColor: Colors.red),
       );
+    }
+  }
+
+  Future<bool> _ensureRequiredQuizCountBeforeEnd(String sessionId) async {
+    try {
+      final questions = await ApiService.getQuizQuestions(sessionId: sessionId);
+      if (questions.length == QuizProvider.requiredQuestionCount) {
+        return true;
+      }
+
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '복습퀴즈는 반드시 ${QuizProvider.requiredQuestionCount}개 등록해야 세션을 종료할 수 있습니다. '
+            '현재 ${questions.length}개입니다.',
+          ),
+          backgroundColor: Colors.orange,
+          action: SnackBarAction(
+            label: '등록',
+            textColor: Colors.white,
+            onPressed: _openQuizEditor,
+          ),
+        ),
+      );
+      return false;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('복습퀴즈 확인 실패: $e'), backgroundColor: Colors.red),
+      );
+      return false;
     }
   }
 
