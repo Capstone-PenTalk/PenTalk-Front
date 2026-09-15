@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/drawing_models.dart';
 import '../drawing_event_store.dart';
 import '../native_drawing.dart';
+import '../services/auth_service.dart';
 import '../services/socket_service.dart';
 import '../services/session_storage.dart';
 
@@ -69,7 +70,8 @@ class DrawingProvider extends ChangeNotifier {
   Map<int, Stroke> get othersStrokes => _othersStrokes;
   Map<int, Stroke> get othersActiveStrokes => _othersActiveStrokes;
   Map<int, Stroke> get studentPrivateStrokes => _studentPrivateStrokes;
-  Map<int, Stroke> get studentPrivateActiveStrokes => _studentPrivateActiveStrokes;
+  Map<int, Stroke> get studentPrivateActiveStrokes =>
+      _studentPrivateActiveStrokes;
   String? get backgroundUrl => _backgroundUrl;
   double? get pdfWidth => _pdfWidth;
   double? get pdfHeight => _pdfHeight;
@@ -83,10 +85,14 @@ class DrawingProvider extends ChangeNotifier {
   String? get activeMaterialId => _activeMaterialId;
   int? get activePageNumber => _activePageNumber;
 
-  List<Stroke> get myAllStrokes =>
-      [..._myStrokes.values, ..._myActiveStrokes.values];
-  List<Stroke> get othersAllStrokes =>
-      [..._othersStrokes.values, ..._othersActiveStrokes.values];
+  List<Stroke> get myAllStrokes => [
+    ..._myStrokes.values,
+    ..._myActiveStrokes.values,
+  ];
+  List<Stroke> get othersAllStrokes => [
+    ..._othersStrokes.values,
+    ..._othersActiveStrokes.values,
+  ];
   List<Stroke> get allStrokes => [...myAllStrokes, ...othersAllStrokes];
 
   DrawingProvider() {
@@ -179,16 +185,16 @@ class DrawingProvider extends ChangeNotifier {
 
   Map<String, dynamic> _serializeStrokeMap(Map<int, Stroke> source) {
     return source.map((strokeId, stroke) {
-      return MapEntry(
-        '$strokeId',
-        {
-          'strokeId': stroke.strokeId,
-          'color': '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
-          'width': stroke.width,
-          'points': stroke.points.map((point) => point.toJson()).toList(),
-          'refinedPoints': stroke.refinedPoints?.map((point) => point.toJson()).toList(),
-        },
-      );
+      return MapEntry('$strokeId', {
+        'strokeId': stroke.strokeId,
+        'color':
+            '#${stroke.color.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+        'width': stroke.width,
+        'points': stroke.points.map((point) => point.toJson()).toList(),
+        'refinedPoints': stroke.refinedPoints
+            ?.map((point) => point.toJson())
+            .toList(),
+      });
     });
   }
 
@@ -202,7 +208,10 @@ class DrawingProvider extends ChangeNotifier {
       final strokeId = (json['strokeId'] as num?)?.toInt();
       final width = (json['width'] as num?)?.toDouble();
       final pointsRaw = json['points'] as List<dynamic>?;
-      if (strokeId == null || width == null || pointsRaw == null || pointsRaw.isEmpty) {
+      if (strokeId == null ||
+          width == null ||
+          pointsRaw == null ||
+          pointsRaw.isEmpty) {
         continue;
       }
       final points = pointsRaw
@@ -221,7 +230,9 @@ class DrawingProvider extends ChangeNotifier {
         color: _parseSnapshotColor(json['color'] as String?),
         width: width,
         points: points,
-        refinedPoints: refinedPoints == null || refinedPoints.isEmpty ? null : refinedPoints,
+        refinedPoints: refinedPoints == null || refinedPoints.isEmpty
+            ? null
+            : refinedPoints,
       );
     }
     return result;
@@ -237,8 +248,8 @@ class DrawingProvider extends ChangeNotifier {
     required bool isTeacher,
     String? classId,
     String? materialId,
-    String? materialTitle,   // 세션 저장용 (내 코드)
-    String? backgroundUrl,   // 세션 저장용 (내 코드)
+    String? materialTitle, // 세션 저장용 (내 코드)
+    String? backgroundUrl, // 세션 저장용 (내 코드)
   }) async {
     _userId = userId;
     _roomId = roomId;
@@ -254,6 +265,9 @@ class DrawingProvider extends ChangeNotifier {
     }
 
     try {
+      final displayName = await AuthService.getDisplayName();
+      final studentNumber = await AuthService.getStudentNumber();
+
       await _socketService.connect(
         serverUrl: serverUrl,
         userId: userId,
@@ -262,6 +276,8 @@ class DrawingProvider extends ChangeNotifier {
         classId: classId,
         materialId: materialId,
         pageNumber: _activePageNumber,
+        displayName: displayName,
+        studentNumber: studentNumber,
       );
 
       _isSocketConnected = _socketService.isConnected;
@@ -317,6 +333,7 @@ class DrawingProvider extends ChangeNotifier {
     // JOIN_SUCCESS → 300ms 후 sync:request (최초 & 재접속 모두)
     _socketService.onRoomJoined = (data) {
       debugPrint('✅ Room joined, scheduling sync:request...');
+      onRoomJoinedPayload?.call(data);
       Future.delayed(const Duration(milliseconds: 300), () {
         _socketService.requestSync(
           lastTick: _lastTick,
@@ -350,7 +367,8 @@ class DrawingProvider extends ChangeNotifier {
       debugPrint('[socket][provider] error: $error');
     };
 
-    _socketService.onUserJoined = (userId) => debugPrint('👤 User joined: $userId');
+    _socketService.onUserJoined = (userId) =>
+        debugPrint('👤 User joined: $userId');
     _socketService.onUserLeft = (userId) => debugPrint('👋 User left: $userId');
     _socketService.onSessionEnded = _handleSessionEnded;
   }
@@ -363,18 +381,17 @@ class DrawingProvider extends ChangeNotifier {
   /// Native drawing 이벤트
   /// ===============================
   void _setupNativeDrawingListener() {
-    _nativeDrawEventSubscription = NativeDrawingBridge.drawEvents.listen(
-          (payload) {
-        try {
-          final event = DrawEvent.fromJson(payload);
-          _logNormalized(event, source: 'native');
-          _handleLocalNativeEvent(event);
-        } catch (e) {
-          debugPrint('[draw][error] Native event parse failed: $e');
-        }
-      },
-      onError: (error) => debugPrint('[draw][error] Native stream: $error'),
-    );
+    _nativeDrawEventSubscription = NativeDrawingBridge.drawEvents.listen((
+      payload,
+    ) {
+      try {
+        final event = DrawEvent.fromJson(payload);
+        _logNormalized(event, source: 'native');
+        _handleLocalNativeEvent(event);
+      } catch (e) {
+        debugPrint('[draw][error] Native event parse failed: $e');
+      }
+    }, onError: (error) => debugPrint('[draw][error] Native stream: $error'));
   }
 
   /// ===============================
@@ -383,31 +400,57 @@ class DrawingProvider extends ChangeNotifier {
   void _handleReceivedDrawEvent(DrawEvent event) {
     if (!_matchesActivePage(event)) return;
     switch (event.eventType) {
-      case DrawEventType.drawStart: _handleOthersDrawStart(event); break;
-      case DrawEventType.drawMove: _handleOthersDrawMove(event); break;
-      case DrawEventType.drawEnd: _handleOthersDrawEnd(event); break;
-      case DrawEventType.undo: _handleOthersUndo(event); break;
-      case DrawEventType.eraser: _handleOthersEraser(event); break;
-      case DrawEventType.clearAll: _handleRemoteClearAll(); break;
+      case DrawEventType.drawStart:
+        _handleOthersDrawStart(event);
+        break;
+      case DrawEventType.drawMove:
+        _handleOthersDrawMove(event);
+        break;
+      case DrawEventType.drawEnd:
+        _handleOthersDrawEnd(event);
+        break;
+      case DrawEventType.undo:
+        _handleOthersUndo(event);
+        break;
+      case DrawEventType.eraser:
+        _handleOthersEraser(event);
+        break;
+      case DrawEventType.clearAll:
+        _handleRemoteClearAll();
+        break;
     }
   }
 
   void _handleLocalNativeEvent(DrawEvent event) {
     if (event.eventType == DrawEventType.drawEnd &&
-        (event.points == null || event.points!.isEmpty)) return;
+        (event.points == null || event.points!.isEmpty))
+      return;
 
     final scopedEvent = _decorateEventForActivePage(event);
 
     switch (scopedEvent.eventType) {
-      case DrawEventType.drawStart: _handleMyDrawStart(scopedEvent); break;
-      case DrawEventType.drawMove: _handleMyDrawMove(scopedEvent); break;
-      case DrawEventType.drawEnd: _handleMyDrawEnd(scopedEvent); break;
-      case DrawEventType.undo: _handleMyUndo(scopedEvent); break;
-      case DrawEventType.eraser:
-        if (scopedEvent.strokeId == 0) { clear(); return; }
+      case DrawEventType.drawStart:
+        _handleMyDrawStart(scopedEvent);
+        break;
+      case DrawEventType.drawMove:
+        _handleMyDrawMove(scopedEvent);
+        break;
+      case DrawEventType.drawEnd:
+        _handleMyDrawEnd(scopedEvent);
+        break;
+      case DrawEventType.undo:
         _handleMyUndo(scopedEvent);
         break;
-      case DrawEventType.clearAll: clear(); return;
+      case DrawEventType.eraser:
+        if (scopedEvent.strokeId == 0) {
+          clear();
+          return;
+        }
+        _handleMyUndo(scopedEvent);
+        break;
+      case DrawEventType.clearAll:
+        clear();
+        return;
     }
 
     if (_socketService.isConnected && _userId != null) {
@@ -418,21 +461,31 @@ class DrawingProvider extends ChangeNotifier {
           _socketService.sendDrawEvent(scopedEvent);
           break;
         case DrawEventType.undo:
-          _socketService.sendUndo(scopedEvent.strokeId);
+          if (_activeMaterialId != null && _activePageNumber != null) {
+            _socketService.sendUndo(
+              strokeId: scopedEvent.strokeId,
+              materialId: _activeMaterialId!,
+              pageNumber: _activePageNumber!,
+            );
+          }
           break;
         case DrawEventType.eraser:
-          _socketService.sendClearAll(
-            materialId: _activeMaterialId,
-            pageNumber: _activePageNumber,
-            scope: 'page',
-          );
+          if (_activeMaterialId != null && _activePageNumber != null) {
+            _socketService.sendEraser(
+              strokeId: scopedEvent.strokeId,
+              materialId: _activeMaterialId!,
+              pageNumber: _activePageNumber!,
+            );
+          }
           break;
         case DrawEventType.clearAll:
-          _socketService.sendClearAll(
-            materialId: _activeMaterialId,
-            pageNumber: _activePageNumber,
-            scope: 'page',
-          );
+          if (_activeMaterialId != null && _activePageNumber != null) {
+            _socketService.sendClearAll(
+              materialId: _activeMaterialId!,
+              pageNumber: _activePageNumber!,
+              scope: 'page',
+            );
+          }
           break;
       }
     }
@@ -442,24 +495,42 @@ class DrawingProvider extends ChangeNotifier {
     required String materialId,
     required int pageNumber,
   }) {
+    final didChangePage =
+        _activeMaterialId != materialId || _activePageNumber != pageNumber;
     _activeMaterialId = materialId;
     _activePageNumber = pageNumber;
+
+    if (didChangePage) {
+      _othersStrokes.clear();
+      _othersActiveStrokes.clear();
+      notifyListeners();
+    }
+  }
+
+  void requestActivePageSync({bool includeLastTick = false}) {
+    _socketService.requestSync(
+      lastTick: includeLastTick ? _lastTick : null,
+      materialId: _activeMaterialId,
+      pageNumber: _activePageNumber,
+    );
   }
 
   DrawEvent _decorateEventForActivePage(DrawEvent event) {
     return event.copyWith(
       materialId: event.materialId ?? _activeMaterialId,
       pageNumber: event.pageNumber ?? _activePageNumber,
-      scope: event.scope ?? (event.eventType == DrawEventType.clearAll ? 'page' : null),
+      scope:
+          event.scope ??
+          (event.eventType == DrawEventType.clearAll ? 'page' : null),
     );
   }
 
   bool _matchesActivePage(DrawEvent event) {
-    if (event.materialId == null || event.pageNumber == null) {
-      return true;
-    }
     if (_activeMaterialId == null || _activePageNumber == null) {
       return true;
+    }
+    if (event.materialId == null || event.pageNumber == null) {
+      return false;
     }
     return event.materialId == _activeMaterialId &&
         event.pageNumber == _activePageNumber;
@@ -517,7 +588,8 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void _handleOthersUndo(DrawEvent event) {
-    final removed = _othersStrokes.remove(event.strokeId) != null ||
+    final removed =
+        _othersStrokes.remove(event.strokeId) != null ||
         _othersActiveStrokes.remove(event.strokeId) != null;
     if (removed) notifyListeners();
   }
@@ -529,7 +601,8 @@ class DrawingProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final removed = _othersStrokes.remove(event.strokeId) != null ||
+    final removed =
+        _othersStrokes.remove(event.strokeId) != null ||
         _othersActiveStrokes.remove(event.strokeId) != null;
     if (removed) notifyListeners();
   }
@@ -606,7 +679,8 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void _handleMyUndo(DrawEvent event) {
-    final removed = _myStrokes.remove(event.strokeId) != null ||
+    final removed =
+        _myStrokes.remove(event.strokeId) != null ||
         _myActiveStrokes.remove(event.strokeId) != null;
 
     if (!removed) {
@@ -632,8 +706,21 @@ class DrawingProvider extends ChangeNotifier {
   }
 
   void setPdfPageSize({required double width, required double height}) {
+    if (_pdfWidth == width && _pdfHeight == height) {
+      return;
+    }
     _pdfWidth = width;
     _pdfHeight = height;
+    notifyListeners();
+  }
+
+  void clearPdfPageSize() {
+    if (_pdfWidth == null && _pdfHeight == null) {
+      return;
+    }
+    _pdfWidth = null;
+    _pdfHeight = null;
+    notifyListeners();
   }
 
   void setDrawingMode(bool enabled) {
@@ -676,7 +763,11 @@ class DrawingProvider extends ChangeNotifier {
       final width = (stroke['w'] as num?)?.toDouble();
       final colorHex = stroke['c'] as String?;
       final rawPoints = stroke['pts'] as List<dynamic>?;
-      if (strokeId == null || width == null || rawPoints == null || rawPoints.isEmpty) continue;
+      if (strokeId == null ||
+          width == null ||
+          rawPoints == null ||
+          rawPoints.isEmpty)
+        continue;
 
       final points = rawPoints
           .whereType<Map>()
@@ -685,7 +776,12 @@ class DrawingProvider extends ChangeNotifier {
       if (points.isEmpty) continue;
 
       final color = _parseSnapshotColor(colorHex);
-      restored[strokeId] = Stroke(strokeId: strokeId, color: color, width: width, points: points);
+      restored[strokeId] = Stroke(
+        strokeId: strokeId,
+        color: color,
+        width: width,
+        points: points,
+      );
       restoredLastColor = color;
       restoredLastWidth = width;
     }
@@ -765,7 +861,6 @@ class DrawingProvider extends ChangeNotifier {
     if (_isSocketConnected && _userId != null) {
       _socketService.sendDrawEvent(event);
     }
-
   }
 
   void sendDrawEnd(int strokeId, List<DrawPoint> points) {
@@ -777,8 +872,8 @@ class DrawingProvider extends ChangeNotifier {
       materialId: _activeMaterialId,
       pageNumber: _activePageNumber,
       points: List<DrawPoint>.from(points),
-      color: activeStroke?.color ?? _currentColor,  // 서버 전송에 필요
-      width: activeStroke?.width ?? _currentWidth,  // 서버 전송에 필요
+      color: activeStroke?.color ?? _currentColor, // 서버 전송에 필요
+      width: activeStroke?.width ?? _currentWidth, // 서버 전송에 필요
     );
 
     _handleMyDrawEnd(event);
@@ -786,7 +881,6 @@ class DrawingProvider extends ChangeNotifier {
     if (_isSocketConnected && _userId != null) {
       _socketService.sendDrawEvent(event);
     }
-
   }
 
   void sendUndo(int strokeId) {
@@ -794,8 +888,15 @@ class DrawingProvider extends ChangeNotifier {
 
     _handleMyUndo(event);
 
-    if (_isSocketConnected && _userId != null) {
-      _socketService.sendUndo(strokeId);
+    if (_isSocketConnected &&
+        _userId != null &&
+        _activeMaterialId != null &&
+        _activePageNumber != null) {
+      _socketService.sendUndo(
+        strokeId: strokeId,
+        materialId: _activeMaterialId!,
+        pageNumber: _activePageNumber!,
+      );
     }
   }
 
@@ -826,8 +927,9 @@ class DrawingProvider extends ChangeNotifier {
     final stroke = _studentPrivateActiveStrokes.remove(strokeId);
     if (stroke == null) return;
     final copied = List<DrawPoint>.from(points);
-    _studentPrivateStrokes[strokeId] =
-    copied.isNotEmpty ? stroke.withRefinedPoints(copied) : stroke;
+    _studentPrivateStrokes[strokeId] = copied.isNotEmpty
+        ? stroke.withRefinedPoints(copied)
+        : stroke;
     notifyListeners();
   }
 
@@ -848,10 +950,14 @@ class DrawingProvider extends ChangeNotifier {
     _othersActiveStrokes.clear();
     notifyListeners();
 
-    if (_isTeacher && _isSocketConnected && _userId != null) {
+    if (_isTeacher &&
+        _isSocketConnected &&
+        _userId != null &&
+        _activeMaterialId != null &&
+        _activePageNumber != null) {
       _socketService.sendClearAll(
-        materialId: _activeMaterialId,
-        pageNumber: _activePageNumber,
+        materialId: _activeMaterialId!,
+        pageNumber: _activePageNumber!,
         scope: 'page',
       );
     }
@@ -866,18 +972,30 @@ class DrawingProvider extends ChangeNotifier {
 
     for (final strokeData in strokesData) {
       try {
-        final strokeId = strokeData['sId'] as int;
+        final event = DrawEvent.fromJson({
+          ...strokeData,
+          'e': strokeData['e'] ?? 'de',
+        });
+        if (!_matchesActivePage(event)) continue;
+
+        final rawStrokeId = strokeData['sId'];
+        final strokeId = rawStrokeId is num
+            ? rawStrokeId.toInt()
+            : int.tryParse(rawStrokeId?.toString() ?? '');
+        if (strokeId == null) continue;
         final ptsData = strokeData['pts'] as List?;
         final points = <DrawPoint>[];
 
         if (ptsData != null) {
           for (final pt in ptsData) {
             if (pt is Map) {
-              points.add(DrawPoint(
-                x: (pt['x'] as num?)?.toDouble() ?? 0.0,
-                y: (pt['y'] as num?)?.toDouble() ?? 0.0,
-                pressure: (pt['p'] as num?)?.toDouble(),
-              ));
+              points.add(
+                DrawPoint(
+                  x: (pt['x'] as num?)?.toDouble() ?? 0.0,
+                  y: (pt['y'] as num?)?.toDouble() ?? 0.0,
+                  pressure: (pt['p'] as num?)?.toDouble(),
+                ),
+              );
             }
           }
         }
@@ -892,7 +1010,9 @@ class DrawingProvider extends ChangeNotifier {
         final colorStr = strokeData['c'] as String?;
         if (colorStr != null && colorStr.startsWith('#')) {
           try {
-            color = Color(0xFF000000 | int.parse(colorStr.substring(1), radix: 16));
+            color = Color(
+              0xFF000000 | int.parse(colorStr.substring(1), radix: 16),
+            );
           } catch (_) {}
         }
 
@@ -910,16 +1030,18 @@ class DrawingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-    void disconnectSocket() {
-      _socketService.disconnect();
-      _isSocketConnected = false;
-      notifyListeners();
-    }
+  void disconnectSocket() {
+    _socketService.disconnect();
+    _isSocketConnected = false;
+    notifyListeners();
+  }
+
   void _handleSessionEnded(Map<String, dynamic> data) {
     onSessionEnded?.call(data);
   }
 
   Function(Map<String, dynamic>)? onSessionEnded;
+  Function(Map<String, dynamic>)? onRoomJoinedPayload;
 
   @override
   void dispose() {

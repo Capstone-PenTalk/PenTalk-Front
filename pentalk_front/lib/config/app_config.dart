@@ -21,6 +21,10 @@ class AppConfig {
     'PENTALK_API_SCHEME',
     defaultValue: 'https',
   );
+  static const String _webUrlOverride = String.fromEnvironment(
+    'PENTALK_WEB_URL',
+    defaultValue: 'https://pentalkedu.com',
+  );
 
   static const String _socketHostOverride = String.fromEnvironment(
     'PENTALK_SOCKET_HOST',
@@ -71,6 +75,16 @@ class AppConfig {
   static bool get enableAutoLogin => _enableAutoLoginOverride;
   static String get googleOAuthStartUrl => '$apiBaseUrl/auth/google';
   static String get kakaoOAuthStartUrl => '$apiBaseUrl/auth/kakao';
+  static String get webBaseUrl {
+    if (kIsWeb) {
+      final origin = Uri.base.origin.trim();
+      if (origin.isNotEmpty && origin != 'null') {
+        return _normalizeUrl(origin);
+      }
+    }
+    return _normalizeUrl(_webUrlOverride.trim());
+  }
+
   static bool get hasExplicitServerUrlConfig =>
       _serverUrlOverride.trim().isNotEmpty ||
       _apiUrlOverride.trim().isNotEmpty ||

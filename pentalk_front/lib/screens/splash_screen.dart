@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
+import '../models/document_source.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
@@ -158,23 +159,58 @@ class _SplashScreenState extends State<SplashScreen> {
         ? queryServerUrl
         : _resolveJoinServerUrl(isTeacher: isTeacher, pageUri: uri);
     final serverUrlWithToken = '$baseServerUrl?token=$token';
+    var resolvedMaterialTitle = materialTitle;
+    var resolvedBackgroundUrl = backgroundUrl;
+    var resolvedMaterialId = materialId;
+    var documentPages = const <DocumentPageSource>[];
+
+    if (classId != null && classId.isNotEmpty) {
+      try {
+        final materials = await ApiService.getMaterials(
+          classId: classId,
+          sessionId: roomId,
+        );
+        final selectedMaterial = materials.firstWhere(
+          (material) =>
+              resolvedMaterialId != null &&
+              resolvedMaterialId.isNotEmpty &&
+              material.id == resolvedMaterialId,
+          orElse: () => materials.isNotEmpty
+              ? materials.first
+              : throw StateError('No materials'),
+        );
+        resolvedMaterialId = selectedMaterial.id;
+        resolvedMaterialTitle = selectedMaterial.name;
+        resolvedBackgroundUrl = selectedMaterial.url.isNotEmpty
+            ? selectedMaterial.url
+            : resolvedBackgroundUrl;
+        documentPages = selectedMaterial.pages;
+      } catch (e) {
+        debugPrint('Failed to hydrate web join material: $e');
+      }
+    }
 
     if (!mounted) return true;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => DrawingScreen(
-          materialTitle: materialTitle,
-          backgroundUrl: (backgroundUrl != null && backgroundUrl.isNotEmpty)
-              ? backgroundUrl
+          materialTitle: resolvedMaterialTitle,
+          backgroundUrl:
+              (resolvedBackgroundUrl != null &&
+                  resolvedBackgroundUrl.isNotEmpty)
+              ? resolvedBackgroundUrl
               : null,
+          isPdfDocument: documentPages.isNotEmpty,
+          documentPages: documentPages,
           isTeacher: isTeacher,
           serverUrl: serverUrlWithToken,
           roomId: roomId,
           userId: userId,
           classId: (classId != null && classId.isNotEmpty) ? classId : null,
-          materialId: (materialId != null && materialId.isNotEmpty)
-              ? materialId
+          materialId:
+              (resolvedMaterialId != null && resolvedMaterialId.isNotEmpty)
+              ? resolvedMaterialId
               : null,
           sessionId: roomId,
         ),

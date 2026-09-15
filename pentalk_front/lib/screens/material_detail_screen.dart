@@ -152,7 +152,10 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('다운로드 실패: $e'), backgroundColor: AppColors.danger),
+        SnackBar(
+          content: Text('다운로드 실패: $e'),
+          backgroundColor: AppColors.danger,
+        ),
       );
     } finally {
       if (mounted) {
@@ -168,6 +171,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
     if (isRemoteMaterial) {
       final downloadUrl = await ApiService.getMaterialDownloadUrl(
         materialId: material.id,
+        sessionId: widget.sessionId,
       );
       final response = await http.get(Uri.parse(downloadUrl));
       if (response.statusCode != 200) {
@@ -336,6 +340,7 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
           materialTitle: widget.material.title,
           backgroundUrl: backgroundUrl,
           isPdfDocument: widget.material.type == FileMaterialType.pdf,
+          documentPages: widget.material.pages,
           materialId: widget.material.id.isNotEmpty
               ? widget.material.id
               : MaterialDetailScreen._demoMaterialId,
@@ -361,7 +366,10 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
 
     if (!isRemotePdf) return material.url;
 
-    return ApiService.getMaterialDownloadUrl(materialId: material.id);
+    return ApiService.getMaterialDownloadUrl(
+      materialId: material.id,
+      sessionId: widget.sessionId,
+    );
   }
 
   String? _resolveServerUrl(bool isTeacher) {
@@ -449,7 +457,9 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                 child: Row(
                   children: [
                     Icon(
-                      widget.quizPassed! ? Icons.check_circle : Icons.lock_outline,
+                      widget.quizPassed!
+                          ? Icons.check_circle
+                          : Icons.lock_outline,
                       size: 16,
                       color: widget.quizPassed!
                           ? AppColors.success
@@ -646,7 +656,9 @@ class _MaterialDetailScreenState extends State<MaterialDetailScreen> {
                               label: const Text('미리보기'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppColors.primary,
-                                side: const BorderSide(color: AppColors.primary),
+                                side: const BorderSide(
+                                  color: AppColors.primary,
+                                ),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 16,
                                 ),

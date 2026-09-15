@@ -24,7 +24,7 @@ class DrawingPainter extends CustomPainter {
   }
 
   void _drawStroke(Canvas canvas, Stroke stroke) {
-    final points = _decimatePoints(stroke.displayPoints);
+    final points = stroke.displayPoints;
     if (points.isEmpty) return;
 
     // 필압(pressure) 데이터가 있으면 필압 기반 렌더링
@@ -87,25 +87,6 @@ class DrawingPainter extends CustomPainter {
     }
 
     return path;
-  }
-
-  List<DrawPoint> _decimatePoints(List<DrawPoint> points) {
-    if (points.length <= 2) return points;
-
-    final tolerance = (0.75 / scale).clamp(0.35, 1.25);
-    final result = <DrawPoint>[points.first];
-    var lastKept = scaler.normalizedToPixel(points.first);
-
-    for (int i = 1; i < points.length - 1; i++) {
-      final current = scaler.normalizedToPixel(points[i]);
-      if ((current - lastKept).distance >= tolerance) {
-        result.add(points[i]);
-        lastKept = current;
-      }
-    }
-
-    result.add(points.last);
-    return result;
   }
 
   void _drawStartDot(Canvas canvas, DrawPoint point, Paint paint) {

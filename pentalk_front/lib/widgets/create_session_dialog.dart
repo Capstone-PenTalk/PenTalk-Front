@@ -23,7 +23,6 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
   final _maxParticipantsController = TextEditingController(text: '30');
   final _passwordController = TextEditingController();
   bool _isLoading = false;
-  bool _usePassword = false;
 
   @override
   void dispose() {
@@ -47,9 +46,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
               : _materialIdController.text.trim(),
           title: _titleController.text.trim(),
           maxParticipants: int.tryParse(_maxParticipantsController.text.trim()),
-          password: _usePassword && _passwordController.text.trim().isNotEmpty
-              ? _passwordController.text.trim()
-              : null,
+          password: _passwordController.text.trim(),
         );
 
         if (mounted) {
@@ -133,43 +130,27 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
 
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('비밀번호 설정'),
-                  value: _usePassword,
-                  onChanged: _isLoading
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _usePassword = value;
-                            if (!value) _passwordController.clear();
-                          });
-                        },
-                ),
-                if (_usePassword) ...[
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: '비밀번호',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.lock_outline),
-                    ),
-                    obscureText: true,
-                    validator: (value) {
-                      if (!_usePassword) return null;
-                      if (value == null || value.trim().isEmpty) {
-                        return '비밀번호를 입력해주세요';
-                      }
-                      if (value.trim().length < 4) {
-                        return '비밀번호는 4자 이상으로 입력해주세요';
-                      }
-                      return null;
-                    },
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(
+                    labelText: '비밀번호 입력(최소 4자리)',
+                    hintText: '비밀번호 입력(최소 4자리)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
                   ),
-                ],
+                  obscureText: true,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '비밀번호를 입력해주세요';
+                    }
+                    if (value.trim().length < 4) {
+                      return '비밀번호는 4자 이상으로 입력해주세요';
+                    }
+                    return null;
+                  },
+                ),
                 const SizedBox(height: 16),
 
                 // materialId (선택)

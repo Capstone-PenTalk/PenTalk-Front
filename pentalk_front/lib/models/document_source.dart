@@ -1,3 +1,5 @@
+import '../config/app_config.dart';
+
 class DocumentSource {
   final String materialId;
   final String pdfUrl;
@@ -25,7 +27,10 @@ class DocumentSource {
       currentPage: (json['currentPage'] as num?)?.toInt() ?? 1,
       pages: rawPages
           .whereType<Map>()
-          .map((page) => DocumentPageSource.fromJson(Map<String, dynamic>.from(page)))
+          .map(
+            (page) =>
+                DocumentPageSource.fromJson(Map<String, dynamic>.from(page)),
+          )
           .toList(),
     );
   }
@@ -84,10 +89,25 @@ class DocumentPageSource {
   });
 
   factory DocumentPageSource.fromJson(Map<String, dynamic> json) {
+    String? resolveUrl(dynamic value) {
+      final raw = value?.toString().trim();
+      if (raw == null || raw.isEmpty) return null;
+      if (raw.startsWith('http://') ||
+          raw.startsWith('https://') ||
+          raw.startsWith('file://') ||
+          raw.startsWith('/')) {
+        if (raw.startsWith('/')) {
+          return Uri.parse('${AppConfig.apiBaseUrl}/').resolve(raw).toString();
+        }
+        return raw;
+      }
+      return Uri.parse('${AppConfig.apiBaseUrl}/').resolve(raw).toString();
+    }
+
     return DocumentPageSource(
       pageNumber: (json['pageNumber'] as num?)?.toInt() ?? 1,
-      imagePath: json['imagePath']?.toString(),
-      thumbnailPath: json['thumbnailPath']?.toString(),
+      imagePath: resolveUrl(json['imagePath'] ?? json['imageUrl']),
+      thumbnailPath: resolveUrl(json['thumbnailPath']),
       width: (json['width'] as num?)?.toDouble() ?? 0,
       height: (json['height'] as num?)?.toDouble() ?? 0,
     );

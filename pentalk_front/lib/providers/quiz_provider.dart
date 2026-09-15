@@ -7,6 +7,8 @@ import '../services/api_service.dart';
 /// 학생 수행 + 교사 등록/관리 공용
 /// ===============================
 class QuizProvider extends ChangeNotifier {
+  static const int requiredQuestionCount = 3;
+
   // ── 공통 상태 ────────────────────────────────────────────
   List<QuizQuestion> _questions = [];
   QuizStatus _status = QuizStatus.idle;
@@ -29,16 +31,14 @@ class QuizProvider extends ChangeNotifier {
   QuizStatus get status => _status;
   String? get errorMessage => _errorMessage;
 
-  Map<String, String> get studentAnswers =>
-      Map.unmodifiable(_studentAnswers);
+  Map<String, String> get studentAnswers => Map.unmodifiable(_studentAnswers);
 
-  Map<String, QuizSubmitResult> get results =>
-      Map.unmodifiable(_results);
+  Map<String, QuizSubmitResult> get results => Map.unmodifiable(_results);
 
   /// 모든 문항에 답변 완료 여부
   bool get allAnswered =>
       _questions.isNotEmpty &&
-          _questions.every((q) => _studentAnswers.containsKey(q.id));
+      _questions.every((q) => _studentAnswers.containsKey(q.id));
 
   /// 정답 수
   int get correctCount => _results.values.where((r) => r.isCorrect).length;
@@ -50,8 +50,10 @@ class QuizProvider extends ChangeNotifier {
   bool get passed =>
       _questions.isNotEmpty && correctCount / _questions.length >= 0.6;
 
-  /// 교사가 추가 가능한지 (최대 3문항)
-  bool get canAddQuestion => _questions.length < 3;
+  /// 교사가 추가 가능한지 (정확히 3문항 필수)
+  bool get canAddQuestion => _questions.length < requiredQuestionCount;
+  bool get hasRequiredQuestionCount =>
+      _questions.length == requiredQuestionCount;
 
   // ── 학생: 문항 로드 ──────────────────────────────────────
   Future<void> loadQuestionsForStudent(String sessionId) async {
@@ -59,8 +61,7 @@ class QuizProvider extends ChangeNotifier {
     _setStatus(QuizStatus.loading);
 
     try {
-      final questions =
-      await ApiService.getQuizQuestions(sessionId: sessionId);
+      final questions = await ApiService.getQuizQuestions(sessionId: sessionId);
 
       debugPrint('✅ Quiz loaded: ${questions.length}문제');
 
@@ -145,8 +146,7 @@ class QuizProvider extends ChangeNotifier {
     _setStatus(QuizStatus.loading);
 
     try {
-      final questions =
-      await ApiService.getQuizQuestions(sessionId: sessionId);
+      final questions = await ApiService.getQuizQuestions(sessionId: sessionId);
       _questions = questions;
       _setStatus(QuizStatus.ready);
     } catch (e) {
@@ -158,16 +158,16 @@ class QuizProvider extends ChangeNotifier {
 
   // ── 교사: 문항 추가 ──────────────────────────────────────
   Future<void> addQuestion(
-      String sessionId, {
-        required String question,
-        required String answer,
-      }) async {
-    if (!canAddQuestion) throw Exception('최대 3문항까지 등록할 수 있습니다');
+    String sessionId, {
+    required String question,
+    required String answer,
+  }) async {
+    if (!canAddQuestion) throw Exception('복습퀴즈는 정확히 3문항만 등록할 수 있습니다');
 
     final nextOrder = _questions.isEmpty
         ? 1
         : (_questions.map((q) => q.order).reduce((a, b) => a > b ? a : b) + 1)
-        .clamp(1, 3);
+              .clamp(1, requiredQuestionCount);
 
     final newQuestion = await ApiService.addQuizQuestion(
       sessionId: sessionId,
@@ -182,11 +182,11 @@ class QuizProvider extends ChangeNotifier {
 
   // ── 교사: 문항 수정 ──────────────────────────────────────
   Future<void> updateQuestion(
-      String sessionId,
-      String questionId, {
-        String? question,
-        String? answer,
-      }) async {
+    String sessionId,
+    String questionId, {
+    String? question,
+    String? answer,
+  }) async {
     final updated = await ApiService.updateQuizQuestion(
       sessionId: sessionId,
       questionId: questionId,

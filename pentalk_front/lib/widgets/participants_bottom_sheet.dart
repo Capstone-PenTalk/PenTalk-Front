@@ -95,7 +95,11 @@ class ParticipantsBottomSheet extends StatelessWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.people_outline, size: 64, color: Colors.grey),
+                        Icon(
+                          Icons.people_outline,
+                          size: 64,
+                          color: Colors.grey,
+                        ),
                         SizedBox(height: 16),
                         Text(
                           '참여자가 없습니다',
@@ -107,8 +111,12 @@ class ParticipantsBottomSheet extends StatelessWidget {
                 }
 
                 final participants = snapshot.data!;
-                final teachers = participants.where((p) => p.isTeacher).toList();
-                final students = participants.where((p) => p.isStudent).toList();
+                final teachers = participants
+                    .where((p) => p.isTeacher)
+                    .toList();
+                final students = participants
+                    .where((p) => p.isStudent)
+                    .toList();
 
                 return ListView(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -181,10 +189,7 @@ class _SectionHeader extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             '($count)',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
           ),
         ],
       ),
@@ -216,7 +221,7 @@ class _ParticipantTile extends StatelessWidget {
         ),
       ),
       title: Text(
-        participant.userId,
+        participant.displayName,
         style: TextStyle(
           fontSize: 15,
           fontWeight: isTeacher ? FontWeight.bold : FontWeight.normal,

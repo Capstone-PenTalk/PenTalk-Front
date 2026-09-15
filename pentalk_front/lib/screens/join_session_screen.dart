@@ -46,61 +46,68 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
     });
   }
 
-  void _showPasswordDialog() {
+  Future<void> _showPasswordDialog() async {
     final controller = TextEditingController();
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('세션 비밀번호'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            obscureText: true,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: '비밀번호 입력',
-            ),
-            onSubmitted: (_) => _submitPassword(dialogContext, controller),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                controller.dispose();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const StudentHomeScreen()),
-                );
-              },
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () => _submitPassword(dialogContext, controller),
-              child: const Text('입장'),
-            ),
-          ],
-        );
-      },
-    );
-  }
+    String? password;
+    try {
+      password = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          void submit() {
+            final value = controller.text.trim();
+            if (value.isEmpty) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('비밀번호를 입력해주세요.')));
+              return;
+            }
+            FocusScope.of(dialogContext).unfocus();
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.pop(dialogContext, value);
+          }
 
-  void _submitPassword(
-    BuildContext dialogContext,
-    TextEditingController controller,
-  ) {
-    final password = controller.text.trim();
-    if (password.isEmpty) {
-      ScaffoldMessenger.of(
+          return AlertDialog(
+            title: const Text('세션 비밀번호'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: '비밀번호 입력',
+              ),
+              onSubmitted: (_) => submit(),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('취소'),
+              ),
+              FilledButton(onPressed: submit, child: const Text('입장')),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+
+    if (password == null) {
+      Navigator.pushReplacement(
         context,
-      ).showSnackBar(const SnackBar(content: Text('비밀번호를 입력해주세요.')));
+        MaterialPageRoute(builder: (_) => const StudentHomeScreen()),
+      );
       return;
     }
 
-    controller.dispose();
-    Navigator.pop(dialogContext);
     setState(() => _password = password);
-    _joinSession();
+    await _joinSession();
   }
 
   Future<void> _joinSession() async {
@@ -134,10 +141,7 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
       final joinedMaterialId =
           joinResponse.data?.materialId ?? widget.materialId;
       final joinedMaterial = joinResponse.data?.material;
-      context.read<StudentSessionProvider>().addJoinedSession(
-        sessionId,
-        classId: joinedClassId,
-      );
+      final studentSessionProvider = context.read<StudentSessionProvider>();
 
       await _openJoinedDestination(
         sessionId: sessionId,
@@ -145,12 +149,29 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
         materialId: joinedMaterialId,
         material: joinedMaterial,
       );
+      _recordJoinedSessionAfterNavigation(
+        studentSessionProvider,
+        sessionId: sessionId,
+        classId: joinedClassId,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(
         () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),
       );
     }
+  }
+
+  void _recordJoinedSessionAfterNavigation(
+    StudentSessionProvider provider, {
+    required String sessionId,
+    required String? classId,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 350), () {
+        provider.addJoinedSession(sessionId, classId: classId);
+      });
+    });
   }
 
   Future<void> _openJoinedDestination({
@@ -182,12 +203,8 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
       final materialType = material == null
           ? FileMaterialType.pdf
           : FileMaterialType.fromString(material.type);
-      var backgroundUrl = material?.url.trim() ?? '';
-      if (backgroundUrl.isEmpty && materialType == FileMaterialType.pdf) {
-        backgroundUrl = await ApiService.getMaterialDownloadUrl(
-          materialId: selectedMaterialId,
-        );
-      }
+      final backgroundUrl = material?.url.trim() ?? '';
+      final documentPages = material?.pages ?? const [];
       final currentUserId = await AuthService.getUserId();
 
       if (!mounted) return;
@@ -199,6 +216,7 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
             backgroundUrl: backgroundUrl.isEmpty ? null : backgroundUrl,
             isPdfDocument: materialType == FileMaterialType.pdf,
             materialId: selectedMaterialId,
+            documentPages: documentPages,
             classId: trimmedClassId,
             isTeacher: false,
             serverUrl: AppConfig.resolveSocketUrl(isTeacher: false),
@@ -211,9 +229,10 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
                 title: selectedMaterialName,
                 fileName: selectedMaterialName,
                 url: backgroundUrl,
-                sizeInBytes: 0,
+                sizeInBytes: null,
                 uploadedAt: DateTime.now(),
                 type: materialType,
+                pages: documentPages,
               ),
             ],
           ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -13,17 +15,40 @@ class QrScanScreen extends StatefulWidget {
 
 class _QrScanScreenState extends State<QrScanScreen> {
   final MobileScannerController _controller = MobileScannerController(
+    autoStart: false,
     facing: CameraFacing.back,
   );
   final TextEditingController _manualController = TextEditingController();
   final DeepLinkService _deepLinkService = DeepLinkService();
   bool _isHandlingCode = false;
+  bool _showScanner = true;
+  bool _isControllerDisposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_showScanner) return;
+      unawaited(_controller.start());
+    });
+  }
 
   @override
   void dispose() {
-    _controller.dispose();
+    unawaited(_disposeScannerController());
     _manualController.dispose();
     super.dispose();
+  }
+
+  Future<void> _disposeScannerController() async {
+    if (_isControllerDisposed) return;
+    _isControllerDisposed = true;
+    try {
+      await _controller.stop();
+    } catch (_) {}
+    try {
+      await _controller.dispose();
+    } catch (_) {}
   }
 
   void _handleCapture(BarcodeCapture capture) {
@@ -32,13 +57,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
     for (final barcode in capture.barcodes) {
       final rawValue = barcode.rawValue?.trim();
       if (rawValue != null && rawValue.isNotEmpty) {
-        _openJoinSession(rawValue);
+        unawaited(_openJoinSession(rawValue));
         return;
       }
     }
   }
 
-  void _openJoinSession(String rawValue) {
+  Future<void> _openJoinSession(String rawValue) async {
+    if (_isHandlingCode) return;
     final sessionId =
         _deepLinkService.parseJoinSessionId(rawValue) ?? rawValue.trim();
     final classId = _deepLinkService.parseJoinClassId(rawValue);
@@ -49,92 +75,93 @@ class _QrScanScreenState extends State<QrScanScreen> {
     }
 
     _isHandlingCode = true;
-    _controller.stop();
+    if (mounted) {
+      setState(() => _showScanner = false);
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
 
-    _showPasswordEntry(
+    try {
+      await _controller.stop();
+    } catch (_) {}
+
+    await _showPasswordEntry(
       sessionId: sessionId,
       classId: classId,
       materialId: materialId,
     );
   }
 
-  void _showPasswordEntry({
+  Future<void> _showPasswordEntry({
     required String sessionId,
     String? classId,
     String? materialId,
-  }) {
+  }) async {
     final passwordController = TextEditingController();
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('세션 비밀번호'),
-          content: TextField(
-            controller: passwordController,
-            autofocus: true,
-            obscureText: true,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: '비밀번호 입력',
-            ),
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) {
-              _submitPassword(
-                dialogContext: dialogContext,
-                sessionId: sessionId,
-                classId: classId,
-                materialId: materialId,
-                password: passwordController.text,
-                onDispose: passwordController.dispose,
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                passwordController.dispose();
-                Navigator.pop(dialogContext);
-                _isHandlingCode = false;
-                _controller.start();
-              },
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () {
-                _submitPassword(
-                  dialogContext: dialogContext,
-                  sessionId: sessionId,
-                  classId: classId,
-                  materialId: materialId,
-                  password: passwordController.text,
-                  onDispose: passwordController.dispose,
-                );
-              },
-              child: const Text('입장'),
-            ),
-          ],
-        );
-      },
-    );
-  }
+    String? password;
+    try {
+      password = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          void submit() {
+            final value = passwordController.text.trim();
+            if (value.isEmpty) {
+              _showError('비밀번호를 입력해주세요.');
+              return;
+            }
+            FocusScope.of(dialogContext).unfocus();
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.pop(dialogContext, value);
+          }
 
-  void _submitPassword({
-    required BuildContext dialogContext,
-    required String sessionId,
-    required String? classId,
-    required String? materialId,
-    required String password,
-    required VoidCallback onDispose,
-  }) {
-    final trimmedPassword = password.trim();
-    if (trimmedPassword.isEmpty) {
-      _showError('비밀번호를 입력해주세요.');
+          return AlertDialog(
+            title: const Text('세션 비밀번호'),
+            content: TextField(
+              controller: passwordController,
+              autofocus: true,
+              obscureText: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: '비밀번호 입력',
+              ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('취소'),
+              ),
+              FilledButton(onPressed: submit, child: const Text('입장')),
+            ],
+          );
+        },
+      );
+    } finally {
+      passwordController.dispose();
+    }
+
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+
+    if (password == null) {
+      _isHandlingCode = false;
+      if (mounted) {
+        setState(() => _showScanner = true);
+      }
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        await _controller.start();
+      }
       return;
     }
 
-    onDispose();
-    Navigator.pop(dialogContext);
+    await _disposeScannerController();
+    if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -142,7 +169,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
           sessionId: sessionId,
           classId: classId,
           materialId: materialId,
-          password: trimmedPassword,
+          password: password,
         ),
       ),
     );
@@ -198,7 +225,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
     final value = _manualController.text.trim();
     if (value.isEmpty) return;
     Navigator.pop(sheetContext);
-    _openJoinSession(value);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_openJoinSession(value));
+    });
   }
 
   void _showError(String message) {
@@ -227,21 +257,24 @@ class _QrScanScreenState extends State<QrScanScreen> {
       ),
       body: Stack(
         children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _handleCapture,
-            errorBuilder: (context, error) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    '카메라를 시작할 수 없습니다.\n${error.errorDetails?.message ?? error.errorCode.name}',
-                    textAlign: TextAlign.center,
+          if (_showScanner)
+            MobileScanner(
+              controller: _controller,
+              onDetect: _handleCapture,
+              errorBuilder: (context, error) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      '카메라를 시작할 수 없습니다.\n${error.errorDetails?.message ?? error.errorCode.name}',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
+                );
+              },
+            )
+          else
+            const ColoredBox(color: Colors.black),
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(

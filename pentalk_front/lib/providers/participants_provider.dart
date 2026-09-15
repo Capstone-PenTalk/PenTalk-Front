@@ -6,8 +6,10 @@ import '../models/participant_model.dart';
 /// 참여자 목록 상태 관리 Provider
 /// ===============================
 class ParticipantsProvider extends ChangeNotifier {
-  final _participantsController = StreamController<List<Participant>>.broadcast();
-  Stream<List<Participant>> get participantsStream => _participantsController.stream;
+  final _participantsController =
+      StreamController<List<Participant>>.broadcast();
+  Stream<List<Participant>> get participantsStream =>
+      _participantsController.stream;
 
   List<Participant> _participants = [];
   List<Participant> get participants => List.unmodifiable(_participants);
@@ -18,7 +20,9 @@ class ParticipantsProvider extends ChangeNotifier {
 
   /// 전체 참여자 목록 설정 (PRESENCE_STATE)
   void setParticipants(List<Participant> participants) {
-    _participants = participants;
+    _participants = participants
+        .map((participant) => _mergeExistingParticipant(participant))
+        .toList();
     _participantsController.add(_participants);
     notifyListeners();
     debugPrint('👥 Participants updated: ${_participants.length} total');
@@ -26,16 +30,27 @@ class ParticipantsProvider extends ChangeNotifier {
 
   /// 참여자 추가 (PRESENCE_JOIN)
   void addParticipant(Participant participant) {
-    // 중복 체크
-    final exists = _participants.any(
-          (p) => p.userId == participant.userId && p.role == participant.role,
+    final existingIndex = _participants.indexWhere(
+      (p) => p.userId == participant.userId && p.role == participant.role,
     );
 
-    if (!exists) {
+    if (existingIndex == -1) {
       _participants.add(participant);
       _participantsController.add(_participants);
       notifyListeners();
-      debugPrint('✅ Participant joined: ${participant.userId} (${participant.role})');
+      debugPrint(
+        '✅ Participant joined: ${participant.displayName} (${participant.role})',
+      );
+    } else {
+      final updated = _participants[existingIndex].mergeWith(participant);
+      if (updated != _participants[existingIndex]) {
+        _participants[existingIndex] = updated;
+        _participantsController.add(_participants);
+        notifyListeners();
+        debugPrint(
+          '✅ Participant updated: ${updated.displayName} (${updated.role})',
+        );
+      }
     }
   }
 
@@ -43,9 +58,7 @@ class ParticipantsProvider extends ChangeNotifier {
   void removeParticipant(String userId, String role) {
     final initialLength = _participants.length;
 
-    _participants.removeWhere(
-          (p) => p.userId == userId && p.role == role,
-    );
+    _participants.removeWhere((p) => p.userId == userId && p.role == role);
 
     if (_participants.length < initialLength) {
       _participantsController.add(_participants);
@@ -59,6 +72,14 @@ class ParticipantsProvider extends ChangeNotifier {
     _participants.clear();
     _participantsController.add(_participants);
     notifyListeners();
+  }
+
+  Participant _mergeExistingParticipant(Participant participant) {
+    final existingIndex = _participants.indexWhere(
+      (p) => p.userId == participant.userId && p.role == participant.role,
+    );
+    if (existingIndex == -1) return participant;
+    return _participants[existingIndex].mergeWith(participant);
   }
 
   @override

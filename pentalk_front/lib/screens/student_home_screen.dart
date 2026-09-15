@@ -6,6 +6,8 @@ import '../widgets/student_session_card.dart';
 import 'material_list_screen.dart';
 import 'login_screen.dart';
 import 'qr_scan_screen.dart';
+import 'material_library_screen.dart';
+import '../theme/app_colors.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({Key? key}) : super(key: key);
@@ -17,6 +19,9 @@ class StudentHomeScreen extends StatefulWidget {
 class _StudentHomeScreenState extends State<StudentHomeScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
+  int _tabIndex = 0;
+  int _tabControllerLength = 0;
+  bool _isTabControllerUpdateScheduled = false;
 
   @override
   void initState() {
@@ -41,16 +46,57 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
     );
   }
 
-  void _initializeTabController(List<String> subjects) {
-    if (_tabController == null || _tabController!.length != subjects.length) {
-      _tabController?.dispose();
-      _tabController = TabController(length: subjects.length, vsync: this);
-    }
+  void _scheduleTabControllerUpdate(int length) {
+    if (length <= 0 || _tabControllerLength == length) return;
+    if (_isTabControllerUpdateScheduled) return;
+
+    _isTabControllerUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _isTabControllerUpdateScheduled = false;
+      if (!mounted || _tabControllerLength == length) return;
+      setState(() {
+        _tabController?.dispose();
+        _tabController = TabController(length: length, vsync: this);
+        _tabControllerLength = length;
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
+      body: IndexedStack(
+        index: _tabIndex,
+        children: [
+          _buildHomeTab(),
+          const MaterialLibraryScreen(isTeacher: false),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (index) => setState(() => _tabIndex = index),
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.primaryLight,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.home, color: AppColors.primary),
+            label: '홈',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder_outlined, color: AppColors.textSecondary),
+            selectedIcon: Icon(Icons.folder, color: AppColors.primary),
+            label: '자료실',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text(
           '서예영 님의 공간',
@@ -58,9 +104,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.account_circle),
+            icon: const Icon(Icons.account_circle, color: AppColors.primary),
             onPressed: _handleSwitchRole,
-            tooltip: '역할 변경',
+            tooltip: '로그아웃',
           ),
         ],
       ),
@@ -73,12 +119,17 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                 return const SizedBox.shrink();
               }
 
-              _initializeTabController(provider.subjects);
+              _scheduleTabControllerUpdate(provider.subjects.length);
+              final tabController = _tabController;
+              if (tabController == null ||
+                  tabController.length != provider.subjects.length) {
+                return const SizedBox.shrink();
+              }
 
               return Container(
                 color: Theme.of(context).colorScheme.surface,
                 child: TabBar(
-                  controller: _tabController,
+                  controller: tabController,
                   isScrollable: true,
                   labelColor: Theme.of(context).primaryColor,
                   unselectedLabelColor: Colors.grey,
@@ -166,8 +217,15 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                   );
                 }
 
+                final tabController = _tabController;
+                if (tabController == null ||
+                    tabController.length != provider.subjects.length) {
+                  _scheduleTabControllerUpdate(provider.subjects.length);
+                  return const SizedBox.shrink();
+                }
+
                 return TabBarView(
-                  controller: _tabController,
+                  controller: tabController,
                   children: provider.subjects.map((subject) {
                     final sessions = provider.getSessionsBySubject(subject);
                     return _buildSessionGrid(sessions, subject);

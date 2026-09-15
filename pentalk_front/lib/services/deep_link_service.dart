@@ -137,7 +137,7 @@ class DeepLinkService {
     String? classId,
     String? materialId,
   }) {
-    final normalizedBaseUrl = (baseUrl ?? AppConfig.apiBaseUrl).trim();
+    final normalizedBaseUrl = (baseUrl ?? AppConfig.webBaseUrl).trim();
     final uri = Uri.parse(
       '${normalizedBaseUrl.replaceFirst(RegExp(r'/$'), '')}/join/$sessionId',
     );

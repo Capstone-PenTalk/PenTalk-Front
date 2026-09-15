@@ -1,7 +1,9 @@
+import 'document_source.dart';
+
 class StudentSessionModel {
   final String id;
   final String title;
-  final String? classId;        // 자료 조회에 필요
+  final String? classId; // 자료 조회에 필요
   final String teacherName;
   final String subject;
   final DateTime joinedAt;
@@ -25,9 +27,13 @@ class StudentSessionModel {
       teacherName: json['teacherName'] as String,
       subject: json['subject'] as String,
       joinedAt: DateTime.parse(json['joinedAt'] as String),
-      materials: (json['materials'] as List<dynamic>?)
-          ?.map((material) => MaterialModel.fromJson(material as Map<String, dynamic>))
-          .toList() ??
+      materials:
+          (json['materials'] as List<dynamic>?)
+              ?.map(
+                (material) =>
+                    MaterialModel.fromJson(material as Map<String, dynamic>),
+              )
+              .toList() ??
           [],
     );
   }
@@ -70,32 +76,42 @@ class MaterialModel {
   final String title;
   final String fileName;
   final String url;
-  final int sizeInBytes;
+  final int? sizeInBytes;
   final DateTime uploadedAt;
   final String? description;
   final FileMaterialType type;
+  final List<DocumentPageSource> pages;
 
   MaterialModel({
     required this.id,
     required this.title,
     required this.fileName,
     required this.url,
-    required this.sizeInBytes,
+    this.sizeInBytes,
     required this.uploadedAt,
     this.description,
     required this.type,
+    this.pages = const [],
   });
 
   factory MaterialModel.fromJson(Map<String, dynamic> json) {
+    final rawPages = json['pages'] as List<dynamic>? ?? const [];
     return MaterialModel(
       id: json['id'] as String,
       title: json['title'] as String,
       fileName: json['fileName'] as String,
       url: json['url'] as String,
-      sizeInBytes: json['sizeInBytes'] as int,
+      sizeInBytes: (json['sizeInBytes'] as num?)?.toInt(),
       uploadedAt: DateTime.parse(json['uploadedAt'] as String),
       description: json['description'] as String?,
       type: FileMaterialType.fromString(json['type'] as String),
+      pages: rawPages
+          .whereType<Map>()
+          .map(
+            (page) =>
+                DocumentPageSource.fromJson(Map<String, dynamic>.from(page)),
+          )
+          .toList(),
     );
   }
 
@@ -109,16 +125,21 @@ class MaterialModel {
       'uploadedAt': uploadedAt.toIso8601String(),
       'description': description,
       'type': type.toString(),
+      'pages': pages.map((page) => page.toJson()).toList(),
     };
   }
 
   String get formattedSize {
-    if (sizeInBytes < 1024) {
-      return '$sizeInBytes B';
-    } else if (sizeInBytes < 1024 * 1024) {
-      return '${(sizeInBytes / 1024).toStringAsFixed(1)} KB';
+    final size = sizeInBytes;
+    if (size == null || size <= 0) {
+      return '크기 정보 없음';
+    }
+    if (size < 1024) {
+      return '$size B';
+    } else if (size < 1024 * 1024) {
+      return '${(size / 1024).toStringAsFixed(1)} KB';
     } else {
-      return '${(sizeInBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
   }
 }
@@ -181,7 +202,7 @@ enum Subject {
 
   static Subject fromString(String value) {
     return Subject.values.firstWhere(
-          (subject) => subject.displayName == value || subject.name == value,
+      (subject) => subject.displayName == value || subject.name == value,
       orElse: () => Subject.other,
     );
   }
