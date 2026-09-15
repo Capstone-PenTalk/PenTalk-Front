@@ -18,6 +18,20 @@ import 'theme/app_colors.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Container(
+      color: AppColors.background,
+      alignment: Alignment.center,
+      child: const Text(
+        '화면을 불러오는 중 오류가 발생했습니다.',
+        style: TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 16,
+          decoration: TextDecoration.none,
+        ),
+      ),
+    );
+  };
   NativeDrawingBridge.init().catchError((error, stackTrace) {
     debugPrint('NativeDrawingBridge.init failed: $error');
     if (stackTrace is StackTrace) {

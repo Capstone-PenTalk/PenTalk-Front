@@ -191,15 +191,6 @@ class _QuizEditorWidgetState extends State<QuizEditorWidget> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  // 추가 버튼
-                  if (provider.canAddQuestion)
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline),
-                      color: AppColors.primary,
-                      tooltip: '문항 추가',
-                      onPressed: _showAddDialog,
-                    ),
                 ],
               ),
             ),
@@ -264,28 +255,33 @@ class _EmptyQuizHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Icon(Icons.quiz_outlined, size: 48, color: Colors.grey[400]),
-          const SizedBox(height: 12),
-          Text(
-            '아직 등록된 문항이 없습니다',
-            style: TextStyle(fontSize: 15, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '수업 종료 전 복습퀴즈를\n정확히 3문항 등록해야 합니다',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('첫 문항 추가'),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+      child: SizedBox(
+        width: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(Icons.quiz_outlined, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 12),
+            Text(
+              '아직 등록된 문항이 없습니다',
+              style: TextStyle(fontSize: 15, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '수업 종료 전 복습퀴즈를\n정확히 3문항 등록해야 합니다',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('첫 문항 추가'),
+            ),
+          ],
+        ),
       ),
     );
   }
