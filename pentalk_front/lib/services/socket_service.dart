@@ -436,8 +436,12 @@ class SocketService {
       if (usersList is! List) return;
       onPresenceState?.call(
         usersList
-            .where((u) => u is Map)
-            .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
+            .whereType<Map>()
+            .map(
+              (u) => _enrichParticipant(
+                Participant.fromJson(Map<String, dynamic>.from(u)),
+              ),
+            )
             .toList(),
       );
     });
@@ -446,7 +450,9 @@ class SocketService {
       if (data is! Map) return;
       try {
         onPresenceJoin?.call(
-          Participant.fromJson(Map<String, dynamic>.from(data)),
+          _enrichParticipant(
+            Participant.fromJson(Map<String, dynamic>.from(data)),
+          ),
         );
       } catch (e) {
         debugPrint('[socket][error] presence:join: $e');
@@ -462,6 +468,18 @@ class SocketService {
   }
 
   void setupPresenceListeners() {}
+
+  Participant _enrichParticipant(Participant participant) {
+    if (participant.userId != _currentUserId) return participant;
+    return participant.mergeWith(
+      Participant(
+        userId: participant.userId,
+        role: participant.role,
+        name: _currentDisplayName,
+        studentNumber: _currentStudentNumber,
+      ),
+    );
+  }
 
   void removePresenceListeners() {
     if (_socket == null) return;

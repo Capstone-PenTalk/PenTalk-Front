@@ -314,7 +314,14 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       }
 
       debugPrint('📤 Uploading material with sessionId=$_effectiveSessionId');
-      final material = await _createMaterialForTesting(filePath: file.path);
+      final uploadedMaterial = await _createMaterialForTesting(
+        filePath: file.path,
+      );
+      if (!mounted) return;
+
+      final material = await _refreshUploadedMaterialForDrawing(
+        uploadedMaterial,
+      );
       if (!mounted) return;
 
       debugPrint(
@@ -411,6 +418,47 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
   bool _shouldConnectRealtimeForMaterial(MaterialModel material) {
     return _canUseRemoteMaterials && !material.id.startsWith('local_');
+  }
+
+  Future<MaterialModel> _refreshUploadedMaterialForDrawing(
+    MaterialModel material,
+  ) async {
+    if (!_shouldConnectRealtimeForMaterial(material)) return material;
+
+    final classId = widget.classId;
+    if (classId == null || classId.isEmpty) return material;
+
+    try {
+      final materials = await ApiService.getMaterials(
+        classId: classId,
+        sessionId: _effectiveSessionId ?? widget.sessionId,
+      );
+
+      for (final item in materials) {
+        if (item.id != material.id) continue;
+
+        final refreshed = MaterialModel(
+          id: item.id,
+          title: item.name,
+          fileName: item.name,
+          url: item.url,
+          sizeInBytes: item.sizeInBytes ?? material.sizeInBytes,
+          uploadedAt: DateTime.tryParse(item.createdAt) ?? material.uploadedAt,
+          type: FileMaterialType.pdf,
+          pages: item.pages,
+        );
+
+        debugPrint(
+          '📄 Refreshed uploaded material id=${refreshed.id} '
+          'pages=${refreshed.pages.length}',
+        );
+        return refreshed.pages.isNotEmpty ? refreshed : material;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to refresh uploaded material: $e');
+    }
+
+    return material;
   }
 
   Future<MaterialModel> _importMaterialLocally({
@@ -547,11 +595,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                             }
                             final quizSessionId =
                                 _effectiveSessionId ?? widget.sessionId;
-                            if (_looksLikeRealtimeSessionId(quizSessionId))
+                            if (_looksLikeRealtimeSessionId(quizSessionId)) {
                               return QuizEditorWidget(
                                 key: ValueKey(quizSessionId),
                                 sessionId: quizSessionId,
                               );
+                            }
                             return const SizedBox.shrink();
                           }
                           final material = materialProvider.materials[index];

@@ -17,6 +17,27 @@ class Participant {
   bool get isTeacher => role == 'teacher';
   bool get isStudent => role == 'student';
 
+  Participant mergeWith(Participant other) {
+    return Participant(
+      userId: other.userId.isNotEmpty ? other.userId : userId,
+      role: other.role.isNotEmpty ? other.role : role,
+      name: _preferNonEmpty(other.name, name),
+      studentNumber: _preferNonEmpty(other.studentNumber, studentNumber),
+    );
+  }
+
+  static String? _preferNonEmpty(String? preferred, String? fallback) {
+    final trimmedPreferred = preferred?.trim();
+    if (trimmedPreferred != null && trimmedPreferred.isNotEmpty) {
+      return trimmedPreferred;
+    }
+    final trimmedFallback = fallback?.trim();
+    if (trimmedFallback != null && trimmedFallback.isNotEmpty) {
+      return trimmedFallback;
+    }
+    return null;
+  }
+
   String get displayName {
     final trimmedName = name?.trim() ?? '';
     final trimmedStudentNumber = studentNumber?.trim() ?? '';
@@ -40,13 +61,35 @@ class Participant {
     final user = json['user'] is Map
         ? Map<String, dynamic>.from(json['user'] as Map)
         : const <String, dynamic>{};
+    final profile = json['profile'] is Map
+        ? Map<String, dynamic>.from(json['profile'] as Map)
+        : const <String, dynamic>{};
+    final classMember = json['classMember'] is Map
+        ? Map<String, dynamic>.from(json['classMember'] as Map)
+        : const <String, dynamic>{};
     return Participant(
       userId:
           (json['userId'] ?? user['userId'] ?? user['id'])?.toString() ?? '',
       role: json['role']?.toString() ?? '',
-      name: (json['name'] ?? json['displayName'] ?? user['name'])?.toString(),
+      name:
+          (json['name'] ??
+                  json['displayName'] ??
+                  json['fullName'] ??
+                  user['name'] ??
+                  user['displayName'] ??
+                  profile['name'] ??
+                  profile['displayName'])
+              ?.toString(),
       studentNumber:
-          (json['studentNumber'] ?? json['studentNo'] ?? user['studentNumber'])
+          (json['studentNumber'] ??
+                  json['studentNo'] ??
+                  json['studentId'] ??
+                  user['studentNumber'] ??
+                  user['studentNo'] ??
+                  profile['studentNumber'] ??
+                  profile['studentNo'] ??
+                  classMember['studentNumber'] ??
+                  classMember['studentNo'])
               ?.toString(),
     );
   }
