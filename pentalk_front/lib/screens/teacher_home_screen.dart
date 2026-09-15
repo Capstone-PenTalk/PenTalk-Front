@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/material_provider.dart';
-import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../widgets/session_card.dart';
 import '../widgets/create_session_dialog.dart';
@@ -63,20 +62,6 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     );
   }
 
-  void _openLocalPdfWorkspace() {
-    context.read<MaterialProvider>().clear();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const SessionDetailScreen(
-          sessionId: 'local-pdf-workspace',
-          localOnly: true,
-          titleOverride: '로컬 PDF 테스트',
-        ),
-      ),
-    );
-  }
-
   Future<void> _handleLogout() async {
     await AuthService.logout();
     if (!mounted) return;
@@ -92,7 +77,10 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       backgroundColor: AppColors.background,
       body: IndexedStack(
         index: _tabIndex,
-        children: [_buildHomeTab(), const MaterialLibraryScreen(isTeacher: true)],
+        children: [
+          _buildHomeTab(),
+          const MaterialLibraryScreen(isTeacher: true),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
@@ -124,20 +112,6 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
-          if (AppConfig.allowLocalPdfWorkspace)
-            IconButton(
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-              onPressed: _openLocalPdfWorkspace,
-              tooltip: '로컬 PDF 테스트',
-            ),
-          IconButton(
-            icon: const Icon(
-              Icons.add_circle_outline,
-              color: AppColors.primary,
-            ),
-            onPressed: _showCreateSessionDialog,
-            tooltip: '새 세션 만들기',
-          ),
           IconButton(
             icon: const Icon(Icons.account_circle, color: AppColors.primary),
             onPressed: _handleLogout,
