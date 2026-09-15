@@ -163,11 +163,13 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                     // ====================================
                     // 레이어 2: 다른 사람들의 판서 (파란색)
                     // ====================================
-                    RepaintBoundary(
-                      child: _OthersDrawingLayer(
-                        canvasSize: canvasSize,
-                        contentSize: contentSize,
-                        scale: _currentScale,
+                    Positioned.fill(
+                      child: RepaintBoundary(
+                        child: _OthersDrawingLayer(
+                          canvasSize: canvasSize,
+                          contentSize: contentSize,
+                          scale: _currentScale,
+                        ),
                       ),
                     ),
 
@@ -175,11 +177,13 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                     // 레이어 3: 내 판서 (검은색) - 교사 공용 판서
                     // ====================================
                     if (widget.isTeacher)
-                      RepaintBoundary(
-                        child: _MyDrawingLayer(
-                          canvasSize: canvasSize,
-                          contentSize: contentSize,
-                          scale: _currentScale,
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: _MyDrawingLayer(
+                            canvasSize: canvasSize,
+                            contentSize: contentSize,
+                            scale: _currentScale,
+                          ),
                         ),
                       ),
 
@@ -187,11 +191,13 @@ class _DrawingCanvasWidgetState extends State<DrawingCanvasWidget> {
                     // 레이어 3.5: 개인 필기 레이어 (학생 전용)
                     // ====================================
                     if (!widget.isTeacher)
-                      RepaintBoundary(
-                        child: _PersonalDrawingLayer(
-                          canvasSize: canvasSize,
-                          contentSize: contentSize,
-                          scale: _currentScale,
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: _PersonalDrawingLayer(
+                            canvasSize: canvasSize,
+                            contentSize: contentSize,
+                            scale: _currentScale,
+                          ),
                         ),
                       ),
 
@@ -640,13 +646,11 @@ class _OthersDrawingLayer extends StatelessWidget {
           fit: BoxFit.contain,
         );
 
-        return Positioned.fill(
-          child: CustomPaint(
-            painter: DrawingPainter(
-              strokes: strokes,
-              scaler: scaler,
-              scale: scale, // 줌 레벨 전달
-            ),
+        return CustomPaint(
+          painter: DrawingPainter(
+            strokes: strokes,
+            scaler: scaler,
+            scale: scale, // 줌 레벨 전달
           ),
         );
       },
@@ -694,13 +698,11 @@ class _MyDrawingLayer extends StatelessWidget {
           fit: BoxFit.contain,
         );
 
-        return Positioned.fill(
-          child: CustomPaint(
-            painter: DrawingPainter(
-              strokes: strokes,
-              scaler: scaler,
-              scale: scale, // 줌 레벨 전달
-            ),
+        return CustomPaint(
+          painter: DrawingPainter(
+            strokes: strokes,
+            scaler: scaler,
+            scale: scale, // 줌 레벨 전달
           ),
         );
       },
@@ -1057,13 +1059,11 @@ class _PersonalDrawingLayer extends StatelessWidget {
           fit: BoxFit.contain,
         );
 
-        return Positioned.fill(
-          child: CustomPaint(
-            painter: DrawingPainter(
-              strokes: data.strokes,
-              scaler: scaler,
-              scale: scale,
-            ),
+        return CustomPaint(
+          painter: DrawingPainter(
+            strokes: data.strokes,
+            scaler: scaler,
+            scale: scale,
           ),
         );
       },
