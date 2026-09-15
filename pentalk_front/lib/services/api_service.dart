@@ -787,15 +787,27 @@ class ApiService {
   /// ===============================
   static Future<ApiResponse<WhiteboardData>> getWhiteboard({
     required String sessionId,
+    String? materialId,
+    int? pageNumber,
   }) async {
     try {
       final token = await AuthService.getToken();
 
-      debugPrint('GET /sessions/$sessionId/whiteboard');
+      final trimmedMaterialId = materialId?.trim();
+      final queryParameters = <String, String>{
+        if (trimmedMaterialId != null && trimmedMaterialId.isNotEmpty)
+          'materialId': trimmedMaterialId,
+        if (pageNumber != null) 'pageNumber': pageNumber.toString(),
+      };
+      final uri = Uri.parse('$baseUrl/sessions/$sessionId/whiteboard').replace(
+        queryParameters: queryParameters.isEmpty ? null : queryParameters,
+      );
+
+      debugPrint('GET $uri');
 
       final response = await http
           .get(
-            Uri.parse('$baseUrl/sessions/$sessionId/whiteboard'),
+            uri,
             headers: {
               'Content-Type': 'application/json',
               if (token != null) 'Authorization': 'Bearer $token',
@@ -808,6 +820,7 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final rawReadOnly = data['readOnly'];
         debugPrint(
           '✅ Whiteboard loaded: ${data['strokes']?.length ?? 0} strokes',
         );
@@ -816,7 +829,9 @@ class ApiService {
           success: true,
           data: WhiteboardData(
             sessionId: data['sessionId'],
-            readOnly: data['readOnly'] ?? true,
+            readOnly:
+                rawReadOnly == true ||
+                rawReadOnly?.toString().toLowerCase() == 'true',
             strokes:
                 (data['strokes'] as List?)
                     ?.map((e) => Map<String, dynamic>.from(e as Map))

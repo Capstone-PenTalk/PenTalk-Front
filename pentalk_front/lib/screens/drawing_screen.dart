@@ -151,6 +151,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
           await _loadPersonalPageIfNeeded(
             _personalPageKeyFor(materialId: widget.materialId!, pageNumber: 1),
           );
+          await _loadArchivedTeacherWhiteboardPage(
+            materialId: widget.materialId!,
+            pageNumber: 1,
+          );
         } else {
           await _loadPersonalPageIfNeeded(
             _personalPageKeyForTitle(widget.materialTitle),
@@ -166,6 +170,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
           pageNumber: 1,
         );
         await _syncNativePageContext(
+          materialId: widget.materialId!,
+          pageNumber: 1,
+        );
+        await _loadArchivedTeacherWhiteboardPage(
           materialId: widget.materialId!,
           pageNumber: 1,
         );
@@ -250,6 +258,42 @@ class _DrawingScreenState extends State<DrawingScreen> {
   Future<void> _loadPersonalPageIfNeeded(String pageKey) async {
     if (widget.isTeacher) return;
     await context.read<PersonalDrawingProvider>().loadPage(pageKey);
+  }
+
+  Future<void> _loadArchivedTeacherWhiteboardPage({
+    required String materialId,
+    required int pageNumber,
+  }) async {
+    if (widget.isTeacher) return;
+
+    final sessionId = widget.sessionId?.trim();
+    if (sessionId == null || sessionId.isEmpty) return;
+    if (materialId.trim().isEmpty) return;
+
+    final response = await ApiService.getWhiteboard(
+      sessionId: sessionId,
+      materialId: materialId,
+      pageNumber: pageNumber,
+    );
+
+    if (!mounted) return;
+    final whiteboard = response.data;
+    if (!response.success || whiteboard == null) {
+      debugPrint(
+        '[drawing] archived whiteboard load skipped: ${response.message ?? response.error}',
+      );
+      return;
+    }
+    if (!whiteboard.readOnly) {
+      debugPrint('[drawing] active whiteboard REST response ignored');
+      return;
+    }
+
+    _drawingProvider.loadSavedStrokes(whiteboard.strokes);
+    debugPrint(
+      '[drawing] archived whiteboard applied materialId=$materialId '
+      'pageNumber=$pageNumber strokes=${whiteboard.strokes.length}',
+    );
   }
 
   String _personalPageKeyFor({
@@ -421,6 +465,10 @@ class _DrawingScreenState extends State<DrawingScreen> {
     );
     if (!widget.isTeacher) {
       _drawingProvider.requestActivePageSync();
+      await _loadArchivedTeacherWhiteboardPage(
+        materialId: updatedDocument.materialId,
+        pageNumber: pageNumber,
+      );
     }
     await _restoreCurrentTeacherPage();
     if (mounted) {
@@ -1096,75 +1144,78 @@ class _DrawingScreenState extends State<DrawingScreen> {
   }
 
   Widget _buildTopBar() {
-    return Container(
-      height: 44,
-      color: AppColors.surface,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              _documentSource != null
-                  ? '${widget.materialTitle} (${_documentSource!.currentPage}/${_documentSource!.pageCount})'
-                  : widget.materialTitle,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-                color: AppColors.textPrimary,
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        height: 44,
+        color: AppColors.surface,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _documentSource != null
+                    ? '${widget.materialTitle} (${_documentSource!.currentPage}/${_documentSource!.pageCount})'
+                    : widget.materialTitle,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: AppColors.textPrimary,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-          if (widget.isReadOnly)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.accentLight,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.accent, width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.visibility,
-                    size: 16,
-                    color: AppColors.accent,
-                  ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    '읽기 전용',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+            if (widget.isReadOnly)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.accentLight,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.accent, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.visibility,
+                      size: 16,
                       color: AppColors.accent,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 4),
+                    const Text(
+                      '읽기 전용',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          if (_hasPagedDocument) ...[
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.chevron_left),
-              onPressed: _isPreparingDocument ? null : _goToPreviousPage,
-              tooltip: '이전 페이지',
-            ),
-            Text(
-              '${_documentSource!.currentPage}/${_documentSource!.pageCount}',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+            if (_hasPagedDocument) ...[
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: _isPreparingDocument ? null : _goToPreviousPage,
+                tooltip: '이전 페이지',
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.chevron_right),
-              onPressed: _isPreparingDocument ? null : _goToNextPage,
-              tooltip: '다음 페이지',
-            ),
+              Text(
+                '${_documentSource!.currentPage}/${_documentSource!.pageCount}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: _isPreparingDocument ? null : _goToNextPage,
+                tooltip: '다음 페이지',
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

@@ -15,6 +15,8 @@ class SocketService {
   String? _currentMaterialId;
   int? _currentPageNumber;
   String? _currentClassId;
+  String? _currentDisplayName;
+  String? _currentStudentNumber;
   bool _currentIsTeacher = false;
   bool _isRoomJoined = false;
   final List<Map<String, dynamic>> _pendingEmits = [];
@@ -61,14 +63,18 @@ class SocketService {
     String? classId,
     String? materialId,
     int? pageNumber,
+    String? displayName,
+    String? studentNumber,
     bool isInternalRetry = false,
-    }) async {
+  }) async {
     try {
       _currentUserId = userId;
       _currentRoomId = roomId;
       _currentMaterialId = materialId;
       _currentPageNumber = pageNumber;
       _currentClassId = classId;
+      _currentDisplayName = displayName;
+      _currentStudentNumber = studentNumber;
       _currentIsTeacher = isTeacher;
       _isRoomJoined = false;
       _pendingEmits.clear();
@@ -103,10 +109,10 @@ class SocketService {
           .setTransports(['websocket'])
           .disableAutoConnect()
           .setExtraHeaders({
-        'bypass-tunnel-reminder': 'true',
-        'user-id': userId,
-        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
-      });
+            'bypass-tunnel-reminder': 'true',
+            'user-id': userId,
+            if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+          });
       if (queryParams.isNotEmpty) options.setQuery(queryParams);
       if (token.isNotEmpty) options.setAuth({'token': token});
 
@@ -140,33 +146,49 @@ class SocketService {
         ? uri.port
         : (uri.scheme == 'https' ? 443 : 80);
     final storageKey = [
-      _tokenStoragePrefix, uri.scheme, uri.host, '$effectivePort', role, userId
+      _tokenStoragePrefix,
+      uri.scheme,
+      uri.host,
+      '$effectivePort',
+      role,
+      userId,
     ].join(':');
 
     final prefs = await SharedPreferences.getInstance();
 
     if (forceRefresh) {
       await prefs.remove(storageKey);
-      debugPrint('[socket][auth] cleared cached token role=$role userId=$userId');
+      debugPrint(
+        '[socket][auth] cleared cached token role=$role userId=$userId',
+      );
     } else {
       final cachedToken = prefs.getString(storageKey);
       if (cachedToken != null && cachedToken.isNotEmpty) {
-        debugPrint('[socket][auth] using cached token role=$role userId=$userId');
+        debugPrint(
+          '[socket][auth] using cached token role=$role userId=$userId',
+        );
         return cachedToken;
       }
     }
 
     final authUri = Uri(
-        scheme: uri.scheme, host: uri.host, port: effectivePort, path: '/auth/dev-login');
-    final response = await http.post(authUri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'userId': userId, 'role': role}));
+      scheme: uri.scheme,
+      host: uri.host,
+      port: effectivePort,
+      path: '/auth/dev-login',
+    );
+    final response = await http.post(
+      authUri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'userId': userId, 'role': role}),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('dev-login failed status=${response.statusCode}');
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) throw Exception('dev-login invalid response');
+    if (decoded is! Map<String, dynamic>)
+      throw Exception('dev-login invalid response');
     final token = decoded['token']?.toString() ?? '';
     if (token.isEmpty) throw Exception('dev-login token missing');
     await prefs.setString(storageKey, token);
@@ -177,7 +199,9 @@ class SocketService {
   /// 캐시된 토큰이 서버에서 거부(UNAUTHORIZED)됐을 때 1회 한정으로
   /// 토큰을 새로 발급받아 재연결한다.
   bool _isAuthError(dynamic error) {
-    final text = error is Map ? error['message']?.toString() : error?.toString();
+    final text = error is Map
+        ? error['message']?.toString()
+        : error?.toString();
     if (text == null) return false;
     final normalized = text.toUpperCase();
     return normalized.contains('UNAUTHORIZED') ||
@@ -218,6 +242,8 @@ class SocketService {
         classId: _currentClassId,
         materialId: _currentMaterialId,
         pageNumber: _currentPageNumber,
+        displayName: _currentDisplayName,
+        studentNumber: _currentStudentNumber,
         isInternalRetry: true,
       );
     } catch (e) {
@@ -235,8 +261,15 @@ class SocketService {
       _isRoomJoined = false;
       onConnected?.call();
       if (_currentRoomId != null && _currentUserId != null) {
-        _joinRoom(_currentRoomId!, _currentUserId!, _currentIsTeacher,
-            classId: _currentClassId, materialId: _currentMaterialId);
+        _joinRoom(
+          _currentRoomId!,
+          _currentUserId!,
+          _currentIsTeacher,
+          classId: _currentClassId,
+          materialId: _currentMaterialId,
+          displayName: _currentDisplayName,
+          studentNumber: _currentStudentNumber,
+        );
       }
     });
 
@@ -256,9 +289,13 @@ class SocketService {
     });
 
     _socket!.on('draw:append', (data) {
-      debugPrint('[socket][recv] draw:append from=${data is Map ? data['userId'] : null}');
+      debugPrint(
+        '[socket][recv] draw:append from=${data is Map ? data['userId'] : null}',
+      );
       try {
-        onDrawEventReceived?.call(DrawEvent.fromJson(Map<String, dynamic>.from(data)));
+        onDrawEventReceived?.call(
+          DrawEvent.fromJson(Map<String, dynamic>.from(data)),
+        );
       } catch (e) {
         debugPrint('[socket][error] draw:append: $e');
       }
@@ -269,18 +306,22 @@ class SocketService {
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
       onDrawEventReceived?.call(
-        DrawEvent.fromJson(
-          {
-            if (!payload.containsKey('e')) 'e': 'cl',
-            if (!payload.containsKey('sId')) 'sId': 0,
-            ...payload,
-          },
-        ),
+        DrawEvent.fromJson({
+          if (!payload.containsKey('e')) 'e': 'cl',
+          if (!payload.containsKey('sId')) 'sId': 0,
+          ...payload,
+        }),
       );
     });
 
-    _socket!.on('user_joined', (data) => onUserJoined?.call(data['userId'] as String));
-    _socket!.on('user_left', (data) => onUserLeft?.call(data['userId'] as String));
+    _socket!.on(
+      'user_joined',
+      (data) => onUserJoined?.call(data['userId'] as String),
+    );
+    _socket!.on(
+      'user_left',
+      (data) => onUserLeft?.call(data['userId'] as String),
+    );
 
     // JOIN_SUCCESS → pending emit flush → DrawingProvider에서 sync:request 전송
     _socket!.on('join_success', (data) {
@@ -322,8 +363,15 @@ class SocketService {
       if (map?['code']?.toString() == 'NOT_JOINED') {
         _isRoomJoined = false;
         if (_currentRoomId != null && _currentUserId != null) {
-          _joinRoom(_currentRoomId!, _currentUserId!, _currentIsTeacher,
-              classId: _currentClassId, materialId: _currentMaterialId);
+          _joinRoom(
+            _currentRoomId!,
+            _currentUserId!,
+            _currentIsTeacher,
+            classId: _currentClassId,
+            materialId: _currentMaterialId,
+            displayName: _currentDisplayName,
+            studentNumber: _currentStudentNumber,
+          );
         }
       }
       onError?.call(error);
@@ -350,7 +398,8 @@ class SocketService {
     // material:uploaded → 수업 중 자료 추가 시 실시간 반영
     _socket!.on('material:uploaded', (data) {
       debugPrint('[socket] material:uploaded received: $data');
-      if (data is Map) onMaterialUploaded?.call(Map<String, dynamic>.from(data));
+      if (data is Map)
+        onMaterialUploaded?.call(Map<String, dynamic>.from(data));
     });
 
     // Chat / DM
@@ -385,16 +434,20 @@ class SocketService {
       if (data is! Map) return;
       final usersList = data['users'];
       if (usersList is! List) return;
-      onPresenceState?.call(usersList
-          .where((u) => u is Map)
-          .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
-          .toList());
+      onPresenceState?.call(
+        usersList
+            .where((u) => u is Map)
+            .map((u) => Participant.fromJson(Map<String, dynamic>.from(u)))
+            .toList(),
+      );
     });
     _socket!.on('presence:join', (data) {
       debugPrint('[socket][recv] presence:join: $data');
       if (data is! Map) return;
       try {
-        onPresenceJoin?.call(Participant.fromJson(Map<String, dynamic>.from(data)));
+        onPresenceJoin?.call(
+          Participant.fromJson(Map<String, dynamic>.from(data)),
+        );
       } catch (e) {
         debugPrint('[socket][error] presence:join: $e');
       }
@@ -412,36 +465,48 @@ class SocketService {
 
   void removePresenceListeners() {
     if (_socket == null) return;
-    _socket!..off('presence:state')..off('presence:join')..off('presence:leave');
+    _socket!
+      ..off('presence:state')
+      ..off('presence:join')
+      ..off('presence:leave');
     onPresenceState = null;
     onPresenceJoin = null;
     onPresenceLeave = null;
   }
 
-  void _joinRoom(String roomId, String userId, bool isTeacher,
-      {String? classId, String? materialId}) {
+  void _joinRoom(
+    String roomId,
+    String userId,
+    bool isTeacher, {
+    String? classId,
+    String? materialId,
+    String? displayName,
+    String? studentNumber,
+  }) {
     if (_socket == null || !_socket!.connected) return;
     final payload = {
       'roomId': roomId,
       if (materialId != null && materialId.isNotEmpty) 'materialId': materialId,
+      if (displayName != null && displayName.trim().isNotEmpty)
+        'name': displayName.trim(),
+      if (displayName != null && displayName.trim().isNotEmpty)
+        'displayName': displayName.trim(),
+      if (studentNumber != null && studentNumber.trim().isNotEmpty)
+        'studentNumber': studentNumber.trim(),
     };
     _socket!.emit('join_room', payload);
-    debugPrint('[socket][send] join_room payload=${jsonEncode(payload)} '
-        'userId=$userId role=${isTeacher ? 'teacher' : 'student'} '
-        'classId=$classId');
+    debugPrint(
+      '[socket][send] join_room payload=${jsonEncode(payload)} '
+      'userId=$userId role=${isTeacher ? 'teacher' : 'student'} '
+      'classId=$classId',
+    );
   }
 
   void sendDrawEvent(DrawEvent event) {
     _currentMaterialId = event.materialId ?? _currentMaterialId;
     _currentPageNumber = event.pageNumber ?? _currentPageNumber;
-    final payload = {
-      ...event.toJson(),
-    };
-    _emitOrQueue(
-      'draw:append',
-      payload,
-      summary: _drawAppendSummary(payload),
-    );
+    final payload = {...event.toJson()};
+    _emitOrQueue('draw:append', payload, summary: _drawAppendSummary(payload));
   }
 
   void sendUndo({
@@ -513,10 +578,12 @@ class SocketService {
     final formattedOptions = options
         .asMap()
         .entries
-        .map((entry) => {
-      'id': (entry.key + 1).toString(),
-      'text': entry.value['text']?.toString() ?? '',
-    })
+        .map(
+          (entry) => {
+            'id': (entry.key + 1).toString(),
+            'text': entry.value['text']?.toString() ?? '',
+          },
+        )
         .where((o) => (o['text'] as String).isNotEmpty)
         .toList();
 
@@ -545,50 +612,40 @@ class SocketService {
   }
 
   void sendMessage(String content) {
-    _emitOrQueue(
-      'send_message',
-      {'content': content},
-      summary: 'send_message',
-    );
+    _emitOrQueue('send_message', {'content': content}, summary: 'send_message');
   }
 
   void sendTeacherDm(String message) {
-    _emitOrQueue(
-      'teacher_send_dm',
-      {'message': message},
-      summary: 'teacher_send_dm',
-    );
+    _emitOrQueue('teacher_send_dm', {
+      'message': message,
+    }, summary: 'teacher_send_dm');
   }
 
   void askQuestion({required String content, bool isAnonymous = false}) {
-    _emitOrQueue(
-      'question:ask',
-      {'content': content, 'isAnonymous': isAnonymous},
-      summary: 'question:ask',
-    );
+    _emitOrQueue('question:ask', {
+      'content': content,
+      'isAnonymous': isAnonymous,
+    }, summary: 'question:ask');
   }
 
   void requestQuestionList() {
-    _emitOrQueue(
-      'question:list',
-      const {},
-      summary: 'question:list',
-    );
+    _emitOrQueue('question:list', const {}, summary: 'question:list');
   }
 
   void answerQuestion({required String questionId, required String answer}) {
-    _emitOrQueue(
-      'question:answer',
-      {'questionId': questionId, 'answer': answer},
-      summary: 'question:answer',
-    );
+    _emitOrQueue('question:answer', {
+      'questionId': questionId,
+      'answer': answer,
+    }, summary: 'question:answer');
   }
 
   void leaveRoom() {
-    if (_socket == null || !_socket!.connected || _currentRoomId == null) return;
+    if (_socket == null || !_socket!.connected || _currentRoomId == null)
+      return;
     _isRoomJoined = false;
     _socket!.emit('leave_room', {
-      'roomId': _currentRoomId, 'userId': _currentUserId,
+      'roomId': _currentRoomId,
+      'userId': _currentUserId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }
@@ -613,14 +670,21 @@ class SocketService {
     _socket?.connect();
   }
 
-  void _emitOrQueue(String eventName, Map<String, dynamic> payload,
-      {required String summary}) {
+  void _emitOrQueue(
+    String eventName,
+    Map<String, dynamic> payload, {
+    required String summary,
+  }) {
     if (_socket == null || !_socket!.connected) {
       debugPrint('[socket][send] skipped(not connected) $summary');
       return;
     }
     if (!_isRoomJoined) {
-      _pendingEmits.add({'event': eventName, 'payload': payload, 'summary': summary});
+      _pendingEmits.add({
+        'event': eventName,
+        'payload': payload,
+        'summary': summary,
+      });
       debugPrint('[socket][send] queued(not_joined) $summary');
       return;
     }

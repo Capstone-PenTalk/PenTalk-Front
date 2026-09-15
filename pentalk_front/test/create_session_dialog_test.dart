@@ -32,8 +32,6 @@ void main() {
 
     await tester.enterText(find.bySemanticsLabel('세션 제목'), '방정식 수업');
     await tester.enterText(find.bySemanticsLabel('최대 인원'), '24');
-    await tester.tap(find.text('비밀번호 설정'));
-    await tester.pumpAndSettle();
     await tester.enterText(find.bySemanticsLabel('비밀번호'), '1234');
     await tester.enterText(find.bySemanticsLabel('자료 ID (선택)'), 'material-1');
 

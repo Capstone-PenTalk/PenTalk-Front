@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/drawing_models.dart';
 import '../drawing_event_store.dart';
 import '../native_drawing.dart';
+import '../services/auth_service.dart';
 import '../services/socket_service.dart';
 import '../services/session_storage.dart';
 
@@ -264,6 +265,9 @@ class DrawingProvider extends ChangeNotifier {
     }
 
     try {
+      final displayName = await AuthService.getDisplayName();
+      final studentNumber = await AuthService.getStudentNumber();
+
       await _socketService.connect(
         serverUrl: serverUrl,
         userId: userId,
@@ -272,6 +276,8 @@ class DrawingProvider extends ChangeNotifier {
         classId: classId,
         materialId: materialId,
         pageNumber: _activePageNumber,
+        displayName: displayName,
+        studentNumber: studentNumber,
       );
 
       _isSocketConnected = _socketService.isConnected;
@@ -967,12 +973,16 @@ class DrawingProvider extends ChangeNotifier {
     for (final strokeData in strokesData) {
       try {
         final event = DrawEvent.fromJson({
-          'e': strokeData['e'] ?? 'de',
           ...strokeData,
+          'e': strokeData['e'] ?? 'de',
         });
         if (!_matchesActivePage(event)) continue;
 
-        final strokeId = (strokeData['sId'] as num).toInt();
+        final rawStrokeId = strokeData['sId'];
+        final strokeId = rawStrokeId is num
+            ? rawStrokeId.toInt()
+            : int.tryParse(rawStrokeId?.toString() ?? '');
+        if (strokeId == null) continue;
         final ptsData = strokeData['pts'] as List?;
         final points = <DrawPoint>[];
 
