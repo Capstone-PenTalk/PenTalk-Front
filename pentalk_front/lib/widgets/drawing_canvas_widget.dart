@@ -875,10 +875,8 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
     _activePointers.add(event.pointer);
     if (_activePointers.length > 1) {
       _gestureBlocked = true;
-      if (widget.currentStrokeId != null) {
-        final provider = context.read<DrawingProvider>();
-        widget.onPointerEnd(scaler, provider);
-      }
+      final provider = context.read<DrawingProvider>();
+      widget.onPointerEnd(scaler, provider);
       _drawingPointer = null;
       return;
     }
@@ -893,7 +891,7 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
   }
 
   void _handlePointerUp(PointerEvent event) {
-    if (_drawingPointer == event.pointer && widget.currentStrokeId != null) {
+    if (_drawingPointer == event.pointer) {
       final scaler = CoordinateScaler(
         canvasSize: widget.canvasSize,
         contentSize: widget.contentSize,
@@ -914,7 +912,7 @@ class _TouchInputLayerState extends State<_TouchInputLayer> {
 
   void _handlePointerMove(PointerMoveEvent event, CoordinateScaler scaler) {
     if (_gestureBlocked || _drawingPointer != event.pointer) return;
-    if (_activePointers.length != 1 || widget.currentStrokeId == null) return;
+    if (_activePointers.length != 1) return;
     final provider = context.read<DrawingProvider>();
     widget.onPointerMove(event.localPosition, scaler, provider);
   }
@@ -1117,10 +1115,8 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
     _activePointers.add(event.pointer);
     if (_activePointers.length > 1) {
       _gestureBlocked = true;
-      if (widget.currentStrokeId != null) {
-        final provider = context.read<PersonalDrawingProvider>();
-        widget.onPointerEnd(scaler, provider);
-      }
+      final provider = context.read<PersonalDrawingProvider>();
+      widget.onPointerEnd(scaler, provider);
       _drawingPointer = null;
       return;
     }
@@ -1142,7 +1138,7 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
   }
 
   void _handlePointerUp(PointerEvent event) {
-    if (_drawingPointer == event.pointer && widget.currentStrokeId != null) {
+    if (_drawingPointer == event.pointer) {
       final scaler = CoordinateScaler(
         canvasSize: widget.canvasSize,
         contentSize: widget.contentSize,
@@ -1163,7 +1159,7 @@ class _PersonalTouchInputLayerState extends State<_PersonalTouchInputLayer> {
 
   void _handlePointerMove(PointerMoveEvent event, CoordinateScaler scaler) {
     if (_gestureBlocked || _drawingPointer != event.pointer) return;
-    if (_activePointers.length != 1 || widget.currentStrokeId == null) return;
+    if (_activePointers.length != 1) return;
     final provider = context.read<PersonalDrawingProvider>();
     widget.onPointerMove(event.localPosition, scaler, provider);
   }
