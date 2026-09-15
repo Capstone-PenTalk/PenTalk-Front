@@ -29,6 +29,10 @@ class Participant {
       if (trimmedName.isNotEmpty) return trimmedName;
     }
 
+    if (isTeacher) {
+      return trimmedName.isNotEmpty ? trimmedName : '교사';
+    }
+
     return trimmedName.isNotEmpty ? trimmedName : userId;
   }
 

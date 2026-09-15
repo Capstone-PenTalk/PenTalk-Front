@@ -135,7 +135,8 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                 TextFormField(
                   controller: _passwordController,
                   decoration: const InputDecoration(
-                    labelText: '비밀번호',
+                    labelText: '비밀번호 입력(최소 4자리)',
+                    hintText: '비밀번호 입력(최소 4자리)',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.lock_outline),
                   ),
